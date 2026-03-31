@@ -344,7 +344,11 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     super.initState();
     _appBarHeightNotifier.addListener(_onAppBarHeightChanged);
     scrollController.addListener(_onScrollOrLayoutChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _onScrollOrLayoutChanged());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _onScrollOrLayoutChanged();
+      Future.delayed(const Duration(milliseconds: 140), _onScrollOrLayoutChanged);
+      Future.delayed(const Duration(milliseconds: 320), _onScrollOrLayoutChanged);
+    });
   }
 
   @override
@@ -411,16 +415,21 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     final size = renderObject.size;
     final viewportTopY = scrollController.offset - _appBarHeightNotifier.value;
     final probesY = [
-      viewportTopY + size.height * .40,
       viewportTopY + size.height * .52,
-      viewportTopY + size.height * .64,
+      viewportTopY + size.height * .60,
+      viewportTopY + size.height * .68,
       viewportTopY + size.height * .74,
     ];
     final probesX = [
       size.width * .5,
+      size.width * .33,
+      size.width * .67,
       size.width * .2,
       size.width * .8,
+      size.width * .08,
+      size.width * .92,
       0.0,
+      size.width,
     ];
 
     AvesEntry? target;
@@ -486,8 +495,20 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   }
 
   void _scheduleFocusUpdate(AvesEntry? target) {
+    final isScrolling = widget.isScrollingNotifier.value;
     final current = widget.previewPlayingEntryNotifier.value;
     if (current == target) return;
+
+    if (target == null && isScrolling && current != null) {
+      unawaited(
+        remoteMediaLogService.log(
+          'focus',
+          'keep current preview focus while scrolling without probe hit',
+          data: {'uri': current.uri},
+        ),
+      );
+      return;
+    }
 
     // First target assignment should be immediate so the initial visible video can autoplay.
     if (current == null || target == null) {

@@ -1,16 +1,20 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:aves/model/filters/container/album_group.dart';
 import 'package:aves/model/filters/container/group_base.dart';
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/catalog.dart';
+import 'package:aves/model/entry/origins.dart';
 import 'package:aves/model/filters/covered/remote_album.dart';
 import 'package:aves/model/filters/covered/stored_album.dart';
 import 'package:aves/model/filters/filters.dart';
 import 'package:aves/model/selection.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/model/source/collection_source.dart';
+import 'package:aves/ref/mime_types.dart';
 import 'package:aves/services/common/services.dart';
+import 'package:aves/services/remote_media_service.dart';
 import 'package:aves/utils/time_utils.dart';
 import 'package:aves/widgets/collection/collection_page.dart';
 import 'package:aves/widgets/common/action_mixins/feedback.dart';
@@ -237,10 +241,32 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
         if (uri == null) continue;
 
         final mimeType = remoteMediaService.inferMimeType(node);
-        final entry = await mediaFetchService.getEntry(uri.toString(), mimeType, allowUnsized: true);
-        if (entry == null) continue;
-        await entry.catalog(background: false, force: false, persist: false);
+        AvesEntry? entry = await mediaFetchService.getEntry(uri.toString(), mimeType, allowUnsized: true);
+        if (entry != null) {
+          await entry.catalog(background: false, force: false, persist: false);
+          entries.add(entry);
+          continue;
+        }
+
+        entry = _buildVirtualRemoteEntry(
+          serverId: server.id,
+          node: node,
+          uri: uri,
+          mimeType: mimeType,
+          downloadedFile: resolved.downloadedFile,
+        );
         entries.add(entry);
+        await remoteMediaLogService.log(
+          'remote_load',
+          'injected virtual remote entry for native collection page',
+          data: {
+            'server': server.name,
+            'path': node.path,
+            'uri': uri.toString(),
+            'mimeType': mimeType,
+            'downloaded': resolved.downloadedFile?.path,
+          },
+        );
       }
     } finally {
       if (context.mounted) {
@@ -287,5 +313,50 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
       ),
     );
     navigate(route);
+  }
+
+  AvesEntry _buildVirtualRemoteEntry({
+    required String serverId,
+    required RemoteBrowseNode node,
+    required Uri uri,
+    required String mimeType,
+    required File? downloadedFile,
+  }) {
+    const defaultVideoWidth = 1280;
+    const defaultVideoHeight = 720;
+    final isVideo = mimeType.startsWith('video/');
+    final remotePath = node.path.replaceAll('/', Platform.pathSeparator);
+    final path = downloadedFile?.path ?? '${Platform.pathSeparator}remote${Platform.pathSeparator}$serverId$remotePath';
+    final entryId = _stableRemoteVirtualEntryId(serverId: serverId, nodePath: node.path, uri: uri.toString());
+    final title = node.name.isNotEmpty ? node.name : node.path.split('/').where((v) => v.isNotEmpty).lastOrNull;
+    return AvesEntry(
+      id: entryId,
+      uri: uri.toString(),
+      path: path,
+      contentId: entryId,
+      pageId: null,
+      sourceMimeType: MimeTypes.normalize(mimeType),
+      width: isVideo ? defaultVideoWidth : 1,
+      height: isVideo ? defaultVideoHeight : 1,
+      sourceRotationDegrees: 0,
+      sizeBytes: node.sizeBytes,
+      sourceTitle: title,
+      dateAddedSecs: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      dateModifiedMillis: null,
+      sourceDateTakenMillis: null,
+      durationMillis: null,
+      trashed: false,
+      origin: EntryOrigins.mediaStoreContent,
+    );
+  }
+
+  int _stableRemoteVirtualEntryId({
+    required String serverId,
+    required String nodePath,
+    required String uri,
+  }) {
+    final text = '$serverId|$nodePath|$uri';
+    final hash = text.hashCode & 0x7fffffff;
+    return hash == 0 ? 1 : hash;
   }
 }
