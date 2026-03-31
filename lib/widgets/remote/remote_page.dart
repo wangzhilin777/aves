@@ -218,6 +218,7 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
   late RemoteProtocol _protocol;
   bool _ftpAnonymous = false;
   bool _ftpPassive = true;
+  String? _validationError;
 
   String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
 
@@ -266,6 +267,13 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (_validationError != null) ...[
+              Text(
+                _validationError!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+              const SizedBox(height: 8),
+            ],
             TextField(
               controller: _nameController,
               decoration: InputDecoration(labelText: _tr(context, 'Display name', '显示名称')),
@@ -371,11 +379,37 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
 
   void _submit() {
     final name = _nameController.text.trim();
-    if (name.isEmpty) return;
-
     final webdavUrl = _webdavUrlController.text.trim();
     final host = _hostController.text.trim();
     final parsedPort = int.tryParse(_portController.text.trim());
+
+    if (name.isEmpty) {
+      setState(() => _validationError = _tr(context, 'Display name is required', '显示名称不能为空'));
+      return;
+    }
+    if (_protocol == RemoteProtocol.webdav) {
+      final uri = Uri.tryParse(webdavUrl);
+      if (webdavUrl.isEmpty || uri == null || uri.scheme.isEmpty || uri.host.isEmpty) {
+        setState(() => _validationError = _tr(context, 'Please enter a valid WebDAV URL', '请输入有效的 WebDAV 地址'));
+        return;
+      }
+    } else {
+      if (host.isEmpty) {
+        setState(() => _validationError = _tr(context, 'Host is required', '主机不能为空'));
+        return;
+      }
+      if (_portController.text.trim().isNotEmpty && (parsedPort == null || parsedPort < 1 || parsedPort > 65535)) {
+        setState(() => _validationError = _tr(context, 'Port must be between 1 and 65535', '端口必须在 1 到 65535 之间'));
+        return;
+      }
+    }
+    if (_protocol == RemoteProtocol.sftp && _usernameController.text.trim().isEmpty) {
+      setState(() => _validationError = _tr(context, 'SFTP username is required', 'SFTP 用户名不能为空'));
+      return;
+    }
+
+    setState(() => _validationError = null);
+
     final server = RemoteServer(
       id: widget.initial?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
       name: name,
