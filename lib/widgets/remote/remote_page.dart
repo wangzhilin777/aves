@@ -58,7 +58,15 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
                 return ListTile(
                   leading: const Icon(AIcons.storageMain),
                   title: Text(server.name),
-                  subtitle: Text(_subtitle(server)),
+                  subtitle: FutureBuilder<int>(
+                    future: remoteMediaService.getConnectionCacheBytes(server.id),
+                    builder: (context, snapshot) {
+                      final bytes = snapshot.data ?? 0;
+                      final cacheText = formatFileSize(context.locale, bytes, round: 1);
+                      return Text('${_subtitle(server)}\n${_tr(context, 'Cache', '缓存')}: $cacheText');
+                    },
+                  ),
+                  isThreeLine: true,
                   onTap: () {
                     Navigator.maybeOf(context)?.push(
                       MaterialPageRoute(
