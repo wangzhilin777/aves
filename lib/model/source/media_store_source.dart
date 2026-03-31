@@ -20,6 +20,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 
 class MediaStoreSource extends CollectionSource {
+  static final RegExp _remoteCachePathPattern = RegExp(r'[/\\]remote[/\\]', caseSensitive: false);
   final Debouncer _changeDebouncer = Debouncer(delay: ADurations.mediaContentChangeDebounceDelay);
   final Set<String> _changedUris = {};
   int? _lastGeneration;
@@ -101,12 +102,23 @@ class MediaStoreSource extends CollectionSource {
       if (topIds != null) {
         debugPrint('$runtimeType load ${stopwatch.elapsed} load ${topIds.length} top entries');
         topEntries.addAll(await localMediaDb.loadEntriesById(topIds));
+        if (_excludeRemoteCacheFromSmartCollections) {
+          topEntries.removeWhere(_isRemoteCacheEntry);
+        }
         addEntries(topEntries);
       }
     }
 
     debugPrint('$runtimeType load ${stopwatch.elapsed} fetch known entries');
     final knownEntries = await localMediaDb.loadEntries(origin: EntryOrigins.mediaStoreContent, directory: scopeDirectory);
+    final filteredKnownRemoteEntries = _takeRemoteCacheEntries(knownEntries);
+    if (filteredKnownRemoteEntries.isNotEmpty) {
+      knownEntries.removeAll(filteredKnownRemoteEntries);
+      unawaited(
+        reportService.log('$runtimeType excluded ${filteredKnownRemoteEntries.length} remote cache entries from known collection load'),
+      );
+      unawaited(localMediaDb.removeIds(filteredKnownRemoteEntries.map((entry) => entry.id).toSet()));
+    }
     final knownLiveEntries = knownEntries.where((entry) => !entry.trashed).toSet();
     final isLargeCollection = knownEntries.length > 80000;
     if (isLargeCollection && settings.isErrorReportingAllowed) {
@@ -196,6 +208,7 @@ class MediaStoreSource extends CollectionSource {
 
     // items to add to the collection
     final newEntries = <AvesEntry>{};
+    var skippedRemoteCacheEntries = 0;
 
     // recover untracked trash items
     debugPrint('$runtimeType load ${stopwatch.elapsed} recover untracked entries');
@@ -222,6 +235,10 @@ class MediaStoreSource extends CollectionSource {
         .getEntries(knownDateByContentId, directory: directory)
         .listen(
           (entry) {
+            if (_excludeRemoteCacheFromSmartCollections && _isRemoteCacheEntry(entry)) {
+              skippedRemoteCacheEntries++;
+              return;
+            }
             // when discovering modified entry with known content ID,
             // reuse known entry ID to overwrite it while preserving favourites, etc.
             final contentId = entry.contentId;
@@ -232,6 +249,9 @@ class MediaStoreSource extends CollectionSource {
             setProgress(done: newEntries.length, total: 0);
           },
           onDone: () async {
+            if (skippedRemoteCacheEntries > 0) {
+              unawaited(reportService.log('$runtimeType skipped $skippedRemoteCacheEntries remote cache entries during discovery'));
+            }
             if (newEntries.isNotEmpty) {
               debugPrint('$runtimeType load ${stopwatch.elapsed} save ${newEntries.length} new entries');
               await localMediaDb.insertEntries(newEntries);
@@ -326,6 +346,13 @@ class MediaStoreSource extends CollectionSource {
       final sourceEntry = await mediaFetchService.getEntry(uri, null);
       if (sourceEntry != null) {
         final existingEntry = allEntries.firstWhereOrNull((entry) => entry.contentId == contentId);
+        if (_excludeRemoteCacheFromSmartCollections && _isRemoteCacheEntry(sourceEntry)) {
+          if (existingEntry != null) {
+            await removeEntries({existingEntry.uri}, includeTrash: false);
+            await localMediaDb.removeIds({existingEntry.id});
+          }
+          continue;
+        }
         // compare paths because some apps move files without updating their `last modified date`
         if (existingEntry == null || (sourceEntry.dateModifiedMillis ?? 0) > (existingEntry.dateModifiedMillis ?? 0) || sourceEntry.path != existingEntry.path) {
           final newPath = sourceEntry.path;
@@ -450,5 +477,17 @@ class MediaStoreSource extends CollectionSource {
         }
       }
     }
+  }
+
+  bool get _excludeRemoteCacheFromSmartCollections => !settings.remoteCacheInSmartCollections;
+
+  bool _isRemoteCacheEntry(AvesEntry entry) {
+    final source = '${entry.path ?? ''} ${entry.uri}';
+    return _remoteCachePathPattern.hasMatch(source);
+  }
+
+  Set<AvesEntry> _takeRemoteCacheEntries(Iterable<AvesEntry> entries) {
+    if (!_excludeRemoteCacheFromSmartCollections) return const {};
+    return entries.where(_isRemoteCacheEntry).toSet();
   }
 }

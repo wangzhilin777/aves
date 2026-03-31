@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:aves/model/remote/remote_server.dart';
 import 'package:aves/model/settings/settings.dart';
