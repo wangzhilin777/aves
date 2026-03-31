@@ -41,6 +41,8 @@ Aves is a gallery and metadata explorer app. It is built for Android, with Flutt
 - Added remote browse and connection capabilities:
   - WebDAV real directory listing (lazy load)
   - FTP/SFTP/SMB connection and folder lazy-loading integration
+  - per-file manual open actions (strategy / force download / stream only)
+  - stream-open failure fallback to download and reopen
   - per-server cache cleanup and connection-level management
 - Added autoplay stability hardening in preview/video flow:
   - duplicate autoplay trigger protection
@@ -63,6 +65,8 @@ Aves is a gallery and metadata explorer app. It is built for Android, with Flutt
 - 新增远程浏览与连接能力：
   - WebDAV 真实目录懒加载
   - FTP/SFTP/SMB 连接与目录懒加载接入
+  - 文件级手动打开策略（按策略/强制下载/仅流式）
+  - 流式打开失败自动回退下载并重试打开
   - 按连接清理缓存与连接级管理
 - 增强预览/视频自动播放稳定性：
   - 自动播放重复触发保护
