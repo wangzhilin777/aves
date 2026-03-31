@@ -212,8 +212,9 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                               final cached = result.downloadedFile != null ? tr('cached', '已缓存') : tr('not cached', '未缓存');
                               final unsupported = result.streamUri == null && result.downloadedFile == null;
                               if (result.downloadedFile != null) {
+                                final fileUri = Uri.file(result.downloadedFile!.path).toString();
                                 final opened = await appService.open(
-                                  result.downloadedFile!.path,
+                                  fileUri,
                                   _service.inferMimeType(node),
                                   forceChooser: false,
                                 );
@@ -221,7 +222,7 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                                   'remote_load',
                                   'open downloaded remote media',
                                   data: {
-                                    'path': result.downloadedFile!.path,
+                                    'uri': fileUri,
                                     'opened': opened,
                                   },
                                 );
