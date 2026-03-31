@@ -232,14 +232,52 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     _lastAutoPlayAttemptMillis = nowMillis;
 
     final conductor = context.read<VideoConductor>();
-    final controller = await conductor.getOrCreateController(entry, maxControllerCount: 2);
+    AvesVideoController controller;
+    try {
+      controller = await conductor.getOrCreateController(entry, maxControllerCount: 2);
+    } catch (error) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'grid preview controller creation failed',
+          data: {
+            'uri': entry.uri,
+            'error': '$error',
+            'isRemoteCached': entry.isRemoteCachedMedia,
+          },
+        ),
+      );
+      return;
+    }
     if (!mounted || token != _playToken || !isCurrent) return;
     _controller = controller;
     _lastDecisionKey = 'play:${entry.uri}';
     if (mounted) setState(() {});
+    unawaited(
+      remoteMediaLogService.log(
+        'autoplay',
+        'grid preview controller ready',
+        data: {
+          'uri': entry.uri,
+          'status': controller.status.name,
+          'isRemoteCached': entry.isRemoteCachedMedia,
+          'isRemoteStream': entry.uri.startsWith('http://') || entry.uri.startsWith('https://'),
+        },
+      ),
+    );
 
     try {
       await controller.untilReady.timeout(const Duration(milliseconds: 1000));
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'grid preview stream/source became ready',
+          data: {
+            'uri': entry.uri,
+            'isRemoteCached': entry.isRemoteCachedMedia,
+          },
+        ),
+      );
     } catch (_) {
       unawaited(
         remoteMediaLogService.log(
@@ -253,7 +291,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     if (!mounted || token != _playToken || !isCurrent) return;
     await conductor.pauseAll();
     await controller.mute(_shouldMute(settings));
-    await controller.seekTo(0);
     await controller.play();
     unawaited(
       remoteMediaLogService.log(
@@ -269,7 +306,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
 
     await Future.delayed(const Duration(milliseconds: 350));
     if (mounted && token == _playToken && isCurrent && !controller.isPlaying && controller.status != VideoStatus.error) {
-      await controller.seekTo(0);
       await controller.play();
     }
   }

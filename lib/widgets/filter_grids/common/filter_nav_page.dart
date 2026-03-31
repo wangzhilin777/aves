@@ -21,9 +21,11 @@ import 'package:aves/widgets/common/action_mixins/feedback.dart';
 import 'package:aves/widgets/common/action_mixins/vault_aware.dart';
 import 'package:aves/widgets/common/extensions/build_context.dart';
 import 'package:aves/widgets/common/identity/aves_filter_chip.dart';
+import 'package:aves/widgets/common/identity/empty.dart';
 import 'package:aves/widgets/common/providers/filter_group_provider.dart';
 import 'package:aves/widgets/common/providers/query_provider.dart';
 import 'package:aves/widgets/common/providers/selection_provider.dart';
+import 'package:aves/widgets/filter_grids/common/action_delegates/album_set.dart';
 import 'package:aves/widgets/filter_grids/common/action_delegates/chip_set.dart';
 import 'package:aves/widgets/filter_grids/common/app_bar.dart';
 import 'package:aves/widgets/filter_grids/common/filter_grid_page.dart';
@@ -223,6 +225,7 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
     );
 
     final entries = <AvesEntry>[];
+    final directoryNodes = <RemoteBrowseNode>[];
     try {
       await remoteMediaLogService.log(
         'remote_load',
@@ -234,6 +237,7 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
       );
 
       final page = await remoteMediaService.loadFolder(server: server, path: filter.path);
+      directoryNodes.addAll(page.children.where((node) => node.isDirectory));
       final mediaNodes = page.children.where((node) => !node.isDirectory).toList();
       for (final node in mediaNodes) {
         final resolved = await remoteMediaService.resolveMedia(server: server, node: node);
@@ -275,6 +279,52 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
     }
 
     if (entries.isEmpty) {
+      if (directoryNodes.isNotEmpty) {
+        final remoteFilters = directoryNodes
+            .map(
+              (node) => RemoteAlbumFilter(
+                serverId: server.id,
+                path: node.path,
+                title: node.name,
+              ),
+            )
+            .toSet()
+            .cast<AlbumBaseFilter>();
+        final gridItems = FilterNavigationPage.sort<AlbumBaseFilter, AlbumChipSetActionDelegate>(
+          settings.albumSortFactor,
+          settings.albumSortReverse,
+          widget.source,
+          remoteFilters,
+        );
+        await remoteMediaLogService.log(
+          'remote_load',
+          'open native folder filter page for remote sub-directories',
+          data: {
+            'server': server.name,
+            'path': filter.path,
+            'folderCount': directoryNodes.length,
+          },
+        );
+        final route = MaterialPageRoute(
+          settings: const RouteSettings(name: '/remote-folder-filters'),
+          builder: (context) => FilterNavigationPage<AlbumBaseFilter, AlbumChipSetActionDelegate>(
+            source: widget.source,
+            title: filter.title,
+            sortFactor: settings.albumSortFactor,
+            actionDelegate: AlbumChipSetActionDelegate(gridItems),
+            filterSections: {
+              const ChipSectionKey(): gridItems,
+            },
+            emptyBuilder: () => EmptyContent(
+              icon: Icons.folder_open,
+              text: context.l10n.albumEmpty,
+            ),
+          ),
+        );
+        navigate(route);
+        return;
+      }
+
       await remoteMediaLogService.log(
         'remote_load',
         'remote folder injection produced no entries, fallback to remote browser',
