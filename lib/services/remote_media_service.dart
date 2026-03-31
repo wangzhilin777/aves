@@ -632,6 +632,7 @@ class RemoteMediaService {
       final sink = cacheFile.openWrite();
       await resp.stream.pipe(sink);
       await sink.close();
+      await _scanDownloadedFileIfNeeded(server: server, node: node, cacheFile: cacheFile);
       await remoteMediaLogService.log('auto_download', 'download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
       return cacheFile;
     } catch (error, stack) {
@@ -670,6 +671,7 @@ class RemoteMediaService {
       if (!changed || name.isEmpty) return null;
       final ok = await ftp.downloadFile(name, cacheFile);
       if (!ok) return null;
+      await _scanDownloadedFileIfNeeded(server: server, node: node, cacheFile: cacheFile);
       await remoteMediaLogService.log('auto_download', 'ftp download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
       return cacheFile;
     } catch (error, stack) {
@@ -713,6 +715,7 @@ class RemoteMediaService {
       final sink = cacheFile.openWrite();
       await remoteFile.read().forEach(sink.add);
       await sink.close();
+      await _scanDownloadedFileIfNeeded(server: server, node: node, cacheFile: cacheFile);
       await remoteMediaLogService.log('auto_download', 'sftp download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
       return cacheFile;
     } catch (error, stack) {
@@ -749,6 +752,7 @@ class RemoteMediaService {
       await stream.forEach(sink.add);
       await sink.flush();
       await sink.close();
+      await _scanDownloadedFileIfNeeded(server: server, node: node, cacheFile: cacheFile);
       await remoteMediaLogService.log('auto_download', 'smb download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
       return cacheFile;
     } catch (error, stack) {
@@ -998,6 +1002,42 @@ class RemoteMediaService {
     }
     await cacheFile.create(recursive: true);
     return cacheFile;
+  }
+
+  Future<void> _scanDownloadedFileIfNeeded({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required File cacheFile,
+  }) async {
+    if (!settings.remoteCacheInSmartCollections) return;
+    final mimeType = inferMimeType(node);
+    try {
+      final uri = await mediaStoreService.scanFile(cacheFile.path, mimeType);
+      await remoteMediaLogService.log(
+        'remote_load',
+        'scanned remote cache file for smart collections',
+        data: {
+          'server': server.name,
+          'path': node.path,
+          'file': cacheFile.path,
+          'mimeType': mimeType,
+          'uri': uri?.toString(),
+        },
+      );
+    } catch (error, stack) {
+      await remoteMediaLogService.log(
+        'remote_load',
+        'failed to scan remote cache file',
+        data: {
+          'server': server.name,
+          'path': node.path,
+          'file': cacheFile.path,
+          'mimeType': mimeType,
+          'error': '$error',
+        },
+      );
+      await reportService.recordError(error, stack);
+    }
   }
 
   Future<void> _applyNoMediaPolicy(Directory targetDir) async {
