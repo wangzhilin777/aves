@@ -40,6 +40,7 @@
   - `app-arm64-v8a-izzy-release.apk` 快速构建脚本；
   - 全架构与版本化产物脚本。
   - 构建脚本新增 `pubspec.lock` 备份恢复，避免构建过程污染工作区。
+  - 兼容 `build/app` 与 `android/app/build` 两种产物目录，统一 arm64 输出文件名。
 
 ### 优化
 - 优化单列预览卡片边距（上下左右更易区分）。
