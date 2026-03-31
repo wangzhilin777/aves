@@ -142,6 +142,9 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
           settings.remoteServers = settings.remoteServers.where((v) => v.id != server.id).toList();
           settings.remotePinnedFolders = settings.remotePinnedFolders.where((v) => v.serverId != server.id).toList();
           await remoteMediaLogService.log('remote_load', 'deleted server', data: {'server': server.name});
+          if (mounted) {
+            setState(() {});
+          }
         }
       case 'clear_cache':
         final bytes = await remoteMediaService.getConnectionCacheBytes(server.id);
@@ -165,6 +168,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
               cleared ? FeedbackType.info : FeedbackType.warn,
               cleared ? _tr(context, 'Cache cleared', '缓存已清理') : _tr(context, 'Failed to clear cache', '清理缓存失败'),
             );
+            setState(() {});
           }
         }
     }
