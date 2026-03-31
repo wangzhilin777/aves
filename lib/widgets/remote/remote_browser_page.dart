@@ -327,6 +327,20 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
       opened = await openUri(Uri.file(result.downloadedFile!.path));
     } else if (result.streamUri != null) {
       opened = await openUri(result.streamUri!);
+      if (!opened && plan.allowDownloadFallback) {
+        await remoteMediaLogService.log(
+          'auto_download',
+          'stream open failed, triggering fallback download',
+          data: {
+            'server': widget.server.name,
+            'path': node.path,
+          },
+        );
+        final fallbackFile = await _service.downloadMedia(server: widget.server, node: node, trigger: 'stream_open_failed_fallback');
+        if (fallbackFile != null) {
+          opened = await openUri(Uri.file(fallbackFile.path));
+        }
+      }
     }
 
     showFeedback(
