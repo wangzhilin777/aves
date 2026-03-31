@@ -76,13 +76,6 @@ class DecoratedThumbnail extends StatelessWidget {
       fit: StackFit.passthrough,
       children: [
         imageDecorator?.call(context, child) ?? child,
-        if (playbackFocusNotifier != null && entry.isVideo)
-          _AutoPlayVideoThumbnail(
-            entry: entry,
-            isCurrentNotifier: playbackFocusNotifier!,
-            isMosaic: isMosaic,
-            tileExtent: tileExtent,
-          ),
         ThumbnailEntryOverlay(entry: entry),
         if (selectable) ...[
           GridItemSelectionOverlay<AvesEntry>(
@@ -93,6 +86,13 @@ class DecoratedThumbnail extends StatelessWidget {
             onZoom: () => OpenViewerNotification(entry).dispatch(context),
           ),
         ],
+        if (playbackFocusNotifier != null && entry.isVideo)
+          _AutoPlayVideoThumbnail(
+            entry: entry,
+            isCurrentNotifier: playbackFocusNotifier!,
+            isMosaic: isMosaic,
+            tileExtent: tileExtent,
+          ),
         if (highlightable) ThumbnailHighlightOverlay(entry: entry),
       ],
     );
@@ -290,22 +290,21 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                   MosaicSectionLayoutBuilder.maxThumbnailAspectRatio,
                 )
             : tileHeight;
-        return IgnorePointer(
-          child: AnimatedOpacity(
-            opacity: show ? 1 : 0,
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOut,
-            child: SizedBox(
-              width: tileWidth,
-              height: tileHeight,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  IgnorePointer(
-                    child: ColoredBox(
-                      color: Colors.black,
-                      child: FittedBox(
-                        fit: widget.isMosaic ? BoxFit.cover : BoxFit.contain,
+        return SizedBox(
+          width: tileWidth,
+          height: tileHeight,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              IgnorePointer(
+                child: AnimatedOpacity(
+                  opacity: show ? 1 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  child: ColoredBox(
+                    color: Colors.black,
+                    child: FittedBox(
+                      fit: widget.isMosaic ? BoxFit.cover : BoxFit.contain,
                       clipBehavior: Clip.hardEdge,
                       child: SizedBox(
                         width: entry.displaySize.width,
@@ -316,11 +315,18 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                         ),
                       ),
                     ),
-                    ),
                   ),
-                  Positioned(
-                    top: 6,
-                    right: 6,
+                ),
+              ),
+              Positioned(
+                top: 6,
+                right: 6,
+                child: IgnorePointer(
+                  ignoring: !show,
+                  child: AnimatedOpacity(
+                    opacity: show ? 1 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOut,
                     child: Material(
                       color: Colors.black45,
                       shape: const CircleBorder(),
@@ -345,18 +351,18 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                         child: Padding(
                           padding: const EdgeInsets.all(5),
                           child: Icon(
-                            controller.isMuted ? AIcons.unmute : AIcons.mute,
+                            controller.isMuted ? AIcons.mute : AIcons.unmute,
                             size: 14,
                             color: Colors.white,
-                            semanticLabel: controller.isMuted ? context.l10n.videoActionUnmute : context.l10n.videoActionMute,
+                            semanticLabel: controller.isMuted ? context.l10n.videoActionMute : context.l10n.videoActionUnmute,
                           ),
                         ),
                       ),
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
         );
       },

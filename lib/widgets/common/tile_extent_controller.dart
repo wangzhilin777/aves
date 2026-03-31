@@ -96,7 +96,7 @@ class TileExtentController {
 
   double _extentForColumnCount(int columnCount) => (viewportSize.width - (horizontalPadding * 2) - spacing * (columnCount - 1)) / columnCount;
 
-  int _effectiveColumnCountMin() => max(columnCountMin, _columnCountForExtent(_extentMax()).ceil());
+  int _effectiveColumnCountMin() => max(columnCountMin, _columnCountForExtent(_extentMax()).floor());
 
   int _effectiveColumnCountMax() => max(columnCountMin, _columnCountForExtent(extentMin).floor());
 

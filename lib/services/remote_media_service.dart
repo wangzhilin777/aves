@@ -973,7 +973,12 @@ class RemoteMediaService {
     final normalizedPath = path.trim().isEmpty ? '/' : path.trim();
     if (normalizedPath == '/' || normalizedPath == '.') return baseUri;
     final basePath = baseUri.path.endsWith('/') ? baseUri.path.substring(0, baseUri.path.length - 1) : baseUri.path;
-    final fullPath = '$basePath/${normalizedPath.replaceFirst(RegExp(r'^/+'), '')}';
+    final normalizedNoSlash = normalizedPath.replaceFirst(RegExp(r'^/+'), '');
+    final basePathNormalized = _normalizePath(basePath);
+    final normalizedAsPath = _normalizePath(normalizedPath);
+    final fullPath = normalizedAsPath == basePathNormalized || normalizedAsPath.startsWith('$basePathNormalized/')
+        ? normalizedAsPath
+        : '$basePath/$normalizedNoSlash';
     return baseUri.replace(path: fullPath);
   }
 
