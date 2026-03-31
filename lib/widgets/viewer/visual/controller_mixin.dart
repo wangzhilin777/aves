@@ -36,8 +36,6 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
   ValueNotifier<AvesEntry?> get entryNotifier;
 
-  bool get _isCurrentRemoteCachedEntry => entryNotifier.value?.isRemoteCachedMedia ?? false;
-
   Future<void> initEntryControllers(AvesEntry? entry) async {
     if (!mounted || entry == null) return;
 
@@ -85,7 +83,6 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
   bool get videoAutoPlayEnabled {
     if (!isViewingImage) return false;
-    if (_isCurrentRemoteCachedEntry && !settings.remoteGridVideoAutoPlay) return false;
 
     switch (videoPlaybackOverride) {
       case .skip:
@@ -109,9 +106,6 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   bool get shouldAutoPlayVideoMuted {
     if (videoMutedOverride != null) {
       return videoMutedOverride!;
-    }
-    if (_isCurrentRemoteCachedEntry) {
-      return !settings.remoteGridVideoSoundOn;
     }
 
     switch (videoPlaybackOverride) {
@@ -154,8 +148,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
             'autoPlayEnabled': videoAutoPlayEnabled,
             'muted': shouldAutoPlayVideoMuted,
             'isRemoteCached': entry.isRemoteCachedMedia,
-            'remoteAutoPlaySetting': settings.remoteGridVideoAutoPlay,
-            'remoteSoundOnSetting': settings.remoteGridVideoSoundOn,
+            'viewerAutoPlayMode': settings.videoAutoPlayMode.name,
           },
         ),
       );
