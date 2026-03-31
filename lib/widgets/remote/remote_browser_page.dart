@@ -29,12 +29,14 @@ class RemoteBrowserPage extends StatefulWidget {
   final RemoteServer server;
   final String initialPath;
   final bool albumSelectionMode;
+  final bool nativeAlbumMode;
 
   const RemoteBrowserPage({
     super.key,
     required this.server,
     this.initialPath = '/',
     this.albumSelectionMode = false,
+    this.nativeAlbumMode = false,
   });
 
   @override
@@ -154,51 +156,53 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
         body: SafeArea(
           child: Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                child: TextField(
-                  controller: _queryController,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(AIcons.search),
-                    hintText: tr('Search this level', '搜索当前层级'),
-                    suffixIcon: _queryController.text.isNotEmpty
-                        ? IconButton(
-                            onPressed: _queryController.clear,
-                            icon: const Icon(AIcons.clear),
-                          )
-                        : null,
+              if (!widget.nativeAlbumMode)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                  child: TextField(
+                    controller: _queryController,
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(AIcons.search),
+                      hintText: tr('Search this level', '搜索当前层级'),
+                      suffixIcon: _queryController.text.isNotEmpty
+                          ? IconButton(
+                              onPressed: _queryController.clear,
+                              icon: const Icon(AIcons.clear),
+                            )
+                          : null,
+                    ),
                   ),
                 ),
-              ),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Row(
-                  children: _breadcrumbs().map((crumb) {
-                    final isCurrent = crumb.value == _path || (crumb.value == '/' && (_path == '/' || _path == '.'));
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: ChoiceChip(
-                        selected: isCurrent,
-                        label: Text(crumb.key),
-                        onSelected: (_) => setState(() {
-                          final from = _path;
-                          _path = crumb.value;
-                          _loader = _load(force: true);
-                          unawaited(
-                            remoteMediaLogService.log(
-                              'lazy_load',
-                              'navigate by breadcrumb',
-                              data: {'server': widget.server.name, 'from': from, 'to': crumb.value},
-                            ),
-                          );
-                        }),
-                      ),
-                    );
-                  }).toList(),
+              if (!widget.nativeAlbumMode)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Row(
+                    children: _breadcrumbs().map((crumb) {
+                      final isCurrent = crumb.value == _path || (crumb.value == '/' && (_path == '/' || _path == '.'));
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: ChoiceChip(
+                          selected: isCurrent,
+                          label: Text(crumb.key),
+                          onSelected: (_) => setState(() {
+                            final from = _path;
+                            _path = crumb.value;
+                            _loader = _load(force: true);
+                            unawaited(
+                              remoteMediaLogService.log(
+                                'lazy_load',
+                                'navigate by breadcrumb',
+                                data: {'server': widget.server.name, 'from': from, 'to': crumb.value},
+                              ),
+                            );
+                          }),
+                        ),
+                      );
+                    }).toList(),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
+              if (!widget.nativeAlbumMode) const SizedBox(height: 4),
               Expanded(
                 child: FutureBuilder<RemoteFolderPageData>(
                   future: _loader,
@@ -268,40 +272,10 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                       return Center(child: Text(tr('No matching remote folders or media', '没有匹配的远程文件夹或媒体')));
                     }
 
-                    return ListView.builder(
-                      itemCount: nodes.length,
-                      itemBuilder: (context, index) {
-                        final node = nodes[index];
-                        return ListTile(
-                          leading: Icon(node.isDirectory ? AIcons.folder : (node.isVideo ? AIcons.video : AIcons.image)),
-                          title: Text(node.name),
-                          subtitle: Text('${node.path}${node.sizeBytes != null ? '  (${formatFileSize(context.locale, node.sizeBytes!, round: 1)})' : ''}'),
-                          trailing: node.isDirectory && widget.albumSelectionMode
-                              ? IconButton(
-                                  icon: Icon(_isPathPinned(node.path) ? AIcons.unpin : AIcons.pin),
-                                  tooltip: _isPathPinned(node.path) ? tr('Remove from albums', '从相册移除') : tr('Add to albums', '加入相册'),
-                                  onPressed: () async {
-                                    await _togglePinPath(node.path);
-                                    if (!mounted) return;
-                                    setState(() {});
-                                  },
-                                )
-                              : node.isDirectory
-                              ? IconButton(
-                                  icon: const Icon(Icons.more_horiz),
-                                  tooltip: tr('More actions', '更多操作'),
-                                  onPressed: () => _showDirectoryActions(node),
-                                )
-                              : IconButton(
-                                  icon: const Icon(Icons.more_horiz),
-                                  tooltip: tr('More actions', '更多操作'),
-                                  onPressed: widget.albumSelectionMode ? null : () => _showFileActions(node),
-                                ),
-                          onLongPress: node.isDirectory ? () => _showDirectoryActions(node) : (widget.albumSelectionMode ? null : () => _showFileActions(node)),
-                          onTap: () => node.isDirectory ? _enterDirectory(node.path) : (widget.albumSelectionMode ? null : _openRemoteNode(node, _RemoteOpenAction.strategy)),
-                        );
-                      },
-                    );
+                    if (widget.nativeAlbumMode) {
+                      return _buildNativeGrid(nodes);
+                    }
+                    return _buildManagementList(nodes);
                   },
                 ),
               ),
@@ -309,6 +283,99 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildManagementList(List<RemoteBrowseNode> nodes) {
+    String tr(String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+    return ListView.builder(
+      itemCount: nodes.length,
+      itemBuilder: (context, index) {
+        final node = nodes[index];
+        return ListTile(
+          leading: Icon(node.isDirectory ? AIcons.folder : (node.isVideo ? AIcons.video : AIcons.image)),
+          title: Text(node.name),
+          subtitle: Text('${node.path}${node.sizeBytes != null ? '  (${formatFileSize(context.locale, node.sizeBytes!, round: 1)})' : ''}'),
+          trailing: node.isDirectory && widget.albumSelectionMode
+              ? IconButton(
+                  icon: Icon(_isPathPinned(node.path) ? AIcons.unpin : AIcons.pin),
+                  tooltip: _isPathPinned(node.path) ? tr('Remove from albums', '从相册移除') : tr('Add to albums', '加入相册'),
+                  onPressed: () async {
+                    await _togglePinPath(node.path);
+                    if (!mounted) return;
+                    setState(() {});
+                  },
+                )
+              : node.isDirectory
+              ? IconButton(
+                  icon: const Icon(Icons.more_horiz),
+                  tooltip: tr('More actions', '更多操作'),
+                  onPressed: () => _showDirectoryActions(node),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.more_horiz),
+                  tooltip: tr('More actions', '更多操作'),
+                  onPressed: widget.albumSelectionMode ? null : () => _showFileActions(node),
+                ),
+          onLongPress: node.isDirectory ? () => _showDirectoryActions(node) : (widget.albumSelectionMode ? null : () => _showFileActions(node)),
+          onTap: () => node.isDirectory ? _enterDirectory(node.path) : (widget.albumSelectionMode ? null : _openRemoteNode(node, _RemoteOpenAction.strategy)),
+        );
+      },
+    );
+  }
+
+  Widget _buildNativeGrid(List<RemoteBrowseNode> nodes) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = (constraints.maxWidth / 120).floor().clamp(2, 6);
+        return GridView.builder(
+          padding: const EdgeInsets.all(8),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            childAspectRatio: .9,
+          ),
+          itemCount: nodes.length,
+          itemBuilder: (context, index) {
+            final node = nodes[index];
+            final icon = node.isDirectory ? AIcons.folder : (node.isVideo ? AIcons.video : AIcons.image);
+            return InkWell(
+              onTap: () => node.isDirectory ? _enterDirectory(node.path) : _openRemoteNode(node, _RemoteOpenAction.strategy),
+              onLongPress: () => node.isDirectory ? _showDirectoryActions(node) : _showFileActions(node),
+              borderRadius: BorderRadius.circular(10),
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: Center(
+                          child: Icon(
+                            icon,
+                            size: 34,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        node.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

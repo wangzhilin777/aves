@@ -328,7 +328,8 @@ class _CollectionSectionedContent extends StatefulWidget {
 class _CollectionSectionedContentState extends State<_CollectionSectionedContent> {
   final ValueNotifier<double> _appBarHeightNotifier = ValueNotifier(0);
   final GlobalKey _scrollableKey = GlobalKey(debugLabel: 'thumbnail-collection-scrollable');
-  int _lastFocusChangeMillis = 0;
+  Timer? _focusDebounceTimer;
+  AvesEntry? _pendingFocusTarget;
 
   CollectionLens get collection => widget.collection;
 
@@ -347,6 +348,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   @override
   void dispose() {
     scrollController.removeListener(_onScrollOrLayoutChanged);
+    _focusDebounceTimer?.cancel();
     widget.previewPlayingEntryNotifier.value = null;
     _appBarHeightNotifier.dispose();
     super.dispose();
@@ -407,9 +409,9 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     final size = renderObject.size;
     final viewportTopY = scrollController.offset - _appBarHeightNotifier.value;
     final probesY = [
-      viewportTopY + size.height * .58,
-      viewportTopY + size.height * .66,
-      viewportTopY + size.height * .50,
+      viewportTopY + size.height * .40,
+      viewportTopY + size.height * .52,
+      viewportTopY + size.height * .64,
       viewportTopY + size.height * .74,
     ];
     final probesX = [
@@ -430,25 +432,41 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       }
       if (target != null) break;
     }
+    _scheduleFocusUpdate(target);
+  }
+
+  void _scheduleFocusUpdate(AvesEntry? target) {
     final current = widget.previewPlayingEntryNotifier.value;
-    if (current != target) {
-      final nowMillis = DateTime.now().millisecondsSinceEpoch;
-      if (current != null && target != null && nowMillis - _lastFocusChangeMillis < 220) {
-        return;
-      }
-      _lastFocusChangeMillis = nowMillis;
-      widget.previewPlayingEntryNotifier.value = target;
-      unawaited(
-        remoteMediaLogService.log(
-          'focus',
-          'collection preview focus changed',
-          data: {
-            'uri': target?.uri,
-            'isVideo': target?.isVideo,
-          },
-        ),
-      );
+    if (current == target) return;
+
+    // First target assignment should be immediate so the initial visible video can autoplay.
+    if (current == null || target == null) {
+      _applyFocusTarget(target);
+      return;
     }
+
+    _pendingFocusTarget = target;
+    _focusDebounceTimer?.cancel();
+    _focusDebounceTimer = Timer(const Duration(milliseconds: 120), () {
+      if (!mounted) return;
+      _applyFocusTarget(_pendingFocusTarget);
+      _pendingFocusTarget = null;
+    });
+  }
+
+  void _applyFocusTarget(AvesEntry? target) {
+    if (widget.previewPlayingEntryNotifier.value == target) return;
+    widget.previewPlayingEntryNotifier.value = target;
+    unawaited(
+      remoteMediaLogService.log(
+        'focus',
+        'collection preview focus changed',
+        data: {
+          'uri': target?.uri,
+          'isVideo': target?.isVideo,
+        },
+      ),
+    );
   }
 }
 

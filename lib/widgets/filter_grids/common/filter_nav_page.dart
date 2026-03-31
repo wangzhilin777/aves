@@ -1,11 +1,16 @@
+import 'dart:async';
+
 import 'package:aves/model/filters/container/album_group.dart';
 import 'package:aves/model/filters/container/group_base.dart';
+import 'package:aves/model/entry/entry.dart';
+import 'package:aves/model/entry/extensions/catalog.dart';
 import 'package:aves/model/filters/covered/remote_album.dart';
 import 'package:aves/model/filters/covered/stored_album.dart';
 import 'package:aves/model/filters/filters.dart';
 import 'package:aves/model/selection.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/model/source/collection_source.dart';
+import 'package:aves/services/common/services.dart';
 import 'package:aves/utils/time_utils.dart';
 import 'package:aves/widgets/collection/collection_page.dart';
 import 'package:aves/widgets/common/action_mixins/feedback.dart';
@@ -177,16 +182,7 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
                   if (filter is GroupBaseFilter) {
                     context.read<FilterGroupNotifier>().value = filter.uri;
                   } else if (filter is RemoteAlbumFilter) {
-                    final server = settings.remoteServers.firstWhereOrNull((v) => v.id == filter.serverId);
-                    if (server == null) return;
-                    final route = MaterialPageRoute(
-                      settings: const RouteSettings(name: RemoteBrowserPage.routeName),
-                      builder: (context) => RemoteBrowserPage(
-                        server: server,
-                        initialPath: filter.path,
-                      ),
-                    );
-                    navigate(route);
+                    await _openRemoteAlbumInNativeCollection(context, filter, navigate);
                   } else {
                     final route = MaterialPageRoute(
                       settings: const RouteSettings(name: CollectionPage.routeName),
@@ -204,5 +200,92 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
         },
       ),
     );
+  }
+
+  Future<void> _openRemoteAlbumInNativeCollection(
+    BuildContext context,
+    RemoteAlbumFilter filter,
+    void Function(Route route) navigate,
+  ) async {
+    final server = settings.remoteServers.firstWhereOrNull((v) => v.id == filter.serverId);
+    if (server == null) return;
+
+    unawaited(
+      showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+      ),
+    );
+
+    final entries = <AvesEntry>[];
+    try {
+      await remoteMediaLogService.log(
+        'remote_load',
+        'start injecting remote folder into native collection page',
+        data: {
+          'server': server.name,
+          'path': filter.path,
+        },
+      );
+
+      final page = await remoteMediaService.loadFolder(server: server, path: filter.path);
+      final mediaNodes = page.children.where((node) => !node.isDirectory).toList();
+      for (final node in mediaNodes) {
+        final resolved = await remoteMediaService.resolveMedia(server: server, node: node);
+        final uri = resolved.downloadedFile != null ? Uri.file(resolved.downloadedFile!.path) : resolved.streamUri;
+        if (uri == null) continue;
+
+        final mimeType = remoteMediaService.inferMimeType(node);
+        final entry = await mediaFetchService.getEntry(uri.toString(), mimeType, allowUnsized: true);
+        if (entry == null) continue;
+        await entry.catalog(background: false, force: false, persist: false);
+        entries.add(entry);
+      }
+    } finally {
+      if (context.mounted) {
+        Navigator.maybeOf(context)?.pop();
+      }
+    }
+
+    if (entries.isEmpty) {
+      await remoteMediaLogService.log(
+        'remote_load',
+        'remote folder injection produced no entries, fallback to remote browser',
+        data: {
+          'server': server.name,
+          'path': filter.path,
+        },
+      );
+      final route = MaterialPageRoute(
+        settings: const RouteSettings(name: RemoteBrowserPage.routeName),
+        builder: (context) => RemoteBrowserPage(
+          server: server,
+          initialPath: filter.path,
+        ),
+      );
+      navigate(route);
+      return;
+    }
+
+    await remoteMediaLogService.log(
+      'remote_load',
+      'open native collection page with injected remote entries',
+      data: {
+        'server': server.name,
+        'path': filter.path,
+        'entryCount': entries.length,
+      },
+    );
+
+    final route = MaterialPageRoute(
+      settings: const RouteSettings(name: CollectionPage.routeName),
+      builder: (context) => CollectionPage(
+        source: widget.source,
+        filters: const {},
+        fixedSelection: entries,
+      ),
+    );
+    navigate(route);
   }
 }

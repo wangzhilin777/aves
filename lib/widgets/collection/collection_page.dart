@@ -39,12 +39,14 @@ class CollectionPage extends StatefulWidget {
 
   final CollectionSource source;
   final Set<CollectionFilter?>? filters;
+  final List<AvesEntry>? fixedSelection;
   final bool Function(AvesEntry element)? highlightTest;
 
   const CollectionPage({
     super.key,
     required this.source,
     required this.filters,
+    this.fixedSelection,
     this.highlightTest,
   });
 
@@ -64,6 +66,7 @@ class _CollectionPageState extends State<CollectionPage> {
     _collection = CollectionLens(
       source: widget.source,
       filters: widget.filters,
+      fixedSelection: widget.fixedSelection,
     );
     super.initState();
     _subscriptions.add(
