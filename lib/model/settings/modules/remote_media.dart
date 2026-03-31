@@ -1,0 +1,49 @@
+import 'package:aves/model/settings/defaults.dart';
+import 'package:aves/model/settings/enums/remote_stream_mode.dart';
+import 'package:aves_model/aves_model.dart';
+import 'package:collection/collection.dart';
+
+mixin RemoteMediaSettings on SettingsAccess {
+  bool get remoteLogEnabled => getBool(SettingKeys.remoteLogEnabledKey) ?? SettingsDefaults.remoteLogEnabled;
+
+  set remoteLogEnabled(bool newValue) => set(SettingKeys.remoteLogEnabledKey, newValue);
+
+  bool get remoteWifiOnlyDownload => getBool(SettingKeys.remoteWifiOnlyDownloadKey) ?? SettingsDefaults.remoteWifiOnlyDownload;
+
+  set remoteWifiOnlyDownload(bool newValue) => set(SettingKeys.remoteWifiOnlyDownloadKey, newValue);
+
+  bool get remotePinAtTop => getBool(SettingKeys.remotePinAtTopKey) ?? SettingsDefaults.remotePinAtTop;
+
+  set remotePinAtTop(bool newValue) => set(SettingKeys.remotePinAtTopKey, newValue);
+
+  bool get remoteCacheInSmartCollections => getBool(SettingKeys.remoteCacheInSmartCollectionsKey) ?? SettingsDefaults.remoteCacheInSmartCollections;
+
+  set remoteCacheInSmartCollections(bool newValue) => set(SettingKeys.remoteCacheInSmartCollectionsKey, newValue);
+
+  bool get remoteGridVideoAutoPlay => getBool(SettingKeys.remoteGridVideoAutoPlayKey) ?? SettingsDefaults.remoteGridVideoAutoPlay;
+
+  set remoteGridVideoAutoPlay(bool newValue) => set(SettingKeys.remoteGridVideoAutoPlayKey, newValue);
+
+  bool get remoteGridVideoSoundOn => getBool(SettingKeys.remoteGridVideoSoundOnKey) ?? SettingsDefaults.remoteGridVideoSoundOn;
+
+  set remoteGridVideoSoundOn(bool newValue) => set(SettingKeys.remoteGridVideoSoundOnKey, newValue);
+
+  int get remoteAutoDownloadImageMaxBytes => getInt(SettingKeys.remoteAutoDownloadImageMaxBytesKey) ?? SettingsDefaults.remoteAutoDownloadImageMaxBytes;
+
+  set remoteAutoDownloadImageMaxBytes(int newValue) => set(SettingKeys.remoteAutoDownloadImageMaxBytesKey, newValue);
+
+  int get remoteAutoDownloadVideoMaxBytes => getInt(SettingKeys.remoteAutoDownloadVideoMaxBytesKey) ?? SettingsDefaults.remoteAutoDownloadVideoMaxBytes;
+
+  set remoteAutoDownloadVideoMaxBytes(int newValue) => set(SettingKeys.remoteAutoDownloadVideoMaxBytesKey, newValue);
+
+  RemoteStreamMode get remoteStreamMode {
+    final modeName = getString(SettingKeys.remoteStreamModeKey);
+    return RemoteStreamMode.values.firstWhereOrNull((v) => v.name == modeName) ?? SettingsDefaults.remoteStreamMode;
+  }
+
+  set remoteStreamMode(RemoteStreamMode newValue) => set(SettingKeys.remoteStreamModeKey, newValue.name);
+
+  List<String> get remoteLogEntries => getStringList(SettingKeys.remoteLogEntriesKey) ?? const [];
+
+  set remoteLogEntries(List<String> newValue) => set(SettingKeys.remoteLogEntriesKey, newValue);
+}

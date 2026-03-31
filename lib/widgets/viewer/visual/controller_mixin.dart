@@ -134,6 +134,18 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     setState(() {});
 
     if (videoAutoPlayEnabled || entry.isAnimated) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'initialize video controller with auto play',
+          data: {
+            'uri': entry.uri,
+            'isAnimated': entry.isAnimated,
+            'autoPlayEnabled': videoAutoPlayEnabled,
+            'muted': shouldAutoPlayVideoMuted,
+          },
+        ),
+      );
       final resumeTimeMillis = await controller.getResumeTime(context);
       await _autoPlayVideo(controller, () => entry == entryNotifier.value, resumeTimeMillis: resumeTimeMillis);
     }
@@ -164,6 +176,17 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       // auto play/pause when changing page
       Future<void> _onPageChanged() async {
         await pauseVideoControllers();
+        unawaited(
+          remoteMediaLogService.log(
+            'focus',
+            'multi-page focus changed',
+            data: {
+              'uri': entry.uri,
+              'page': multiPageController.page,
+              'autoPlayEnabled': videoAutoPlayEnabled,
+            },
+          ),
+        );
         if (videoAutoPlayEnabled || (entry.isMotionPhoto && shouldAutoPlayMotionPhoto)) {
           final page = multiPageController.page;
           final pageInfo = multiPageInfo.getByIndex(page)!;
@@ -215,12 +238,32 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       await videoController.seekTo(resumeTimeMillis);
     }
     await videoController.play();
+    unawaited(
+      remoteMediaLogService.log(
+        'autoplay',
+        'playback requested',
+        data: {
+          'uri': videoController.entry.uri,
+          'resumeTimeMillis': resumeTimeMillis,
+          'muted': videoController.isMuted,
+        },
+      ),
+    );
 
     // playing controllers are paused when the entry changes,
     // but the controller may still be preparing (not yet playing) when this happens
     // so we make sure the current entry is still the same to keep playing
     if (!isCurrent()) {
       await videoController.pause();
+      unawaited(
+        remoteMediaLogService.log(
+          'focus',
+          'paused non-current video after focus changed',
+          data: {
+            'uri': videoController.entry.uri,
+          },
+        ),
+      );
     }
   }
 

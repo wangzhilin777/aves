@@ -11,6 +11,7 @@ class SettingKeys {
     recentDestinationAlbumsKey,
     recentTagsKey,
     debugShowViewerTilesKey,
+    remoteLogEntriesKey,
   };
 
   static const _widgetKeyPrefix = 'widget_';
@@ -153,6 +154,18 @@ class SettingKeys {
   // search
   static const saveSearchHistoryKey = 'save_search_history';
   static const searchHistoryKey = 'search_history';
+
+  // remote
+  static const remoteLogEnabledKey = 'remote_log_enabled';
+  static const remoteLogEntriesKey = 'remote_log_entries';
+  static const remoteWifiOnlyDownloadKey = 'remote_wifi_only_download';
+  static const remotePinAtTopKey = 'remote_pin_at_top';
+  static const remoteCacheInSmartCollectionsKey = 'remote_cache_in_smart_collections';
+  static const remoteGridVideoAutoPlayKey = 'remote_grid_video_auto_play';
+  static const remoteGridVideoSoundOnKey = 'remote_grid_video_sound_on';
+  static const remoteAutoDownloadImageMaxBytesKey = 'remote_auto_download_image_max_bytes';
+  static const remoteAutoDownloadVideoMaxBytesKey = 'remote_auto_download_video_max_bytes';
+  static const remoteStreamModeKey = 'remote_stream_mode';
 
   // bin
   static const enableBinKey = 'enable_bin';

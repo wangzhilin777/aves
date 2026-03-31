@@ -2,6 +2,7 @@ import 'package:aves/model/filters/favourite.dart';
 import 'package:aves/model/filters/mime.dart';
 import 'package:aves/model/filters/recent.dart';
 import 'package:aves/model/naming_pattern.dart';
+import 'package:aves/model/settings/enums/remote_stream_mode.dart';
 import 'package:aves/ref/mime_types.dart';
 import 'package:aves/widgets/collection/collection_page.dart';
 import 'package:aves/widgets/explorer/explorer_page.dart';
@@ -115,6 +116,17 @@ class SettingsDefaults {
 
   // search
   static const saveSearchHistory = true;
+
+  // remote
+  static const remoteLogEnabled = true;
+  static const remoteWifiOnlyDownload = false;
+  static const remotePinAtTop = true;
+  static const remoteCacheInSmartCollections = false;
+  static const remoteGridVideoAutoPlay = true;
+  static const remoteGridVideoSoundOn = false;
+  static const remoteAutoDownloadImageMaxBytes = 8 * 1024 * 1024;
+  static const remoteAutoDownloadVideoMaxBytes = 30 * 1024 * 1024;
+  static const remoteStreamMode = RemoteStreamMode.streamWithDownloadFallback;
 
   // bin
   static const enableBin = true;

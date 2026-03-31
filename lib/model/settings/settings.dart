@@ -18,6 +18,7 @@ import 'package:aves/model/settings/modules/filter_grids.dart';
 import 'package:aves/model/settings/modules/info.dart';
 import 'package:aves/model/settings/modules/navigation.dart';
 import 'package:aves/model/settings/modules/privacy.dart';
+import 'package:aves/model/settings/modules/remote_media.dart';
 import 'package:aves/model/settings/modules/screen_saver.dart';
 import 'package:aves/model/settings/modules/search.dart';
 import 'package:aves/model/settings/modules/slideshow.dart';
@@ -57,6 +58,7 @@ class Settings
         InfoSettings,
         NavigationSettings,
         PrivacySettings,
+        RemoteMediaSettings,
         ScreenSaverSettings,
         SlideshowSettings,
         SubtitlesSettings,
@@ -372,6 +374,8 @@ class Settings
       } else {
         switch (key) {
           case SettingKeys.convertQualityKey:
+          case SettingKeys.remoteAutoDownloadImageMaxBytesKey:
+          case SettingKeys.remoteAutoDownloadVideoMaxBytesKey:
           case SettingKeys.screenSaverIntervalKey:
           case SettingKeys.slideshowIntervalKey:
             if (newValue is int) {
@@ -428,6 +432,12 @@ class Settings
           case SettingKeys.tagEditorCurrentFilterSectionExpandedKey:
           case SettingKeys.convertWriteMetadataKey:
           case SettingKeys.saveSearchHistoryKey:
+          case SettingKeys.remoteLogEnabledKey:
+          case SettingKeys.remoteWifiOnlyDownloadKey:
+          case SettingKeys.remotePinAtTopKey:
+          case SettingKeys.remoteCacheInSmartCollectionsKey:
+          case SettingKeys.remoteGridVideoAutoPlayKey:
+          case SettingKeys.remoteGridVideoSoundOnKey:
           case SettingKeys.showPinchGestureAlternativesKey:
           case SettingKeys.screenSaverFillScreenKey:
           case SettingKeys.screenSaverAnimatedZoomEffectKey:
@@ -478,6 +488,7 @@ class Settings
           case SettingKeys.unitSystemKey:
           case SettingKeys.accessibilityAnimationsKey:
           case SettingKeys.timeToTakeActionKey:
+          case SettingKeys.remoteStreamModeKey:
           case SettingKeys.screenSaverTransitionKey:
           case SettingKeys.screenSaverVideoPlaybackKey:
           case SettingKeys.slideshowTransitionKey:
@@ -502,6 +513,7 @@ class Settings
           case SettingKeys.viewerQuickActionsKey:
           case SettingKeys.videoControlActionsKey:
           case SettingKeys.screenSaverCollectionFiltersKey:
+          case SettingKeys.remoteLogEntriesKey:
             if (newValue is List) {
               store.setStringList(key, newValue.cast<String>());
             } else {
