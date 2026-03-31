@@ -84,13 +84,30 @@ class RemoteMediaResolveResult {
 }
 
 class RemoteMediaService {
+  Future<void> syncCacheMediaScanPolicy() async {
+    final externalCacheRoot = await storageService.getExternalCacheDirectory();
+    if (externalCacheRoot.isEmpty) return;
+    final remoteRoot = Directory('$externalCacheRoot${Platform.pathSeparator}remote');
+    if (!await remoteRoot.exists()) {
+      await remoteRoot.create(recursive: true);
+    }
+    await _applyNoMediaPolicy(remoteRoot);
+  }
+
   Future<Directory> getConnectionCacheDirectory(String serverId) async {
     final externalCacheRoot = await storageService.getExternalCacheDirectory();
     final rootPath = externalCacheRoot.isNotEmpty ? externalCacheRoot : Directory.systemTemp.path;
-    final dir = Directory('$rootPath${Platform.pathSeparator}remote${Platform.pathSeparator}$serverId');
+    final remoteRoot = Directory('$rootPath${Platform.pathSeparator}remote');
+    if (!await remoteRoot.exists()) {
+      await remoteRoot.create(recursive: true);
+    }
+    await _applyNoMediaPolicy(remoteRoot);
+
+    final dir = Directory('${remoteRoot.path}${Platform.pathSeparator}$serverId');
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
+    await _applyNoMediaPolicy(dir);
     return dir;
   }
 
@@ -954,6 +971,19 @@ class RemoteMediaService {
     }
     await cacheFile.create(recursive: true);
     return cacheFile;
+  }
+
+  Future<void> _applyNoMediaPolicy(Directory targetDir) async {
+    final noMediaFile = File('${targetDir.path}${Platform.pathSeparator}.nomedia');
+    if (!settings.remoteCacheInSmartCollections) {
+      if (!await noMediaFile.exists()) {
+        await noMediaFile.writeAsString('');
+      }
+    } else {
+      if (await noMediaFile.exists()) {
+        await noMediaFile.delete();
+      }
+    }
   }
 
   static const _videoExt = ['.mp4', '.mkv', '.mov', '.avi', '.webm', '.m4v', '.ts'];

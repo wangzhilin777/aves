@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:aves/model/settings/enums/remote_stream_mode.dart';
 import 'package:aves/model/settings/settings.dart';
+import 'package:aves/services/common/services.dart';
 import 'package:aves/theme/colors.dart';
 import 'package:aves/theme/icons.dart';
 import 'package:aves/utils/file_utils.dart';
@@ -110,7 +111,10 @@ class _SettingsTileRemoteCacheInSmartCollections extends SettingsTile {
   @override
   Widget build(BuildContext context) => SettingsSwitchListTile(
     selector: (context, s) => s.remoteCacheInSmartCollections,
-    onChanged: (v) => settings.remoteCacheInSmartCollections = v,
+    onChanged: (v) {
+      settings.remoteCacheInSmartCollections = v;
+      unawaited(remoteMediaService.syncCacheMediaScanPolicy());
+    },
     title: title(context),
   );
 }
