@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:aves/app_mode.dart';
 import 'package:aves/model/app/permissions.dart';
@@ -147,6 +148,8 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
               selector: (context, c) => (c.viewportSize.width, c.columnCount, c.spacing, c.horizontalPadding),
               builder: (context, c, child) {
                 final (scrollableWidth, columnCount, tileSpacing, horizontalPadding) = c;
+                final effectiveSpacing = columnCount == 1 ? max(tileSpacing, 8.0) : tileSpacing;
+                final effectiveHorizontalPadding = columnCount == 1 ? max(horizontalPadding, 8.0) : horizontalPadding;
                 final source = collection.source;
                 return GridTheme(
                   extent: thumbnailExtent,
@@ -177,8 +180,8 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
                               scrollableWidth: scrollableWidth,
                               tileLayout: tileLayout,
                               columnCount: columnCount,
-                              spacing: tileSpacing,
-                              horizontalPadding: horizontalPadding,
+                              spacing: effectiveSpacing,
+                              horizontalPadding: effectiveHorizontalPadding,
                               tileExtent: thumbnailExtent,
                               tileBuilder: (entry, tileSize) {
                                 final extent = tileSize.shortestSide;
