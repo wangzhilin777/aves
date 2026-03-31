@@ -71,6 +71,18 @@ class RemotePreviewPlan {
   });
 }
 
+class RemoteMediaResolveResult {
+  final Uri? streamUri;
+  final File? downloadedFile;
+  final RemotePreviewPlan plan;
+
+  const RemoteMediaResolveResult({
+    required this.streamUri,
+    required this.downloadedFile,
+    required this.plan,
+  });
+}
+
 class RemoteMediaService {
   Future<Directory> getConnectionCacheDirectory(String serverId) async {
     final externalCacheRoot = await storageService.getExternalCacheDirectory();
@@ -222,6 +234,22 @@ class RemoteMediaService {
     return plan;
   }
 
+  Future<RemoteMediaResolveResult> resolveMedia({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+  }) async {
+    final plan = await decidePreviewPlan(server: server, node: node);
+    File? downloadedFile;
+    if (plan.shouldAutoDownload) {
+      downloadedFile = await _autoDownload(server: server, node: node);
+    }
+    return RemoteMediaResolveResult(
+      streamUri: buildStreamUri(server: server, node: node),
+      downloadedFile: downloadedFile,
+      plan: plan,
+    );
+  }
+
   Future<List<RemoteBrowseNode>> _listNodes(RemoteServer server, String path) async {
     switch (server.protocol) {
       case RemoteProtocol.webdav:
@@ -232,6 +260,22 @@ class RemoteMediaService {
         return _listSftp(server, path);
       case RemoteProtocol.smb:
         return _listSmb(server, path);
+    }
+  }
+
+  Uri? buildStreamUri({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+  }) {
+    switch (server.protocol) {
+      case RemoteProtocol.webdav:
+        final base = server.webdavUrl;
+        if (base == null || base.isEmpty) return null;
+        return _buildWebDavUri(base, _resolveEffectivePath(server, node.path));
+      case RemoteProtocol.ftp:
+      case RemoteProtocol.sftp:
+      case RemoteProtocol.smb:
+        return null;
     }
   }
 
@@ -490,6 +534,69 @@ class RemoteMediaService {
     }
   }
 
+  Future<File?> _autoDownload({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+  }) async {
+    switch (server.protocol) {
+      case RemoteProtocol.webdav:
+        return _downloadWebDavFile(server: server, node: node);
+      case RemoteProtocol.ftp:
+      case RemoteProtocol.sftp:
+      case RemoteProtocol.smb:
+        await remoteMediaLogService.log(
+          'auto_download',
+          'auto download skipped for unsupported protocol',
+          data: {'server': server.name, 'protocol': server.protocol.name, 'path': node.path},
+        );
+        return null;
+    }
+  }
+
+  Future<File?> _downloadWebDavFile({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+  }) async {
+    final targetUri = buildStreamUri(server: server, node: node);
+    if (targetUri == null) return null;
+    final cacheDir = await getConnectionCacheDirectory(server.id);
+    final cacheFile = File(
+      '${cacheDir.path}${Platform.pathSeparator}${_safeFileName(node.name)}_${node.path.hashCode.abs()}',
+    );
+    if (await cacheFile.exists() && await cacheFile.length() > 0) {
+      await remoteMediaLogService.log('auto_download', 'cache hit', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
+      return cacheFile;
+    }
+
+    final client = http.Client();
+    try {
+      final req = http.Request('GET', targetUri);
+      final username = server.username;
+      final password = server.password;
+      if (username != null && password != null) {
+        final token = base64Encode(utf8.encode('$username:$password'));
+        req.headers['Authorization'] = 'Basic $token';
+      }
+      final resp = await client.send(req);
+      if (resp.statusCode != 200) {
+        await remoteMediaLogService.log('auto_download', 'download failed with status', data: {'server': server.name, 'path': node.path, 'status': resp.statusCode});
+        return null;
+      }
+      await cacheFile.create(recursive: true);
+      final sink = cacheFile.openWrite();
+      await resp.stream.pipe(sink);
+      await sink.close();
+      await remoteMediaLogService.log('auto_download', 'download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
+      return cacheFile;
+    } catch (error, stack) {
+      await remoteMediaLogService.log('auto_download', 'download exception', data: {'server': server.name, 'path': node.path, 'error': '$error'});
+      await reportService.recordError(error, stack);
+      return null;
+    } finally {
+      client.close();
+    }
+  }
+
   Future<RemoteConnectionTestResult> _testWebDav(RemoteServer server) async {
     final base = server.webdavUrl;
     if (base == null || base.isEmpty) {
@@ -708,6 +815,12 @@ class RemoteMediaService {
   int _compareNodes(RemoteBrowseNode a, RemoteBrowseNode b) {
     if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
     return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+  }
+
+  String _safeFileName(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return 'remote_file';
+    return trimmed.replaceAll(RegExp(r'[\\\\/:*?\"<>|]'), '_');
   }
 
   static const _videoExt = ['.mp4', '.mkv', '.mov', '.avi', '.webm', '.m4v', '.ts'];

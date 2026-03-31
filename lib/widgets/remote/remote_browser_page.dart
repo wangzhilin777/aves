@@ -141,12 +141,14 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                               ),
                             );
                           } else {
-                            final plan = await _service.decidePreviewPlan(server: widget.server, node: node);
+                            final result = await _service.resolveMedia(server: widget.server, node: node);
                             if (!mounted) return;
+                            final plan = result.plan;
                             final mode = plan.streamFirst ? tr('Stream first', '优先流式') : tr('Download first', '优先下载');
                             final fallback = plan.allowDownloadFallback ? tr('fallback enabled', '允许回退下载') : tr('fallback disabled', '不允许回退下载');
                             final auto = plan.shouldAutoDownload ? tr('auto-download', '自动下载') : tr('no auto-download', '不自动下载');
-                            showFeedback(context, FeedbackType.info, '$mode, $auto, $fallback');
+                            final cached = result.downloadedFile != null ? tr('cached', '已缓存') : tr('not cached', '未缓存');
+                            showFeedback(context, FeedbackType.info, '$mode, $auto, $fallback, $cached');
                           }
                         },
                       );
