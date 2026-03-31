@@ -25,6 +25,8 @@ import 'package:provider/provider.dart';
 mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   final Map<AvesEntry, VoidCallback> _metadataChangeListeners = {};
   final Map<MultiPageController, Future<void> Function()> _multiPageControllerPageListeners = {};
+  String? _lastAutoPlayUri;
+  int _lastAutoPlayAttemptMillis = 0;
 
   bool? videoMutedOverride;
 
@@ -225,10 +227,37 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   Future<void> _autoPlayVideo(AvesVideoController videoController, bool Function() isCurrent, {int? resumeTimeMillis}) async {
+    final uri = videoController.entry.uri;
+    final nowMillis = DateTime.now().millisecondsSinceEpoch;
+    if (_lastAutoPlayUri == uri && nowMillis - _lastAutoPlayAttemptMillis < 250) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'skipped duplicated autoplay attempt',
+          data: {'uri': uri},
+        ),
+      );
+      return;
+    }
+    _lastAutoPlayUri = uri;
+    _lastAutoPlayAttemptMillis = nowMillis;
+
     // video decoding may fail or have initial artifacts when the player initializes
     // during this widget initialization (because of the page transition and hero animation?)
     // so we play after a delay for increased stability
     await Future.delayed(const Duration(milliseconds: 300) * timeDilation);
+    if (!isCurrent()) {
+      unawaited(
+        remoteMediaLogService.log(
+          'focus',
+          'cancelled autoplay before play because focus changed',
+          data: {'uri': uri},
+        ),
+      );
+      return;
+    }
+
+    await context.read<VideoConductor>().pauseAll();
 
     if (!videoController.isMuted && (videoController.entry.isAnimated || shouldAutoPlayVideoMuted)) {
       await videoController.mute(true);
