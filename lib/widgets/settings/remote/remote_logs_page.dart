@@ -100,7 +100,7 @@ class _RemoteLogsPageState extends State<RemoteLogsPage> with FeedbackMixin {
           showFeedback(context, success == true ? FeedbackType.info : FeedbackType.warn, success == true ? l10n.genericSuccessFeedback : l10n.genericFailureFeedback);
         }
       case _LogAction.exportAndShare:
-        final shared = await remoteMediaLogService.exportAndShareTxt();
+        final shared = await remoteMediaLogService.exportAndShareTxt(subject: _tr(context, 'Aves Remote Logs', 'Aves 远程日志'));
         if (mounted) {
           showFeedback(context, shared ? FeedbackType.info : FeedbackType.warn, shared ? l10n.genericSuccessFeedback : l10n.genericFailureFeedback);
         }

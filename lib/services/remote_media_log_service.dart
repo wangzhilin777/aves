@@ -45,7 +45,7 @@ class RemoteMediaLogService {
     return storageService.createFile(fileName, MimeTypes.plainText, bytes);
   }
 
-  Future<bool> exportAndShareTxt() async {
+  Future<bool> exportAndShareTxt({String subject = 'Aves Remote Logs'}) async {
     final file = await _exportTxtToCacheFile();
     if (file != null) {
       final sharedFile = await appService.shareSingle(Uri.file(file.path).toString(), MimeTypes.plainText);
@@ -53,7 +53,7 @@ class RemoteMediaLogService {
     }
     final text = entries.join('\n');
     if (text.isEmpty) return false;
-    return appService.shareText(text, subject: 'Aves Remote Logs');
+    return appService.shareText(text, subject: subject);
   }
 
   Future<File?> _exportTxtToCacheFile() async {
