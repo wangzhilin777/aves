@@ -25,6 +25,8 @@ class RemotePage extends StatefulWidget {
 
 class _RemotePageState extends State<RemotePage> with FeedbackMixin {
   bool _busy = false;
+  final Map<String, int> _cacheBytesByServer = {};
+  final Set<String> _loadingCacheBytes = {};
 
   String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
 
@@ -32,6 +34,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
   void initState() {
     super.initState();
     unawaited(remoteMediaService.syncCacheMediaScanPolicy());
+    unawaited(_refreshAllCacheBytes());
   }
 
   @override
@@ -61,17 +64,13 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
               itemCount: servers.length,
               itemBuilder: (context, index) {
                 final server = servers[index];
+                _ensureCacheBytes(server.id);
+                final bytes = _cacheBytesByServer[server.id] ?? 0;
+                final cacheText = formatFileSize(context.locale, bytes, round: 1);
                 return ListTile(
                   leading: const Icon(AIcons.storageMain),
                   title: Text(server.name),
-                  subtitle: FutureBuilder<int>(
-                    future: remoteMediaService.getConnectionCacheBytes(server.id),
-                    builder: (context, snapshot) {
-                      final bytes = snapshot.data ?? 0;
-                      final cacheText = formatFileSize(context.locale, bytes, round: 1);
-                      return Text('${_subtitle(server)}\n${_tr(context, 'Cache', '缓存')}: $cacheText');
-                    },
-                  ),
+                  subtitle: Text('${_subtitle(server)}\n${_tr(context, 'Cache', '缓存')}: $cacheText'),
                   isThreeLine: true,
                   onTap: () {
                     Navigator.maybeOf(context)?.push(
@@ -141,6 +140,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
           await remoteMediaService.clearConnectionCache(server.id);
           settings.remoteServers = settings.remoteServers.where((v) => v.id != server.id).toList();
           settings.remotePinnedFolders = settings.remotePinnedFolders.where((v) => v.serverId != server.id).toList();
+          _cacheBytesByServer.remove(server.id);
           await remoteMediaLogService.log('remote_load', 'deleted server', data: {'server': server.name});
           if (mounted) {
             setState(() {});
@@ -162,6 +162,9 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
         );
         if (ok == true) {
           final cleared = await remoteMediaService.clearConnectionCache(server.id);
+          if (cleared) {
+            _cacheBytesByServer[server.id] = 0;
+          }
           if (mounted) {
             showFeedback(
               context,
@@ -172,6 +175,27 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
           }
         }
     }
+  }
+
+  Future<void> _refreshAllCacheBytes() async {
+    for (final server in settings.remoteServers) {
+      _ensureCacheBytes(server.id, force: true);
+    }
+  }
+
+  void _ensureCacheBytes(String serverId, {bool force = false}) {
+    if (!force && _cacheBytesByServer.containsKey(serverId)) return;
+    if (_loadingCacheBytes.contains(serverId)) return;
+    _loadingCacheBytes.add(serverId);
+    unawaited(() async {
+      try {
+        final bytes = await remoteMediaService.getConnectionCacheBytes(serverId);
+        if (!mounted) return;
+        setState(() => _cacheBytesByServer[serverId] = bytes);
+      } finally {
+        _loadingCacheBytes.remove(serverId);
+      }
+    }());
   }
 
   Future<void> _showEditor({RemoteServer? initial}) async {
