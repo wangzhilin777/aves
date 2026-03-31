@@ -978,10 +978,20 @@ class RemoteMediaService {
     if (!settings.remoteCacheInSmartCollections) {
       if (!await noMediaFile.exists()) {
         await noMediaFile.writeAsString('');
+        await remoteMediaLogService.log(
+          'remote_load',
+          'created .nomedia for remote cache',
+          data: {'dir': targetDir.path},
+        );
       }
     } else {
       if (await noMediaFile.exists()) {
         await noMediaFile.delete();
+        await remoteMediaLogService.log(
+          'remote_load',
+          'removed .nomedia for remote cache',
+          data: {'dir': targetDir.path},
+        );
       }
     }
   }
