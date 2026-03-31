@@ -71,7 +71,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
                 return ListTile(
                   leading: const Icon(AIcons.storageMain),
                   title: Text(server.name),
-                  subtitle: Text('${_subtitle(server)}\n${_tr(context, 'Cache', '缓存')}: $cacheText'),
+                  subtitle: Text('${_subtitle(context, server)}\n${_tr(context, 'Cache', '缓存')}: $cacheText'),
                   isThreeLine: true,
                   onTap: () {
                     Navigator.maybeOf(context)?.push(
@@ -99,16 +99,16 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
     );
   }
 
-  String _subtitle(RemoteServer server) {
+  String _subtitle(BuildContext context, RemoteServer server) {
     switch (server.protocol) {
       case RemoteProtocol.webdav:
-        return 'WebDAV: ${server.webdavUrl ?? ''}';
+        return '${_tr(context, 'WebDAV address', 'WebDAV 地址')}: ${server.webdavUrl ?? ''}';
       case RemoteProtocol.ftp:
-        return 'FTP: ${server.host ?? ''}${server.port != null ? ':${server.port}' : ''}';
+        return '${_tr(context, 'FTP host', 'FTP 主机')}: ${server.host ?? ''}${server.port != null ? ':${server.port}' : ''}';
       case RemoteProtocol.sftp:
-        return 'SFTP: ${server.host ?? ''}${server.port != null ? ':${server.port}' : ''}';
+        return '${_tr(context, 'SFTP host', 'SFTP 主机')}: ${server.host ?? ''}${server.port != null ? ':${server.port}' : ''}';
       case RemoteProtocol.smb:
-        return 'SMB: ${server.host ?? ''}${server.port != null ? ':${server.port}' : ''}';
+        return '${_tr(context, 'SMB host', 'SMB 主机')}: ${server.host ?? ''}${server.port != null ? ':${server.port}' : ''}';
     }
   }
 
