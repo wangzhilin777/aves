@@ -128,7 +128,16 @@ class _SettingsTileRemoteGridVideoAutoPlay extends SettingsTile {
   @override
   Widget build(BuildContext context) => SettingsSwitchListTile(
     selector: (context, s) => s.remoteGridVideoAutoPlay,
-    onChanged: (v) => settings.remoteGridVideoAutoPlay = v,
+    onChanged: (v) {
+      settings.remoteGridVideoAutoPlay = v;
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'updated remote grid preview autoplay setting',
+          data: {'enabled': v},
+        ),
+      );
+    },
     title: title(context),
   );
 }
@@ -142,7 +151,16 @@ class _SettingsTileRemoteGridVideoSoundOn extends SettingsTile {
   @override
   Widget build(BuildContext context) => SettingsSwitchListTile(
     selector: (context, s) => s.remoteGridVideoSoundOn,
-    onChanged: (v) => settings.remoteGridVideoSoundOn = v,
+    onChanged: (v) {
+      settings.remoteGridVideoSoundOn = v;
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'updated remote grid preview default sound setting',
+          data: {'soundOn': v},
+        ),
+      );
+    },
     title: title(context),
   );
 }
