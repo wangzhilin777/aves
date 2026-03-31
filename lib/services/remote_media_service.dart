@@ -308,6 +308,15 @@ class RemoteMediaService {
     }
   }
 
+  String inferMimeType(RemoteBrowseNode node) {
+    if (node.isImage) return 'image/*';
+    if (node.isVideo) return 'video/*';
+    final lower = node.name.toLowerCase();
+    if (_imageExt.any(lower.endsWith)) return 'image/*';
+    if (_videoExt.any(lower.endsWith)) return 'video/*';
+    return 'application/octet-stream';
+  }
+
   Future<List<RemoteBrowseNode>> _listWebDav(RemoteServer server, String path) async {
     final base = server.webdavUrl;
     if (base == null || base.isEmpty) return const [];

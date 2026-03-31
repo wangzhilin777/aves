@@ -211,6 +211,21 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                               final auto = plan.shouldAutoDownload ? tr('auto-download', '自动下载') : tr('no auto-download', '不自动下载');
                               final cached = result.downloadedFile != null ? tr('cached', '已缓存') : tr('not cached', '未缓存');
                               final unsupported = result.streamUri == null && result.downloadedFile == null;
+                              if (result.downloadedFile != null) {
+                                final opened = await appService.open(
+                                  result.downloadedFile!.path,
+                                  _service.inferMimeType(node),
+                                  forceChooser: false,
+                                );
+                                await remoteMediaLogService.log(
+                                  'remote_load',
+                                  'open downloaded remote media',
+                                  data: {
+                                    'path': result.downloadedFile!.path,
+                                    'opened': opened,
+                                  },
+                                );
+                              }
                               showFeedback(
                                 context,
                                 unsupported ? FeedbackType.warn : FeedbackType.info,
