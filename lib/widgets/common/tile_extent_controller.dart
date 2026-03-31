@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:aves/model/settings/settings.dart';
+import 'package:aves/services/common/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
@@ -16,6 +17,7 @@ class TileExtentController {
   late double userPreferredExtent;
   Size _viewportSize = Size.zero;
   final Set<StreamSubscription> _subscriptions = {};
+  int? _lastLoggedColumnCount;
 
   Size get viewportSize => _viewportSize;
 
@@ -79,6 +81,12 @@ class TileExtentController {
 
     final columnCount = _effectiveColumnCountForExtent(targetExtent);
     final newExtent = _extentForColumnCount(columnCount).clamp(effectiveExtentMin, effectiveExtentMax);
+    if (_lastLoggedColumnCount != columnCount) {
+      _lastLoggedColumnCount = columnCount;
+      unawaited(
+        reportService.log('tile layout updated route=$settingsRouteKey columnCount=$columnCount extent=$newExtent'),
+      );
+    }
 
     if (this.userPreferredExtent != preferredExtent) {
       this.userPreferredExtent = preferredExtent;
@@ -105,6 +113,11 @@ class TileExtentController {
       final columnCount = _columnCountForExtent(extent);
       final countMax = _effectiveColumnCountMax();
       final countMin = min(_effectiveColumnCountMin(), countMax);
+      if (!settings.allowSingleColumnPreview && columnCount <= 1.5) {
+        unawaited(
+          reportService.log('single-column preview blocked by setting route=$settingsRouteKey requested=$columnCount'),
+        );
+      }
       return columnCount.round().clamp(countMin, countMax);
     }
     return columnCountDefault;
