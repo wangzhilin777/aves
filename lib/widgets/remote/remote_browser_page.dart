@@ -3,6 +3,7 @@ import 'package:aves/model/settings/settings.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/services/remote_media_service.dart';
 import 'package:aves/theme/icons.dart';
+import 'package:aves/utils/file_utils.dart';
 import 'package:aves/widgets/common/action_mixins/feedback.dart';
 import 'package:aves/widgets/common/basic/scaffold.dart';
 import 'package:aves/widgets/common/extensions/build_context.dart';
@@ -184,7 +185,7 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                         return ListTile(
                           leading: Icon(node.isDirectory ? AIcons.folder : (node.isVideo ? AIcons.video : AIcons.image)),
                           title: Text(node.name),
-                          subtitle: Text('${node.path}${node.sizeBytes != null ? '  (${node.sizeBytes}B)' : ''}'),
+                          subtitle: Text('${node.path}${node.sizeBytes != null ? '  (${formatFileSize(context.locale, node.sizeBytes!, round: 1)})' : ''}'),
                           onTap: () async {
                             if (node.isDirectory) {
                               setState(() {
