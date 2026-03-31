@@ -300,7 +300,11 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         remoteMediaLogService.log(
           'autoplay',
           'video not ready before autoplay timeout',
-          data: {'uri': uri},
+          data: {
+            'uri': uri,
+            'status': videoController.status.name,
+            'isPlaying': videoController.isPlaying,
+          },
         ),
       );
     }
@@ -346,6 +350,15 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
           'autoplay',
           'autoplay second retry requested after delayed non-playing state',
           data: {'uri': uri, 'seekMillis': resumeTimeMillis ?? 0},
+        ),
+      );
+    }
+    if (token == _autoPlayRequestToken && isCurrent() && videoController.status == VideoStatus.error) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'viewer stream failed with error status',
+          data: {'uri': uri},
         ),
       );
     }

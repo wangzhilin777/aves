@@ -330,8 +330,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   final GlobalKey _scrollableKey = GlobalKey(debugLabel: 'thumbnail-collection-scrollable');
   Timer? _focusDebounceTimer;
   AvesEntry? _pendingFocusTarget;
-  DateTime _lastFocusProbeLogAt = DateTime.fromMillisecondsSinceEpoch(0);
-  String? _lastFocusProbeTargetUri;
+  DateTime _lastPrefetchAt = DateTime.fromMillisecondsSinceEpoch(0);
+  String? _lastPrefetchSignature;
 
   CollectionLens get collection => widget.collection;
 
@@ -433,18 +433,11 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     ];
 
     AvesEntry? target;
-    final probeSamples = <Map<String, Object?>>[];
+    AvesEntry? anchor;
     for (final y in probesY) {
       for (final x in probesX) {
         final candidate = layout.getItemAt(Offset(x, y));
-        if (probeSamples.length < 8) {
-          probeSamples.add({
-            'x': x.toStringAsFixed(1),
-            'y': y.toStringAsFixed(1),
-            'uri': candidate?.uri,
-            'isVideo': candidate?.isVideo,
-          });
-        }
+        anchor ??= candidate;
         if (candidate?.isVideo == true) {
           target = candidate;
           break;
@@ -452,46 +445,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       }
       if (target != null) break;
     }
-    _logFocusProbe(
-      target: target,
-      viewportTopY: viewportTopY,
-      viewportHeight: size.height,
-      probeSamples: probeSamples,
-    );
+    unawaited(_prefetchRemoteWindow(anchor));
     _scheduleFocusUpdate(target);
-  }
-
-  void _logFocusProbe({
-    required AvesEntry? target,
-    required double viewportTopY,
-    required double viewportHeight,
-    required List<Map<String, Object?>> probeSamples,
-  }) {
-    final now = DateTime.now();
-    final targetUri = target?.uri;
-    final targetChanged = targetUri != _lastFocusProbeTargetUri;
-    final elapsed = now.difference(_lastFocusProbeLogAt).inMilliseconds;
-    final shouldLog = targetChanged || elapsed >= 900;
-    if (!shouldLog) return;
-
-    _lastFocusProbeLogAt = now;
-    _lastFocusProbeTargetUri = targetUri;
-    unawaited(
-      remoteMediaLogService.log(
-        'focus',
-        'collection preview focus probe',
-        data: {
-          'scrollOffset': scrollController.offset.toStringAsFixed(1),
-          'appBarHeight': _appBarHeightNotifier.value.toStringAsFixed(1),
-          'viewportTopY': viewportTopY.toStringAsFixed(1),
-          'viewportHeight': viewportHeight.toStringAsFixed(1),
-          'isScrolling': widget.isScrollingNotifier.value,
-          'targetUri': targetUri,
-          'targetIsVideo': target?.isVideo,
-          'samples': probeSamples,
-        },
-      ),
-    );
   }
 
   void _scheduleFocusUpdate(AvesEntry? target) {
@@ -541,13 +496,16 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     );
   }
 
-  Future<void> _prefetchRemoteWindow(AvesEntry? focus) async {
-    if (focus == null || !mounted) return;
+  Future<void> _prefetchRemoteWindow(AvesEntry? anchor) async {
+    if (anchor == null || !mounted) return;
     final entries = collection.sortedEntries;
     if (entries.isEmpty) return;
 
-    final focusIndex = entries.indexOf(focus);
-    if (focusIndex < 0) return;
+    var focusIndex = entries.indexOf(anchor);
+    if (focusIndex < 0) {
+      // Fallback to the first available media entry to guarantee initial lazy-load on entry.
+      focusIndex = 0;
+    }
 
     final candidates = <AvesEntry>[];
     final upperBound = min(focusIndex + 4, entries.length);
@@ -558,12 +516,18 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       candidates.add(entry);
     }
     if (candidates.isEmpty) return;
+    final signature = '$focusIndex:${candidates.map((e) => e.uri).join('|')}';
+    final now = DateTime.now();
+    final duplicated = signature == _lastPrefetchSignature && now.difference(_lastPrefetchAt).inMilliseconds < 1500;
+    if (duplicated) return;
+    _lastPrefetchSignature = signature;
+    _lastPrefetchAt = now;
 
     await remoteMediaLogService.log(
       'lazy_load',
       'trigger remote image lazy download window',
       data: {
-        'focusUri': focus.uri,
+        'focusUri': anchor.uri,
         'focusIndex': focusIndex,
         'count': candidates.length,
         'uris': candidates.map((e) => e.uri).toList(),

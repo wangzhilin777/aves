@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/model/remote/remote_server.dart';
 import 'package:aves/model/entry/entry.dart';
+import 'package:aves/model/entry/extensions/catalog.dart';
 import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/entry/origins.dart';
 import 'package:aves/model/settings/enums/remote_stream_mode.dart';
@@ -122,6 +123,7 @@ class RemoteMediaService {
       entry.uri = fileUri;
       entry.path = file.path;
       entry.sizeBytes = await file.length();
+      await _refreshEntryMetadataFromLocalFile(entry, fileUri);
       entry.visualChangeNotifier.notify();
       await remoteMediaLogService.log(
         'auto_download',
@@ -135,6 +137,33 @@ class RemoteMediaService {
       return file;
     } finally {
       _downloadInProgressUris.remove(sourceUri);
+    }
+  }
+
+  Future<void> _refreshEntryMetadataFromLocalFile(AvesEntry entry, String fileUri) async {
+    try {
+      final fetched = await mediaFetchService.getEntry(fileUri, entry.sourceMimeType, allowUnsized: true);
+      if (fetched != null) {
+        entry.width = fetched.width;
+        entry.height = fetched.height;
+        entry.sourceRotationDegrees = fetched.sourceRotationDegrees;
+        entry.dateAddedSecs = fetched.dateAddedSecs ?? entry.dateAddedSecs;
+        entry.dateModifiedMillis = fetched.dateModifiedMillis ?? entry.dateModifiedMillis;
+        entry.sourceDateTakenMillis = fetched.sourceDateTakenMillis ?? entry.sourceDateTakenMillis;
+        entry.durationMillis = fetched.durationMillis ?? entry.durationMillis;
+      } else {
+        await entry.catalog(background: false, force: true, persist: false);
+      }
+    } catch (error, stack) {
+      await remoteMediaLogService.log(
+        'lazy_load',
+        'failed to refresh remote entry metadata',
+        data: {
+          'uri': entry.uri,
+          'error': '$error',
+        },
+      );
+      await reportService.recordError(error, stack);
     }
   }
 

@@ -283,7 +283,11 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         remoteMediaLogService.log(
           'autoplay',
           'grid preview video not ready before autoplay timeout',
-          data: {'uri': entry.uri},
+          data: {
+            'uri': entry.uri,
+            'status': controller.status.name,
+            'isPlaying': controller.isPlaying,
+          },
         ),
       );
     }
@@ -307,6 +311,14 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     await Future.delayed(const Duration(milliseconds: 350));
     if (mounted && token == _playToken && isCurrent && !controller.isPlaying && controller.status != VideoStatus.error) {
       await controller.play();
+    } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'grid preview stream failed with error status',
+          data: {'uri': entry.uri},
+        ),
+      );
     }
   }
 
@@ -321,10 +333,10 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         final tileHeight = widget.tileExtent;
         final tileWidth = widget.isMosaic
             ? tileHeight *
-                entry.displayAspectRatio.clamp(
-                  MosaicSectionLayoutBuilder.minThumbnailAspectRatio,
-                  MosaicSectionLayoutBuilder.maxThumbnailAspectRatio,
-                )
+                  entry.displayAspectRatio.clamp(
+                    MosaicSectionLayoutBuilder.minThumbnailAspectRatio,
+                    MosaicSectionLayoutBuilder.maxThumbnailAspectRatio,
+                  )
             : tileHeight;
         return SizedBox(
           width: tileWidth,
