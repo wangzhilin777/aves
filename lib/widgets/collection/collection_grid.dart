@@ -328,6 +328,7 @@ class _CollectionSectionedContent extends StatefulWidget {
 class _CollectionSectionedContentState extends State<_CollectionSectionedContent> {
   final ValueNotifier<double> _appBarHeightNotifier = ValueNotifier(0);
   final GlobalKey _scrollableKey = GlobalKey(debugLabel: 'thumbnail-collection-scrollable');
+  int _lastFocusChangeMillis = 0;
 
   CollectionLens get collection => widget.collection;
 
@@ -406,10 +407,10 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     final size = renderObject.size;
     final viewportTopY = scrollController.offset - _appBarHeightNotifier.value;
     final probesY = [
-      viewportTopY + size.height * .72,
-      viewportTopY + size.height * .62,
+      viewportTopY + size.height * .58,
+      viewportTopY + size.height * .66,
       viewportTopY + size.height * .50,
-      viewportTopY + size.height * .82,
+      viewportTopY + size.height * .74,
     ];
     final probesX = [
       size.width * .5,
@@ -429,7 +430,13 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       }
       if (target != null) break;
     }
-    if (widget.previewPlayingEntryNotifier.value != target) {
+    final current = widget.previewPlayingEntryNotifier.value;
+    if (current != target) {
+      final nowMillis = DateTime.now().millisecondsSinceEpoch;
+      if (current != null && target != null && nowMillis - _lastFocusChangeMillis < 220) {
+        return;
+      }
+      _lastFocusChangeMillis = nowMillis;
       widget.previewPlayingEntryNotifier.value = target;
       unawaited(
         remoteMediaLogService.log(

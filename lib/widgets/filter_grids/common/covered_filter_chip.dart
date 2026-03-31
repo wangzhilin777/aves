@@ -6,6 +6,7 @@ import 'package:aves/model/filters/container/album_group.dart';
 import 'package:aves/model/filters/container/dynamic_album.dart';
 import 'package:aves/model/filters/container/tag_group.dart';
 import 'package:aves/model/filters/covered/location.dart';
+import 'package:aves/model/filters/covered/remote_album.dart';
 import 'package:aves/model/filters/covered/stored_album.dart';
 import 'package:aves/model/filters/covered/tag.dart';
 import 'package:aves/model/filters/filters.dart';
@@ -121,6 +122,10 @@ class CoveredFilterChip<T extends CollectionFilter> extends StatelessWidget {
                   stream: source.eventBus.on<TagSummaryInvalidatedEvent>().where((event) => event.tags == null || event.tags!.contains(tag)),
                   builder: (context, snapshot) => _buildChip(context, source),
                 );
+              }
+            case RemoteAlbumFilter _:
+              {
+                return _buildChip(context, source);
               }
             default:
               return const SizedBox();
