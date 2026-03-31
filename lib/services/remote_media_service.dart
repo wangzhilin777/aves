@@ -542,14 +542,11 @@ class RemoteMediaService {
       case RemoteProtocol.webdav:
         return _downloadWebDavFile(server: server, node: node);
       case RemoteProtocol.ftp:
+        return _downloadFtpFile(server: server, node: node);
       case RemoteProtocol.sftp:
+        return _downloadSftpFile(server: server, node: node);
       case RemoteProtocol.smb:
-        await remoteMediaLogService.log(
-          'auto_download',
-          'auto download skipped for unsupported protocol',
-          data: {'server': server.name, 'protocol': server.protocol.name, 'path': node.path},
-        );
-        return null;
+        return _downloadSmbFile(server: server, node: node);
     }
   }
 
@@ -559,14 +556,7 @@ class RemoteMediaService {
   }) async {
     final targetUri = buildStreamUri(server: server, node: node);
     if (targetUri == null) return null;
-    final cacheDir = await getConnectionCacheDirectory(server.id);
-    final cacheFile = File(
-      '${cacheDir.path}${Platform.pathSeparator}${_safeFileName(node.name)}_${node.path.hashCode.abs()}',
-    );
-    if (await cacheFile.exists() && await cacheFile.length() > 0) {
-      await remoteMediaLogService.log('auto_download', 'cache hit', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
-      return cacheFile;
-    }
+    final cacheFile = await _getOrCreateCacheFile(server, node);
 
     final client = http.Client();
     try {
@@ -594,6 +584,124 @@ class RemoteMediaService {
       return null;
     } finally {
       client.close();
+    }
+  }
+
+  Future<File?> _downloadFtpFile({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+  }) async {
+    final host = server.host;
+    if (host == null || host.isEmpty) return null;
+    final cacheFile = await _getOrCreateCacheFile(server, node);
+
+    final ftp = FTPConnect(
+      host,
+      port: server.port ?? 21,
+      user: server.ftpAnonymous ? 'anonymous' : (server.username ?? 'anonymous'),
+      pass: server.ftpAnonymous ? 'anonymous@' : (server.password ?? ''),
+      timeout: 30,
+    );
+    ftp.transferMode = server.ftpPassiveMode ? TransferMode.passive : TransferMode.active;
+    try {
+      final connected = await ftp.connect();
+      if (!connected) return null;
+      final effectivePath = _resolveEffectivePath(server, node.path);
+      final slash = effectivePath.lastIndexOf('/');
+      final parent = slash <= 0 ? '/' : effectivePath.substring(0, slash);
+      final name = slash == -1 ? effectivePath : effectivePath.substring(slash + 1);
+      final changed = await ftp.changeDirectory(parent);
+      if (!changed || name.isEmpty) return null;
+      final ok = await ftp.downloadFile(name, cacheFile);
+      if (!ok) return null;
+      await remoteMediaLogService.log('auto_download', 'ftp download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
+      return cacheFile;
+    } catch (error, stack) {
+      await remoteMediaLogService.log('auto_download', 'ftp download exception', data: {'server': server.name, 'path': node.path, 'error': '$error'});
+      await reportService.recordError(error, stack);
+      return null;
+    } finally {
+      try {
+        await ftp.disconnect();
+      } catch (_) {}
+    }
+  }
+
+  Future<File?> _downloadSftpFile({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+  }) async {
+    final host = server.host;
+    final username = server.username;
+    if (host == null || host.isEmpty || username == null || username.isEmpty) return null;
+    final cacheFile = await _getOrCreateCacheFile(server, node);
+
+    SSHClient? client;
+    SftpClient? sftp;
+    SftpFile? remoteFile;
+    try {
+      final socket = await SSHSocket.connect(host, server.port ?? 22, timeout: const Duration(seconds: 8));
+      final privateKeyText = server.sftpPrivateKey;
+      final passphrase = server.sftpPassphrase;
+      final identities = privateKeyText != null && privateKeyText.isNotEmpty ? SSHKeyPair.fromPem(privateKeyText, passphrase?.isNotEmpty == true ? passphrase : null) : null;
+      client = SSHClient(
+        socket,
+        username: username,
+        identities: identities,
+        onPasswordRequest: () => server.password,
+      );
+      await client.authenticated.timeout(const Duration(seconds: 12));
+      sftp = await client.sftp();
+      final effectivePath = _resolveEffectivePath(server, node.path);
+      remoteFile = await sftp.open(effectivePath);
+      final sink = cacheFile.openWrite();
+      await remoteFile.read().forEach(sink.add);
+      await sink.close();
+      await remoteMediaLogService.log('auto_download', 'sftp download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
+      return cacheFile;
+    } catch (error, stack) {
+      await remoteMediaLogService.log('auto_download', 'sftp download exception', data: {'server': server.name, 'path': node.path, 'error': '$error'});
+      await reportService.recordError(error, stack);
+      return null;
+    } finally {
+      await remoteFile?.close();
+      sftp?.close();
+      client?.close();
+    }
+  }
+
+  Future<File?> _downloadSmbFile({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+  }) async {
+    final host = server.host;
+    if (host == null || host.isEmpty) return null;
+    final cacheFile = await _getOrCreateCacheFile(server, node);
+    SmbConnect? smb;
+    IOSink? sink;
+    try {
+      smb = await SmbConnect.connectAuth(
+        host: host,
+        username: server.username ?? '',
+        password: server.password ?? '',
+        domain: server.smbDomain ?? '',
+      );
+      final effectivePath = _resolveEffectivePath(server, node.path);
+      final remote = await smb.file(effectivePath);
+      final stream = await smb.openRead(remote);
+      sink = cacheFile.openWrite();
+      await stream.forEach(sink.add);
+      await sink.flush();
+      await sink.close();
+      await remoteMediaLogService.log('auto_download', 'smb download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
+      return cacheFile;
+    } catch (error, stack) {
+      await remoteMediaLogService.log('auto_download', 'smb download exception', data: {'server': server.name, 'path': node.path, 'error': '$error'});
+      await reportService.recordError(error, stack);
+      return null;
+    } finally {
+      await sink?.close();
+      await smb?.close();
     }
   }
 
@@ -821,6 +929,19 @@ class RemoteMediaService {
     final trimmed = value.trim();
     if (trimmed.isEmpty) return 'remote_file';
     return trimmed.replaceAll(RegExp(r'[\\\\/:*?\"<>|]'), '_');
+  }
+
+  Future<File> _getOrCreateCacheFile(RemoteServer server, RemoteBrowseNode node) async {
+    final cacheDir = await getConnectionCacheDirectory(server.id);
+    final cacheFile = File(
+      '${cacheDir.path}${Platform.pathSeparator}${_safeFileName(node.name)}_${node.path.hashCode.abs()}',
+    );
+    if (await cacheFile.exists() && await cacheFile.length() > 0) {
+      await remoteMediaLogService.log('auto_download', 'cache hit', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
+      return cacheFile;
+    }
+    await cacheFile.create(recursive: true);
+    return cacheFile;
   }
 
   static const _videoExt = ['.mp4', '.mkv', '.mov', '.avi', '.webm', '.m4v', '.ts'];
