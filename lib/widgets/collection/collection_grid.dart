@@ -14,6 +14,7 @@ import 'package:aves/model/source/collection_lens.dart';
 import 'package:aves/model/source/collection_source.dart';
 import 'package:aves/model/source/section_keys.dart';
 import 'package:aves/ref/mime_types.dart';
+import 'package:aves/services/common/services.dart';
 import 'package:aves/theme/durations.dart';
 import 'package:aves/theme/icons.dart';
 import 'package:aves/utils/time_utils.dart';
@@ -406,10 +407,25 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       size.width / 2,
       size.height / 2 + scrollController.offset - _appBarHeightNotifier.value,
     );
-    final focused = layout.getItemAt(center) ?? layout.getItemAt(Offset(0, center.dy));
+    final viewportBottomY = size.height + scrollController.offset - _appBarHeightNotifier.value - 1;
+    final focused =
+        layout.getItemAt(center) ??
+        layout.getItemAt(Offset(0, center.dy)) ??
+        layout.getItemAt(Offset(size.width / 2, viewportBottomY)) ??
+        layout.getItemAt(Offset(0, viewportBottomY));
     final target = focused?.isVideo == true ? focused : null;
     if (widget.previewPlayingEntryNotifier.value != target) {
       widget.previewPlayingEntryNotifier.value = target;
+      unawaited(
+        remoteMediaLogService.log(
+          'focus',
+          'collection preview focus changed',
+          data: {
+            'uri': target?.uri,
+            'isVideo': target?.isVideo,
+          },
+        ),
+      );
     }
   }
 }
