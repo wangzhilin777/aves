@@ -487,7 +487,7 @@ class MediaStoreSource extends CollectionSource {
   }
 
   Set<AvesEntry> _takeRemoteCacheEntries(Iterable<AvesEntry> entries) {
-    if (!_excludeRemoteCacheFromSmartCollections) return const {};
+    if (!_excludeRemoteCacheFromSmartCollections) return const <AvesEntry>{};
     return entries.where(_isRemoteCacheEntry).toSet();
   }
 }
