@@ -194,12 +194,27 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                             } else {
                               final result = await _service.resolveMedia(server: widget.server, node: node);
                               if (!mounted) return;
+                              await remoteMediaLogService.log(
+                                'remote_load',
+                                'remote media tapped',
+                                data: {
+                                  'server': widget.server.name,
+                                  'path': node.path,
+                                  'streamUri': result.streamUri?.toString(),
+                                  'downloaded': result.downloadedFile?.path,
+                                },
+                              );
                               final plan = result.plan;
                               final mode = plan.streamFirst ? tr('Stream first', '优先流式') : tr('Download first', '优先下载');
                               final fallback = plan.allowDownloadFallback ? tr('fallback enabled', '允许回退下载') : tr('fallback disabled', '不允许回退下载');
                               final auto = plan.shouldAutoDownload ? tr('auto-download', '自动下载') : tr('no auto-download', '不自动下载');
                               final cached = result.downloadedFile != null ? tr('cached', '已缓存') : tr('not cached', '未缓存');
-                              showFeedback(context, FeedbackType.info, '$mode, $auto, $fallback, $cached');
+                              final unsupported = result.streamUri == null && result.downloadedFile == null;
+                              showFeedback(
+                                context,
+                                unsupported ? FeedbackType.warn : FeedbackType.info,
+                                unsupported ? tr('No playable source resolved', '未解析到可播放资源') : '$mode, $auto, $fallback, $cached',
+                              );
                             }
                           },
                         );

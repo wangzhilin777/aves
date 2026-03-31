@@ -239,12 +239,24 @@ class RemoteMediaService {
     required RemoteBrowseNode node,
   }) async {
     final plan = await decidePreviewPlan(server: server, node: node);
+    final streamUri = buildStreamUri(server: server, node: node);
     File? downloadedFile;
     if (plan.shouldAutoDownload) {
       downloadedFile = await _autoDownload(server: server, node: node);
+    } else if (streamUri == null && plan.allowDownloadFallback) {
+      await remoteMediaLogService.log(
+        'auto_download',
+        'stream unavailable, triggering fallback download',
+        data: {
+          'server': server.name,
+          'protocol': server.protocol.name,
+          'path': node.path,
+        },
+      );
+      downloadedFile = await _autoDownload(server: server, node: node);
     }
     return RemoteMediaResolveResult(
-      streamUri: buildStreamUri(server: server, node: node),
+      streamUri: streamUri,
       downloadedFile: downloadedFile,
       plan: plan,
     );
