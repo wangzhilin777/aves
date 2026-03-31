@@ -140,6 +140,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   AvesVideoController? _controller;
   int _playToken = 0;
   String? _lastAutoPlayUri;
+  String? _lastDecisionKey;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
 
@@ -193,6 +194,24 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
 
     final settings = context.read<Settings>();
     if (!_isAutoPlayEnabled(settings) || !isCurrent) {
+      final reason = !_isAutoPlayEnabled(settings) ? 'autoplay_disabled_by_setting' : 'not_current_focus_item';
+      final decisionKey = '$reason:${entry.uri}';
+      if (_lastDecisionKey != decisionKey) {
+        _lastDecisionKey = decisionKey;
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'skipped grid preview autoplay',
+            data: {
+              'uri': entry.uri,
+              'reason': reason,
+              'isRemoteCached': entry.isRemoteCachedMedia,
+              'localGridAutoPlay': settings.gridVideoAutoPlay,
+              'remoteGridAutoPlay': settings.remoteGridVideoAutoPlay,
+            },
+          ),
+        );
+      }
       if (_controller?.isPlaying == true) {
         await _controller?.pause();
         unawaited(
@@ -223,6 +242,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final controller = await conductor.getOrCreateController(entry, maxControllerCount: 2);
     if (!mounted || token != _playToken || !isCurrent) return;
     _controller = controller;
+    _lastDecisionKey = 'play:${entry.uri}';
     if (mounted) setState(() {});
 
     try {

@@ -32,13 +32,13 @@ function Get-AnalyzeTargets {
   if ($targets.Count -eq 0) {
     return @("lib/widgets/settings/remote", "lib/widgets/common/thumbnail/decorated.dart")
   }
-  return $targets | Select-Object -Unique
+  return @($targets | Select-Object -Unique)
 }
 
 $targets = Get-AnalyzeTargets
 Write-Host "[verify] targets:"
 $targets | ForEach-Object { Write-Host "  - $_" }
 
-& $flutter analyze @targets
+& $flutter analyze $targets
 
 Write-Host "[verify] done"
