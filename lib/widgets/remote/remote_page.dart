@@ -29,6 +29,12 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
   String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
 
   @override
+  void initState() {
+    super.initState();
+    unawaited(remoteMediaService.syncCacheMediaScanPolicy());
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AvesScaffold(
       appBar: AppBar(
