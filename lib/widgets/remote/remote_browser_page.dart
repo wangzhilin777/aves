@@ -206,6 +206,13 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                               onPressed: () => setState(() {
                                 settings.remoteWifiOnlyDownload = false;
                                 _loader = _load(force: true);
+                                unawaited(
+                                  remoteMediaLogService.log(
+                                    'remote_load',
+                                    'disabled wifi-only policy from blocked page',
+                                    data: {'server': widget.server.name, 'path': _path},
+                                  ),
+                                );
                               }),
                               child: Text(tr('Disable Wi-Fi only and load', '关闭仅 Wi-Fi 并加载')),
                             ),
