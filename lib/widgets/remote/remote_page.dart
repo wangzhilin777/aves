@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/model/remote/remote_server.dart';
@@ -413,7 +414,8 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
     }
     if (_protocol == RemoteProtocol.webdav) {
       final uri = Uri.tryParse(webdavUrl);
-      if (webdavUrl.isEmpty || uri == null || uri.scheme.isEmpty || uri.host.isEmpty) {
+      final validScheme = uri != null && {'http', 'https'}.contains(uri.scheme.toLowerCase());
+      if (webdavUrl.isEmpty || uri == null || !validScheme || uri.host.isEmpty) {
         setState(() => _validationError = _tr(context, 'Please enter a valid WebDAV URL', '请输入有效的 WebDAV 地址'));
         return;
       }
@@ -430,6 +432,15 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
     if (_protocol == RemoteProtocol.sftp && _usernameController.text.trim().isEmpty) {
       setState(() => _validationError = _tr(context, 'SFTP username is required', 'SFTP 用户名不能为空'));
       return;
+    }
+    final sftpAdvancedText = _sftpAdvancedController.text.trim();
+    if (_protocol == RemoteProtocol.sftp && sftpAdvancedText.isNotEmpty) {
+      try {
+        jsonDecode(sftpAdvancedText);
+      } catch (_) {
+        setState(() => _validationError = _tr(context, 'SFTP advanced config must be valid JSON', 'SFTP 高级配置必须是有效 JSON'));
+        return;
+      }
     }
 
     setState(() => _validationError = null);
@@ -449,7 +460,7 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
       smbDomain: _smbDomainController.text.trim().isNotEmpty ? _smbDomainController.text.trim() : null,
       sftpPrivateKey: _sftpPrivateKeyController.text.trim().isNotEmpty ? _sftpPrivateKeyController.text.trim() : null,
       sftpPassphrase: _sftpPassphraseController.text.trim().isNotEmpty ? _sftpPassphraseController.text.trim() : null,
-      sftpAdvancedJson: _sftpAdvancedController.text.trim().isNotEmpty ? _sftpAdvancedController.text.trim() : null,
+      sftpAdvancedJson: sftpAdvancedText.isNotEmpty ? sftpAdvancedText : null,
     );
     Navigator.maybeOf(context)?.pop(server);
   }
