@@ -201,6 +201,14 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                               onPressed: () => setState(() => _loader = _load(force: true)),
                               child: Text(tr('Load now', '立即加载')),
                             ),
+                            const SizedBox(height: 8),
+                            OutlinedButton(
+                              onPressed: () => setState(() {
+                                settings.remoteWifiOnlyDownload = false;
+                                _loader = _load(force: true);
+                              }),
+                              child: Text(tr('Disable Wi-Fi only and load', '关闭仅 Wi-Fi 并加载')),
+                            ),
                           ],
                         ),
                       );
