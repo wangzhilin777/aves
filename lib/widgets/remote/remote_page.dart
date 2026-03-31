@@ -124,6 +124,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
           ),
         );
         if (ok == true) {
+          await remoteMediaService.clearConnectionCache(server.id);
           settings.remoteServers = settings.remoteServers.where((v) => v.id != server.id).toList();
           settings.remotePinnedFolders = settings.remotePinnedFolders.where((v) => v.serverId != server.id).toList();
           await remoteMediaLogService.log('remote_load', 'deleted server', data: {'server': server.name});
