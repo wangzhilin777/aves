@@ -4,6 +4,8 @@ import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/services/common/services.dart';
+import 'package:aves/theme/icons.dart';
+import 'package:aves/widgets/common/extensions/build_context.dart';
 import 'package:aves/widgets/common/fx/borders.dart';
 import 'package:aves/widgets/common/grid/overlay.dart';
 import 'package:aves/widgets/common/grid/sections/mosaic/section_layout_builder.dart';
@@ -284,17 +286,60 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             child: SizedBox(
               width: tileWidth,
               height: tileHeight,
-              child: FittedBox(
-                fit: BoxFit.cover,
-                clipBehavior: Clip.hardEdge,
-                child: SizedBox(
-                  width: entry.displaySize.width,
-                  height: entry.displaySize.height,
-                  child: VideoView(
-                    entry: entry,
-                    controller: controller,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  IgnorePointer(
+                    child: FittedBox(
+                      fit: BoxFit.cover,
+                      clipBehavior: Clip.hardEdge,
+                      child: SizedBox(
+                        width: entry.displaySize.width,
+                        height: entry.displaySize.height,
+                        child: VideoView(
+                          entry: entry,
+                          controller: controller,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Material(
+                      color: Colors.black45,
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: () async {
+                          final muted = !controller.isMuted;
+                          await controller.mute(muted);
+                          if (!mounted) return;
+                          setState(() {});
+                          unawaited(
+                            remoteMediaLogService.log(
+                              'autoplay',
+                              'grid preview mute toggled',
+                              data: {
+                                'uri': entry.uri,
+                                'muted': muted,
+                              },
+                            ),
+                          );
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(5),
+                          child: Icon(
+                            controller.isMuted ? AIcons.unmute : AIcons.mute,
+                            size: 14,
+                            color: Colors.white,
+                            semanticLabel: controller.isMuted ? context.l10n.videoActionUnmute : context.l10n.videoActionMute,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
