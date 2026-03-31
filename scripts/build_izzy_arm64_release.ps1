@@ -32,16 +32,7 @@ if (!(Test-Path -LiteralPath $flutter)) {
 
 Write-Host "[build] flutter pub get"
 try {
-  if ($hasLockFile) {
-    try {
-      & $flutter pub get --enforce-lockfile
-    } catch {
-      Write-Warning "[build] --enforce-lockfile not supported, fallback to plain pub get"
-      & $flutter pub get
-    }
-  } else {
-    & $flutter pub get
-  }
+  & $flutter pub get
 
   Write-Host "[build] building izzy arm64 release apk"
   & $flutter build apk `

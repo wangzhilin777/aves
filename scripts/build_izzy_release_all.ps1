@@ -31,16 +31,7 @@ if ([string]::IsNullOrWhiteSpace($version)) {
 Write-Host "[build] version: $version"
 
 try {
-  if ($hasLockFile) {
-    try {
-      & $flutter pub get --enforce-lockfile
-    } catch {
-      Write-Warning "[build] --enforce-lockfile not supported, fallback to plain pub get"
-      & $flutter pub get
-    }
-  } else {
-    & $flutter pub get
-  }
+  & $flutter pub get
 
   Write-Host "[build] universal apk (all abi)"
   & $flutter build apk --flavor izzy -t lib/main_izzy.dart --release
