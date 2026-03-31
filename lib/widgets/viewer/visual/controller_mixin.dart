@@ -330,12 +330,13 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     // Keep one extra delayed retry while focus remains stable.
     await Future.delayed(const Duration(milliseconds: 550) * timeDilation);
     if (token == _autoPlayRequestToken && isCurrent() && !videoController.isPlaying && videoController.status != VideoStatus.error) {
+      await videoController.seekTo(resumeTimeMillis ?? 0);
       await videoController.play();
       unawaited(
         remoteMediaLogService.log(
           'autoplay',
           'autoplay second retry requested after delayed non-playing state',
-          data: {'uri': uri},
+          data: {'uri': uri, 'seekMillis': resumeTimeMillis ?? 0},
         ),
       );
     }
