@@ -32,6 +32,7 @@ import 'package:aves/widgets/filter_grids/albums_page.dart';
 import 'package:aves/widgets/filter_grids/tags_page.dart';
 import 'package:aves/widgets/home/home_error.dart';
 import 'package:aves/widgets/map/map_page.dart';
+import 'package:aves/widgets/remote/remote_page.dart';
 import 'package:aves/widgets/search/collection_search_delegate.dart';
 import 'package:aves/widgets/settings/home_widget_settings_page.dart';
 import 'package:aves/widgets/settings/screen_saver_settings_page.dart';
@@ -73,6 +74,7 @@ class _HomePageState extends State<HomePage> {
     AlbumListPage.routeName,
     CollectionPage.routeName,
     ExplorerPage.routeName,
+    RemotePage.routeName,
     MapPage.routeName,
     SearchPage.routeName,
   ];
@@ -414,6 +416,8 @@ class _HomePageState extends State<HomePage> {
       case ExplorerPage.routeName:
         final path = _initialExplorerPath ?? settings.homeCustomExplorerPath;
         return buildRoute((context) => ExplorerPage(path: path));
+      case RemotePage.routeName:
+        return buildRoute((context) => const RemotePage());
       case HomeWidgetSettingsPage.routeName:
         return buildRoute((context) => HomeWidgetSettingsPage(widgetId: _widgetId!));
       case ScreenSaverPage.routeName:

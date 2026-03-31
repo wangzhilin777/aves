@@ -1,3 +1,4 @@
+import 'package:aves/model/remote/remote_server.dart';
 import 'package:aves/model/settings/defaults.dart';
 import 'package:aves/model/settings/enums/remote_stream_mode.dart';
 import 'package:aves_model/aves_model.dart';
@@ -11,6 +12,14 @@ mixin RemoteMediaSettings on SettingsAccess {
   bool get remoteWifiOnlyDownload => getBool(SettingKeys.remoteWifiOnlyDownloadKey) ?? SettingsDefaults.remoteWifiOnlyDownload;
 
   set remoteWifiOnlyDownload(bool newValue) => set(SettingKeys.remoteWifiOnlyDownloadKey, newValue);
+
+  List<RemoteServer> get remoteServers => (getStringList(SettingKeys.remoteServersKey) ?? []).map(RemoteServer.fromJson).nonNulls.toList();
+
+  set remoteServers(List<RemoteServer> value) => set(SettingKeys.remoteServersKey, value.map((v) => v.toJson()).toList());
+
+  List<RemotePinnedFolder> get remotePinnedFolders => (getStringList(SettingKeys.remotePinnedFoldersKey) ?? []).map(RemotePinnedFolder.fromJson).nonNulls.toList();
+
+  set remotePinnedFolders(List<RemotePinnedFolder> value) => set(SettingKeys.remotePinnedFoldersKey, value.map((v) => v.toJson()).toList());
 
   bool get remotePinAtTop => getBool(SettingKeys.remotePinAtTopKey) ?? SettingsDefaults.remotePinAtTop;
 

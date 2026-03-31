@@ -13,6 +13,7 @@ import 'package:aves/widgets/filter_grids/countries_page.dart';
 import 'package:aves/widgets/filter_grids/places_page.dart';
 import 'package:aves/widgets/filter_grids/tags_page.dart';
 import 'package:aves/widgets/home/home_page.dart';
+import 'package:aves/widgets/remote/remote_page.dart';
 import 'package:aves/widgets/settings/settings_page.dart';
 import 'package:flutter/material.dart';
 
@@ -50,6 +51,8 @@ class NavigationDisplay {
         return 'Debug';
       case ExplorerPage.routeName:
         return l10n.explorerPageTitle;
+      case RemotePage.routeName:
+        return 'Remote Media';
       case SearchPage.routeName:
         return MaterialLocalizations.of(context).searchFieldLabel;
       case SettingsPage.routeName:
@@ -77,6 +80,8 @@ class NavigationDisplay {
         return AIcons.debug;
       case ExplorerPage.routeName:
         return AIcons.explorer;
+      case RemotePage.routeName:
+        return AIcons.storageMain;
       case SearchPage.routeName:
         return AIcons.search;
       case SettingsPage.routeName:

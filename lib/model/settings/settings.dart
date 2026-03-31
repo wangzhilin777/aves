@@ -499,6 +499,8 @@ class Settings
               debugPrint('failed to import key=$key, value=$newValue is not a string');
             }
           case SettingKeys.customMapStylesKey:
+          case SettingKeys.remoteServersKey:
+          case SettingKeys.remotePinnedFoldersKey:
           case SettingKeys.homeCustomCollectionKey:
           case SettingKeys.drawerTypeBookmarksKey:
           case SettingKeys.drawerAlbumBookmarksKey:

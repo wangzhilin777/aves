@@ -16,6 +16,7 @@ import 'package:aves/services/metadata/metadata_fetch_service.dart';
 import 'package:aves/services/security_service.dart';
 import 'package:aves/services/storage_service.dart';
 import 'package:aves/services/remote_media_log_service.dart';
+import 'package:aves/services/remote_media_service.dart';
 import 'package:aves/services/window_service.dart';
 import 'package:aves_model/aves_model.dart';
 import 'package:aves_report/aves_report.dart';
@@ -55,6 +56,7 @@ final SecurityService securityService = getIt<SecurityService>();
 final StorageService storageService = getIt<StorageService>();
 final WindowService windowService = getIt<WindowService>();
 final RemoteMediaLogService remoteMediaLogService = RemoteMediaLogService();
+final RemoteMediaService remoteMediaService = RemoteMediaService();
 
 void initPlatformServices() {
   getIt.registerLazySingleton<p.Context>(p.Context.new);

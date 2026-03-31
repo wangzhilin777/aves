@@ -159,6 +159,8 @@ class SettingKeys {
   static const remoteLogEnabledKey = 'remote_log_enabled';
   static const remoteLogEntriesKey = 'remote_log_entries';
   static const remoteWifiOnlyDownloadKey = 'remote_wifi_only_download';
+  static const remoteServersKey = 'remote_servers';
+  static const remotePinnedFoldersKey = 'remote_pinned_folders';
   static const remotePinAtTopKey = 'remote_pin_at_top';
   static const remoteCacheInSmartCollectionsKey = 'remote_cache_in_smart_collections';
   static const remoteGridVideoAutoPlayKey = 'remote_grid_video_auto_play';
