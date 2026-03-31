@@ -41,7 +41,7 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
   @override
   void initState() {
     super.initState();
-    _path = widget.initialPath;
+    _path = _normalizeUiPath(widget.initialPath);
     _loader = _load();
     _queryController.addListener(() => setState(() {}));
   }
@@ -55,10 +55,19 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
   Future<RemoteFolderPageData> _load({bool force = false}) => _service.loadFolder(server: widget.server, path: _path, force: force);
 
   String _parentPath(String path) {
-    final parts = path.split('/').where((v) => v.isNotEmpty).toList();
+    final normalized = _normalizeUiPath(path);
+    final parts = normalized.split('/').where((v) => v.isNotEmpty).toList();
     if (parts.isEmpty) return '/';
     final parent = parts.take(parts.length - 1).join('/');
     return parent.isEmpty ? '/' : '/$parent';
+  }
+
+  String _normalizeUiPath(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty || trimmed == '.' || trimmed == './') return '/';
+    final normalized = trimmed.replaceAll('\\', '/').replaceAll(RegExp(r'/+'), '/');
+    if (normalized == '/' || normalized == '/.') return '/';
+    return normalized.startsWith('/') ? normalized : '/$normalized';
   }
 
   List<MapEntry<String, String>> _breadcrumbs() {
@@ -265,15 +274,16 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
 
   void _enterDirectory(String path) {
     final from = _path;
+    final target = _normalizeUiPath(path);
     setState(() {
-      _path = path;
+      _path = target;
       _loader = _load(force: true);
     });
     unawaited(
       remoteMediaLogService.log(
         'lazy_load',
         'enter child directory',
-        data: {'server': widget.server.name, 'from': from, 'to': path},
+        data: {'server': widget.server.name, 'from': from, 'to': target},
       ),
     );
   }
