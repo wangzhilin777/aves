@@ -326,6 +326,20 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       );
     }
 
+    // Some videos (notably certain landscape encodes) may still miss the first autoplay window.
+    // Keep one extra delayed retry while focus remains stable.
+    await Future.delayed(const Duration(milliseconds: 550) * timeDilation);
+    if (token == _autoPlayRequestToken && isCurrent() && !videoController.isPlaying && videoController.status != VideoStatus.error) {
+      await videoController.play();
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'autoplay second retry requested after delayed non-playing state',
+          data: {'uri': uri},
+        ),
+      );
+    }
+
     // playing controllers are paused when the entry changes,
     // but the controller may still be preparing (not yet playing) when this happens
     // so we make sure the current entry is still the same to keep playing
