@@ -36,6 +36,8 @@ abstract class AppService {
 
   Future<bool> shareSingle(String uri, String mimeType);
 
+  Future<bool> shareText(String text, {String? subject});
+
   Future<void> pinToHomeScreen(
     String label,
     AvesEntry? coverEntry, {
@@ -200,6 +202,20 @@ class PlatformAppService implements AppService {
     return _share({
       mimeType: [uri],
     });
+  }
+
+  @override
+  Future<bool> shareText(String text, {String? subject}) async {
+    try {
+      final result = await _platform.invokeMethod('shareText', <String, Object?>{
+        'text': text,
+        'subject': subject,
+      });
+      if (result != null) return result as bool;
+    } on PlatformException catch (e, stack) {
+      await reportService.recordError(e, stack);
+    }
+    return false;
   }
 
   Future<bool> _share(Map<String, List<String>> urisByMimeType) async {

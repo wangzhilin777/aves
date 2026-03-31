@@ -20,37 +20,41 @@ class RemoteLogsPage extends StatefulWidget {
 }
 
 class _RemoteLogsPageState extends State<RemoteLogsPage> with FeedbackMixin {
-  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
-
   @override
   Widget build(BuildContext context) {
-    final title = _tr(context, 'Remote Logs', '杩滅▼鏃ュ織');
     return AvesScaffold(
       appBar: AppBar(
         automaticallyImplyLeading: !settings.useTvLayout,
-        title: Text(title),
+        title: const Text('Remote Logs'),
         actions: [
           PopupMenuButton<_LogAction>(
             itemBuilder: (context) => [
-              PopupMenuItem(
+              const PopupMenuItem(
                 value: _LogAction.copy,
                 child: MenuRow(
-                  text: _tr(context, 'Copy logs', '澶嶅埗鏃ュ織'),
-                  icon: const Icon(AIcons.clipboard),
+                  text: 'Copy logs',
+                  icon: Icon(AIcons.clipboard),
                 ),
               ),
               PopupMenuItem(
                 value: _LogAction.export,
                 child: MenuRow(
-                  text: _tr(context, 'Export TXT', '瀵煎嚭 TXT'),
+                  text: 'Export TXT',
                   icon: Icon(AIcons.fileExport),
                 ),
               ),
-              PopupMenuItem(
+              const PopupMenuItem(
+                value: _LogAction.exportAndShare,
+                child: MenuRow(
+                  text: 'Export & Share',
+                  icon: Icon(AIcons.share),
+                ),
+              ),
+              const PopupMenuItem(
                 value: _LogAction.clear,
                 child: MenuRow(
-                  text: _tr(context, 'Clear logs', '娓呯┖鏃ュ織'),
-                  icon: const Icon(AIcons.clear),
+                  text: 'Clear logs',
+                  icon: Icon(AIcons.clear),
                 ),
               ),
             ],
@@ -63,9 +67,9 @@ class _RemoteLogsPageState extends State<RemoteLogsPage> with FeedbackMixin {
           selector: (context, s) => s.remoteLogEntries,
           builder: (context, entries, child) {
             if (entries.isEmpty) {
-              return EmptyContent(
+              return const EmptyContent(
                 icon: AIcons.description,
-                text: _tr(context, 'No remote logs yet', '鏆傛棤杩滅▼鏃ュ織'),
+                text: 'No remote logs yet',
               );
             }
             return ListView.separated(
@@ -93,6 +97,13 @@ class _RemoteLogsPageState extends State<RemoteLogsPage> with FeedbackMixin {
         if (mounted) {
           showFeedback(context, success == true ? FeedbackType.info : FeedbackType.warn, success == true ? l10n.genericSuccessFeedback : l10n.genericFailureFeedback);
         }
+      case _LogAction.exportAndShare:
+        final text = settings.remoteLogEntries.join('\n');
+        final exported = await remoteMediaLogService.exportTxt();
+        final shared = text.isNotEmpty && await appService.shareText(text, subject: 'Aves Remote Logs');
+        if (mounted) {
+          showFeedback(context, (exported == true || shared) ? FeedbackType.info : FeedbackType.warn, (exported == true || shared) ? l10n.genericSuccessFeedback : l10n.genericFailureFeedback);
+        }
       case _LogAction.clear:
         await remoteMediaLogService.clear();
         if (mounted) showFeedback(context, FeedbackType.info, l10n.genericSuccessFeedback);
@@ -100,4 +111,4 @@ class _RemoteLogsPageState extends State<RemoteLogsPage> with FeedbackMixin {
   }
 }
 
-enum _LogAction { copy, export, clear }
+enum _LogAction { copy, export, exportAndShare, clear }

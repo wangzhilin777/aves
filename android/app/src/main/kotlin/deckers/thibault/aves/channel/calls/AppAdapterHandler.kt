@@ -70,6 +70,7 @@ class AppAdapterHandler(private val context: Context) : MethodCallHandler {
             "openMap" -> safe(call, result, ::openMap)
             "setAs" -> safe(call, result, ::setAs)
             "share" -> safe(call, result, ::share)
+            "shareText" -> safe(call, result, ::shareText)
             "pinShortcut" -> ioScope.launch { safe(call, result, ::pinShortcut) }
             else -> result.notImplemented()
         }
@@ -337,6 +338,23 @@ class AppAdapterHandler(private val context: Context) : MethodCallHandler {
                 result.error("share-exception", "failed to share ${uriList.size} URIs", e)
             }
         }
+    }
+
+    private fun shareText(call: MethodCall, result: MethodChannel.Result) {
+        val title = call.argument<String>("title")
+        val text = call.argument<String>("text")
+        val subject = call.argument<String>("subject")
+        if (text.isNullOrEmpty()) {
+            result.error("shareText-args", "missing text", null)
+            return
+        }
+
+        val intent = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT, text)
+            .putExtra(Intent.EXTRA_SUBJECT, subject)
+        val started = safeStartActivityChooser(title, intent)
+        result.success(started)
     }
 
     private fun safeStartActivity(intent: Intent): Boolean {
