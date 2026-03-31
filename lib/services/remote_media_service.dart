@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/model/remote/remote_server.dart';
+import 'package:aves/model/entry/extensions/props.dart';
+import 'package:aves/model/entry/origins.dart';
 import 'package:aves/model/settings/enums/remote_stream_mode.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/services/common/services.dart';
@@ -84,6 +86,21 @@ class RemoteMediaResolveResult {
 }
 
 class RemoteMediaService {
+  Future<int> purgeIndexedRemoteCacheEntries() async {
+    final entries = await localMediaDb.loadEntries(origin: EntryOrigins.mediaStoreContent);
+    final remoteEntries = entries.where((entry) => entry.isRemoteCachedMedia).toSet();
+    if (remoteEntries.isEmpty) return 0;
+
+    final ids = remoteEntries.map((entry) => entry.id).toSet();
+    await localMediaDb.removeIds(ids);
+    await remoteMediaLogService.log(
+      'remote_load',
+      'purged indexed remote cache entries after policy change',
+      data: {'count': remoteEntries.length},
+    );
+    return remoteEntries.length;
+  }
+
   Future<void> syncCacheMediaScanPolicy() async {
     final externalCacheRoot = await storageService.getExternalCacheDirectory();
     if (externalCacheRoot.isEmpty) return;

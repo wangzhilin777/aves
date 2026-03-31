@@ -1,7 +1,9 @@
 ﻿import 'dart:async';
 
+import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/settings/enums/remote_stream_mode.dart';
 import 'package:aves/model/settings/settings.dart';
+import 'package:aves/model/source/collection_source.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/theme/colors.dart';
 import 'package:aves/theme/icons.dart';
@@ -111,12 +113,32 @@ class _SettingsTileRemoteCacheInSmartCollections extends SettingsTile {
   @override
   Widget build(BuildContext context) => SettingsSwitchListTile(
     selector: (context, s) => s.remoteCacheInSmartCollections,
-    onChanged: (v) {
-      settings.remoteCacheInSmartCollections = v;
-      unawaited(remoteMediaService.syncCacheMediaScanPolicy());
-    },
+    onChanged: (v) => unawaited(_apply(context, v)),
     title: title(context),
   );
+
+  Future<void> _apply(BuildContext context, bool enabled) async {
+    settings.remoteCacheInSmartCollections = enabled;
+    await remoteMediaService.syncCacheMediaScanPolicy();
+
+    if (!enabled) {
+      final purgedDbEntries = await remoteMediaService.purgeIndexedRemoteCacheEntries();
+      final source = context.read<CollectionSource>();
+      final visibleRemoteUris = source.allEntries.where((entry) => entry.isRemoteCachedMedia).map((entry) => entry.uri).toSet();
+      if (visibleRemoteUris.isNotEmpty) {
+        await source.removeEntries(visibleRemoteUris, includeTrash: false);
+      }
+
+      await remoteMediaLogService.log(
+        'remote_load',
+        'disabled remote cache in smart collections and purged indexed entries',
+        data: {
+          'purgedDbEntries': purgedDbEntries,
+          'removedVisibleEntries': visibleRemoteUris.length,
+        },
+      );
+    }
+  }
 }
 
 class _SettingsTileRemoteGridVideoAutoPlay extends SettingsTile {
@@ -239,3 +261,4 @@ class _SettingsTileRemoteAutoDownloadVideoMax extends SettingsTile {
     dialogTitle: title(context),
   );
 }
+

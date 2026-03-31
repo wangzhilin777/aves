@@ -1,8 +1,10 @@
 ﻿import 'dart:async';
 
+import 'package:aves/model/filters/covered/stored_album.dart';
 import 'package:aves/model/remote/remote_server.dart';
 import 'package:aves/model/entry/extensions/catalog.dart';
 import 'package:aves/model/settings/settings.dart';
+import 'package:aves/model/source/collection_source.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/services/remote_media_service.dart';
 import 'package:aves/theme/icons.dart';
@@ -11,8 +13,10 @@ import 'package:aves/widgets/common/action_mixins/feedback.dart';
 import 'package:aves/widgets/common/basic/scaffold.dart';
 import 'package:aves/widgets/common/behaviour/routes.dart';
 import 'package:aves/widgets/common/extensions/build_context.dart';
+import 'package:aves/widgets/collection/collection_page.dart';
 import 'package:aves/widgets/viewer/entry_viewer_page.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 enum _RemoteOpenAction {
   strategy,
@@ -137,6 +141,11 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
               onPressed: _togglePin,
               icon: Icon(_isPinned ? AIcons.unpin : AIcons.pin),
               tooltip: _isPinned ? tr('Unpin folder', '取消固定文件夹') : tr('Show in remote albums', '在远程相册中显示'),
+            ),
+            IconButton(
+              onPressed: _openCachedAlbum,
+              icon: const Icon(AIcons.image),
+              tooltip: tr('Open cached media in gallery', '在相册中打开缓存媒体'),
             ),
           ],
         ),
@@ -553,5 +562,35 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
       ];
       await remoteMediaLogService.log('remote_load', 'pinned folder', data: {'server': widget.server.name, 'path': path});
     }
+  }
+
+  Future<void> _openCachedAlbum() async {
+    String tr(String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+    if (!settings.remoteCacheInSmartCollections) {
+      showFeedback(context, FeedbackType.warn, tr('Enable remote cache in media/video sets first', '请先开启“将远程缓存纳入媒体/视频集合”'));
+      return;
+    }
+
+    final cacheDir = await _service.getConnectionCacheDirectory(widget.server.id);
+    if (!mounted) return;
+    final source = context.read<CollectionSource>();
+    final title = '${widget.server.name} ${tr('Cache', '缓存')}';
+    await Navigator.maybeOf(context)?.push(
+      DirectMaterialPageRoute(
+        settings: const RouteSettings(name: CollectionPage.routeName),
+        builder: (_) => CollectionPage(
+          source: source,
+          filters: {StoredAlbumFilter(cacheDir.path, title)},
+        ),
+      ),
+    );
+    await remoteMediaLogService.log(
+      'remote_load',
+      'opened cached media in native collection page',
+      data: {
+        'server': widget.server.name,
+        'cacheDir': cacheDir.path,
+      },
+    );
   }
 }
