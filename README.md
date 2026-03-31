@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 <img src="https://raw.githubusercontent.com/deckerst/aves/develop/aves_logo.svg" alt='Aves logo' width="200" />
 
@@ -36,36 +36,45 @@ Aves is a gallery and metadata explorer app. It is built for Android, with Flutt
   - toggleable logging
   - copy logs
   - export logs as TXT
+  - export and share logs
   - clear logs
+- Added remote browse and connection capabilities:
+  - WebDAV real directory listing (lazy load)
+  - FTP/SFTP/SMB connection and folder lazy-loading integration
+  - per-server cache cleanup and connection-level management
 - Added autoplay stability hardening in preview/video flow:
   - duplicate autoplay trigger protection
-  - pause-all-before-play guard to reduce multi-video contention
+  - focus token guard to reduce jitter/racing playback
   - extra diagnostic logs for autoplay/focus transitions
 
 ### 远程媒体扩展功能摘要（中文）
 
 - 新增 **远程媒体** 设置分组，支持：
   - 仅 Wi-Fi 自动加载
-  - 仅流式 / 流式失败回退下载
+  - 仅流式 / 流式失败后回退下载
   - 图片/视频自动下载大小上限
   - 远程入口置顶与缓存是否纳入媒体集合
 - 新增独立 **远程日志** 页面，支持：
   - 日志开关
   - 复制日志
   - 导出 TXT
+  - 导出并分享
   - 清空日志
+- 新增远程浏览与连接能力：
+  - WebDAV 真实目录懒加载
+  - FTP/SFTP/SMB 连接与目录懒加载接入
+  - 按连接清理缓存与连接级管理
 - 增强预览/视频自动播放稳定性：
-  - 重复自动播放触发保护
-  - 播放前统一暂停，减少多视频竞争
-  - 自动播放与焦点切换关键日志埋点
-      
+  - 自动播放重复触发保护
+  - 焦点令牌机制，降低抖动与竞态播放
+  - 自动播放与焦点切换关键日志覆盖
 <div align="left">
 
 ## Features
 
 Aves can handle all sorts of images and videos, including your typical JPEGs and MP4s, but also more exotic things like **multi-page TIFFs, SVGs, old AVIs and more**!
 
-It scans your media collection to identify **motion photos**, **panoramas** (aka photo spheres), **360° videos**, as well as **GeoTIFF** files.
+It scans your media collection to identify **motion photos**, **panoramas** (aka photo spheres), **360掳 videos**, as well as **GeoTIFF** files.
 
 **Navigation and search** is an important part of Aves. The goal is for users to easily flow from albums to photos to tags to maps, etc.
 
@@ -134,7 +143,7 @@ If you want to translate this app in your language and share the result, [there 
 
 ### Donations
 
-Some users have expressed the wish to financially support the project. Thanks! ❤️
+Some users have expressed the wish to financially support the project. Thanks! 鉂わ笍
 
 [<img src="https://raw.githubusercontent.com/deckerst/common/main/assets/paypal-badge-cropped.png"
       alt='Donate with PayPal'
@@ -159,3 +168,4 @@ To run the app:
 
 [Version badge]: https://img.shields.io/github/v/release/deckerst/aves?include_prereleases&sort=semver
 [Build badge]: https://img.shields.io/github/actions/workflow/status/deckerst/aves/quality-check.yml?branch=develop
+
