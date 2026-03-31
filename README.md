@@ -48,6 +48,7 @@ Aves is a gallery and metadata explorer app. It is built for Android, with Flutt
   - duplicate autoplay trigger protection
   - focus token guard to reduce jitter/racing playback
   - extra diagnostic logs for autoplay/focus transitions
+  - CollectionPage grid/mosaic preview now auto-plays both local and remote videos with single-active playback and in-tile mute/unmute toggle
 
 ### 远程媒体扩展功能摘要（中文）
 
@@ -72,6 +73,7 @@ Aves is a gallery and metadata explorer app. It is built for Android, with Flutt
   - 自动播放重复触发保护
   - 焦点令牌机制，降低抖动与竞态播放
   - 自动播放与焦点切换关键日志覆盖
+  - CollectionPage 网格/马赛克预览已统一支持本地与远程视频自动播放、同屏单视频播放、预览内静音/有声切换
 <div align="left">
 
 ## Features
