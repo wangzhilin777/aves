@@ -39,6 +39,7 @@ try {
     --flavor izzy `
     -t lib/main_izzy.dart `
     --target-platform android-arm64 `
+    --split-per-abi `
     --release
 
   $candidateOutDirs = @(
