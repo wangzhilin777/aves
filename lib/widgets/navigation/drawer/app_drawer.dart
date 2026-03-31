@@ -2,6 +2,7 @@ import 'package:aves/model/filters/container/album_group.dart';
 import 'package:aves/model/filters/container/dynamic_album.dart';
 import 'package:aves/model/filters/covered/stored_album.dart';
 import 'package:aves/model/filters/trash.dart';
+import 'package:aves/model/remote/remote_server.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/model/source/album.dart';
 import 'package:aves/model/source/collection_lens.dart';
@@ -28,6 +29,7 @@ import 'package:aves/widgets/filter_grids/countries_page.dart';
 import 'package:aves/widgets/filter_grids/places_page.dart';
 import 'package:aves/widgets/filter_grids/tags_page.dart';
 import 'package:aves/widgets/home/home_page.dart';
+import 'package:aves/widgets/remote/remote_browser_page.dart';
 import 'package:aves/widgets/navigation/drawer/collection_nav_tile.dart';
 import 'package:aves/widgets/navigation/drawer/page_nav_tile.dart';
 import 'package:aves/widgets/navigation/drawer/tile.dart';
@@ -130,8 +132,10 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver {
     final drawerItems = <Widget>[
       _buildHeader(context),
       _buildHomeLink(),
+      if (settings.remotePinAtTop) ..._buildRemotePinnedLinks(context),
       ..._buildTypeLinks(),
       _buildAlbumLinks(context),
+      if (!settings.remotePinAtTop) ..._buildRemotePinnedLinks(context),
       ..._buildPageLinks(context),
       if (settings.enableBin) ...[
         const Divider(),
@@ -410,6 +414,40 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver {
           key: Key('drawer-page-$route'),
           trailing: trailing,
           navItem: AvesNavItem(route: route),
+        );
+      }),
+    ];
+  }
+
+  List<Widget> _buildRemotePinnedLinks(BuildContext context) {
+    final allPinned = settings.remotePinnedFolders;
+    if (allPinned.isEmpty) return const [];
+
+    final servers = settings.remoteServers;
+    final items = allPinned.where((v) => servers.byId(v.serverId) != null).toList();
+    if (items.isEmpty) return const [];
+
+    Future<void> goToPinned(RemotePinnedFolder folder) async {
+      final server = servers.byId(folder.serverId);
+      if (server == null) return;
+      Navigator.maybeOf(context)?.pop();
+      await Future.delayed(ADurations.drawerTransitionLoose);
+      await Navigator.maybeOf(context)?.push(
+        MaterialPageRoute(
+          settings: const RouteSettings(name: RemoteBrowserPage.routeName),
+          builder: (_) => RemoteBrowserPage(server: server, initialPath: folder.path),
+        ),
+      );
+    }
+
+    return [
+      const Divider(),
+      ...items.map((folder) {
+        return ListTile(
+          leading: const Icon(AIcons.storageMain),
+          title: Text(folder.title),
+          subtitle: Text(folder.path),
+          onTap: () => goToPinned(folder),
         );
       }),
     ];
