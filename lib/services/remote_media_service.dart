@@ -116,9 +116,11 @@ class RemoteMediaService {
       case RemoteProtocol.webdav:
         return _testWebDav(server);
       case RemoteProtocol.ftp:
+        return _testFtp(server);
       case RemoteProtocol.sftp:
+        return _testSftp(server);
       case RemoteProtocol.smb:
-        return _testTcp(server);
+        return _testSmb(server);
     }
   }
 
@@ -552,60 +554,124 @@ class RemoteMediaService {
     }
   }
 
-  Future<RemoteConnectionTestResult> _testTcp(RemoteServer server) async {
+  Future<RemoteConnectionTestResult> _testFtp(RemoteServer server) async {
     final host = server.host;
     if (host == null || host.isEmpty) {
       return const RemoteConnectionTestResult(success: false, message: 'Missing host');
     }
-    final port =
-        server.port ??
-        switch (server.protocol) {
-          RemoteProtocol.ftp => 21,
-          RemoteProtocol.sftp => 22,
-          RemoteProtocol.smb => 445,
-          RemoteProtocol.webdav => 80,
-        };
     final watch = Stopwatch()..start();
+    final ftp = FTPConnect(
+      host,
+      port: server.port ?? 21,
+      user: server.ftpAnonymous ? 'anonymous' : (server.username ?? 'anonymous'),
+      pass: server.ftpAnonymous ? 'anonymous@' : (server.password ?? ''),
+      timeout: 12,
+    );
+    ftp.transferMode = server.ftpPassiveMode ? TransferMode.passive : TransferMode.active;
     try {
-      final socket = await Socket.connect(host, port, timeout: const Duration(seconds: 6));
-      socket.destroy();
+      final connected = await ftp.connect();
+      if (!connected) {
+        await remoteMediaLogService.log('remote_load', 'ftp test failed', data: {'server': server.name, 'host': host, 'port': server.port ?? 21});
+        return const RemoteConnectionTestResult(success: false, message: 'FTP auth failed');
+      }
+      await ftp.currentDirectory();
       watch.stop();
-      await remoteMediaLogService.log(
-        'remote_load',
-        'tcp connection test success',
-        data: {
-          'server': server.name,
-          'protocol': server.protocol.name,
-          'host': host,
-          'port': port,
-          'latencyMs': watch.elapsedMilliseconds,
-          'ftpAnonymous': server.ftpAnonymous,
-          'ftpPassive': server.ftpPassiveMode,
-        },
-      );
+      await remoteMediaLogService.log('remote_load', 'ftp test success', data: {'server': server.name, 'latencyMs': watch.elapsedMilliseconds, 'passive': server.ftpPassiveMode, 'anonymous': server.ftpAnonymous});
       return RemoteConnectionTestResult(
         success: true,
-        message: '${server.protocol.name.toUpperCase()} TCP reachable',
+        message: 'FTP connected',
         latencyMillis: watch.elapsedMilliseconds,
       );
     } catch (error) {
       watch.stop();
-      await remoteMediaLogService.log(
-        'remote_load',
-        'tcp connection test failed',
-        data: {
-          'server': server.name,
-          'protocol': server.protocol.name,
-          'host': host,
-          'port': port,
-          'error': '$error',
-        },
-      );
+      await remoteMediaLogService.log('remote_load', 'ftp test exception', data: {'server': server.name, 'error': '$error', 'latencyMs': watch.elapsedMilliseconds});
       return RemoteConnectionTestResult(
         success: false,
-        message: '${server.protocol.name.toUpperCase()} TCP failed: $error',
+        message: 'FTP error: $error',
         latencyMillis: watch.elapsedMilliseconds,
       );
+    } finally {
+      try {
+        await ftp.disconnect();
+      } catch (_) {}
+    }
+  }
+
+  Future<RemoteConnectionTestResult> _testSftp(RemoteServer server) async {
+    final host = server.host;
+    final username = server.username;
+    if (host == null || host.isEmpty) {
+      return const RemoteConnectionTestResult(success: false, message: 'Missing host');
+    }
+    if (username == null || username.isEmpty) {
+      return const RemoteConnectionTestResult(success: false, message: 'Missing username');
+    }
+    final watch = Stopwatch()..start();
+    SSHClient? client;
+    try {
+      final socket = await SSHSocket.connect(host, server.port ?? 22, timeout: const Duration(seconds: 8));
+      final privateKeyText = server.sftpPrivateKey;
+      final passphrase = server.sftpPassphrase;
+      final identities = privateKeyText != null && privateKeyText.isNotEmpty ? SSHKeyPair.fromPem(privateKeyText, passphrase?.isNotEmpty == true ? passphrase : null) : null;
+      client = SSHClient(
+        socket,
+        username: username,
+        identities: identities,
+        onPasswordRequest: () => server.password,
+      );
+      await client.authenticated.timeout(const Duration(seconds: 12));
+      watch.stop();
+      await remoteMediaLogService.log('remote_load', 'sftp test success', data: {'server': server.name, 'latencyMs': watch.elapsedMilliseconds});
+      return RemoteConnectionTestResult(
+        success: true,
+        message: 'SFTP connected',
+        latencyMillis: watch.elapsedMilliseconds,
+      );
+    } catch (error) {
+      watch.stop();
+      await remoteMediaLogService.log('remote_load', 'sftp test exception', data: {'server': server.name, 'error': '$error', 'latencyMs': watch.elapsedMilliseconds});
+      return RemoteConnectionTestResult(
+        success: false,
+        message: 'SFTP error: $error',
+        latencyMillis: watch.elapsedMilliseconds,
+      );
+    } finally {
+      client?.close();
+    }
+  }
+
+  Future<RemoteConnectionTestResult> _testSmb(RemoteServer server) async {
+    final host = server.host;
+    if (host == null || host.isEmpty) {
+      return const RemoteConnectionTestResult(success: false, message: 'Missing host');
+    }
+    final watch = Stopwatch()..start();
+    SmbConnect? smb;
+    try {
+      smb = await SmbConnect.connectAuth(
+        host: host,
+        username: server.username ?? '',
+        password: server.password ?? '',
+        domain: server.smbDomain ?? '',
+      );
+      await smb.listShares();
+      watch.stop();
+      await remoteMediaLogService.log('remote_load', 'smb test success', data: {'server': server.name, 'latencyMs': watch.elapsedMilliseconds});
+      return RemoteConnectionTestResult(
+        success: true,
+        message: 'SMB connected',
+        latencyMillis: watch.elapsedMilliseconds,
+      );
+    } catch (error) {
+      watch.stop();
+      await remoteMediaLogService.log('remote_load', 'smb test exception', data: {'server': server.name, 'error': '$error', 'latencyMs': watch.elapsedMilliseconds});
+      return RemoteConnectionTestResult(
+        success: false,
+        message: 'SMB error: $error',
+        latencyMillis: watch.elapsedMilliseconds,
+      );
+    } finally {
+      await smb?.close();
     }
   }
 
