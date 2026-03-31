@@ -9,6 +9,12 @@ import 'package:aves/widgets/common/basic/scaffold.dart';
 import 'package:aves/widgets/common/extensions/build_context.dart';
 import 'package:flutter/material.dart';
 
+enum _RemoteOpenAction {
+  strategy,
+  forceDownload,
+  streamOnly,
+}
+
 class RemoteBrowserPage extends StatefulWidget {
   static const routeName = '/remote/browser';
   final RemoteServer server;
@@ -186,54 +192,15 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                           leading: Icon(node.isDirectory ? AIcons.folder : (node.isVideo ? AIcons.video : AIcons.image)),
                           title: Text(node.name),
                           subtitle: Text('${node.path}${node.sizeBytes != null ? '  (${formatFileSize(context.locale, node.sizeBytes!, round: 1)})' : ''}'),
-                          onTap: () async {
-                            if (node.isDirectory) {
-                              setState(() {
-                                _path = node.path;
-                                _loader = _load(force: true);
-                              });
-                            } else {
-                              final result = await _service.resolveMedia(server: widget.server, node: node);
-                              if (!mounted) return;
-                              await remoteMediaLogService.log(
-                                'remote_load',
-                                'remote media tapped',
-                                data: {
-                                  'server': widget.server.name,
-                                  'path': node.path,
-                                  'streamUri': result.streamUri?.toString(),
-                                  'downloaded': result.downloadedFile?.path,
-                                },
-                              );
-                              final plan = result.plan;
-                              final mode = plan.streamFirst ? tr('Stream first', '优先流式') : tr('Download first', '优先下载');
-                              final fallback = plan.allowDownloadFallback ? tr('fallback enabled', '允许回退下载') : tr('fallback disabled', '不允许回退下载');
-                              final auto = plan.shouldAutoDownload ? tr('auto-download', '自动下载') : tr('no auto-download', '不自动下载');
-                              final cached = result.downloadedFile != null ? tr('cached', '已缓存') : tr('not cached', '未缓存');
-                              final unsupported = result.streamUri == null && result.downloadedFile == null;
-                              if (result.downloadedFile != null) {
-                                final fileUri = Uri.file(result.downloadedFile!.path).toString();
-                                final opened = await appService.open(
-                                  fileUri,
-                                  _service.inferMimeType(node),
-                                  forceChooser: false,
-                                );
-                                await remoteMediaLogService.log(
-                                  'remote_load',
-                                  'open downloaded remote media',
-                                  data: {
-                                    'uri': fileUri,
-                                    'opened': opened,
-                                  },
-                                );
-                              }
-                              showFeedback(
-                                context,
-                                unsupported ? FeedbackType.warn : FeedbackType.info,
-                                unsupported ? tr('No playable source resolved', '未解析到可播放资源') : '$mode, $auto, $fallback, $cached',
-                              );
-                            }
-                          },
+                          trailing: node.isDirectory
+                              ? null
+                              : IconButton(
+                                  icon: const Icon(Icons.more_horiz),
+                                  tooltip: tr('More actions', '更多操作'),
+                                  onPressed: () => _showFileActions(node),
+                                ),
+                          onLongPress: node.isDirectory ? null : () => _showFileActions(node),
+                          onTap: () => node.isDirectory ? _enterDirectory(node.path) : _openRemoteNode(node, _RemoteOpenAction.strategy),
                         );
                       },
                     );
@@ -244,6 +211,128 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
           ),
         ),
       ),
+    );
+  }
+
+  void _enterDirectory(String path) {
+    setState(() {
+      _path = path;
+      _loader = _load(force: true);
+    });
+  }
+
+  Future<void> _showFileActions(RemoteBrowseNode node) async {
+    if (!mounted) return;
+    String tr(String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+    final action = await showModalBottomSheet<_RemoteOpenAction>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(title: Text(node.name), subtitle: Text(node.path)),
+            ListTile(
+              leading: const Icon(AIcons.play),
+              title: Text(tr('Open with strategy', '按策略打开')),
+              onTap: () => Navigator.of(context).pop(_RemoteOpenAction.strategy),
+            ),
+            ListTile(
+              leading: const Icon(Icons.download),
+              title: Text(tr('Force download then open', '强制下载并打开')),
+              onTap: () => Navigator.of(context).pop(_RemoteOpenAction.forceDownload),
+            ),
+            ListTile(
+              leading: const Icon(Icons.wifi_tethering),
+              title: Text(tr('Try stream only', '仅流式尝试')),
+              onTap: () => Navigator.of(context).pop(_RemoteOpenAction.streamOnly),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action == null) return;
+    await _openRemoteNode(node, action);
+  }
+
+  Future<void> _openRemoteNode(RemoteBrowseNode node, _RemoteOpenAction action) async {
+    String tr(String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+    final mimeType = _service.inferMimeType(node);
+    final streamUri = _service.buildStreamUri(server: widget.server, node: node);
+
+    Future<bool> openUri(Uri uri) async {
+      final opened = await appService.open(
+        uri.toString(),
+        mimeType,
+        forceChooser: false,
+      );
+      await remoteMediaLogService.log(
+        'remote_load',
+        'open remote media uri',
+        data: {
+          'server': widget.server.name,
+          'path': node.path,
+          'uri': uri.toString(),
+          'opened': opened,
+          'action': action.name,
+        },
+      );
+      return opened;
+    }
+
+    if (action == _RemoteOpenAction.forceDownload) {
+      final file = await _service.downloadMedia(server: widget.server, node: node, trigger: 'manual_force_download');
+      if (!mounted) return;
+      if (file != null) {
+        final opened = await openUri(Uri.file(file.path));
+        showFeedback(context, opened ? FeedbackType.info : FeedbackType.warn, opened ? tr('Opened downloaded file', '已打开下载文件') : tr('Downloaded but open failed', '已下载但打开失败'));
+      } else {
+        showFeedback(context, FeedbackType.warn, tr('Download failed', '下载失败'));
+      }
+      return;
+    }
+
+    if (action == _RemoteOpenAction.streamOnly) {
+      if (streamUri == null) {
+        showFeedback(context, FeedbackType.warn, tr('Stream unavailable for this protocol', '该协议不支持直接流式'));
+        return;
+      }
+      final opened = await openUri(streamUri);
+      if (!mounted) return;
+      showFeedback(context, opened ? FeedbackType.info : FeedbackType.warn, opened ? tr('Opened stream', '已打开流') : tr('Stream open failed', '流式打开失败'));
+      return;
+    }
+
+    final result = await _service.resolveMedia(server: widget.server, node: node);
+    if (!mounted) return;
+    await remoteMediaLogService.log(
+      'remote_load',
+      'remote media tapped',
+      data: {
+        'server': widget.server.name,
+        'path': node.path,
+        'streamUri': result.streamUri?.toString(),
+        'downloaded': result.downloadedFile?.path,
+        'action': action.name,
+      },
+    );
+    final plan = result.plan;
+    final mode = plan.streamFirst ? tr('Stream first', '优先流式') : tr('Download first', '优先下载');
+    final fallback = plan.allowDownloadFallback ? tr('fallback enabled', '允许回退下载') : tr('fallback disabled', '不允许回退下载');
+    final auto = plan.shouldAutoDownload ? tr('auto-download', '自动下载') : tr('no auto-download', '不自动下载');
+    final cached = result.downloadedFile != null ? tr('cached', '已缓存') : tr('not cached', '未缓存');
+    final unsupported = result.streamUri == null && result.downloadedFile == null;
+
+    var opened = false;
+    if (result.downloadedFile != null) {
+      opened = await openUri(Uri.file(result.downloadedFile!.path));
+    } else if (result.streamUri != null) {
+      opened = await openUri(result.streamUri!);
+    }
+
+    showFeedback(
+      context,
+      unsupported || !opened ? FeedbackType.warn : FeedbackType.info,
+      unsupported ? tr('No playable source resolved', '未解析到可播放资源') : '$mode, $auto, $fallback, $cached',
     );
   }
 

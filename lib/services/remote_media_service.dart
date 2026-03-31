@@ -279,6 +279,24 @@ class RemoteMediaService {
     );
   }
 
+  Future<File?> downloadMedia({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    String trigger = 'manual',
+  }) async {
+    await remoteMediaLogService.log(
+      'auto_download',
+      'download requested',
+      data: {
+        'server': server.name,
+        'protocol': server.protocol.name,
+        'path': node.path,
+        'trigger': trigger,
+      },
+    );
+    return _autoDownload(server: server, node: node);
+  }
+
   Future<List<RemoteBrowseNode>> _listNodes(RemoteServer server, String path) async {
     switch (server.protocol) {
       case RemoteProtocol.webdav:
