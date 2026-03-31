@@ -100,14 +100,11 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
         await _showEditor(initial: server);
       case 'test':
         setState(() => _busy = true);
-        final data = await remoteMediaService.loadFolder(
-          server: server,
-          path: server.basePath ?? '/',
-          force: true,
-        );
-        await remoteMediaLogService.log('remote_load', 'manual connection test', data: {'server': server.name, 'protocol': server.protocol.id, 'nodes': data.children.length});
+        final result = await remoteMediaService.testConnection(server);
+        await remoteMediaLogService.log('remote_load', 'manual connection test', data: {'server': server.name, 'protocol': server.protocol.id, 'success': result.success});
         if (mounted) {
-          showFeedback(context, FeedbackType.info, context.locale.startsWith('zh') ? '连接测试完成' : 'Connection test done');
+          final message = '${result.message}${result.latencyMillis != null ? ' (${result.latencyMillis}ms)' : ''}';
+          showFeedback(context, result.success ? FeedbackType.info : FeedbackType.warn, message);
         }
         setState(() => _busy = false);
       case 'delete':

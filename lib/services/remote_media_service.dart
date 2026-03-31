@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/model/remote/remote_server.dart';
@@ -38,7 +39,30 @@ class RemoteFolderPageData {
   });
 }
 
+class RemoteConnectionTestResult {
+  final bool success;
+  final String message;
+  final int? latencyMillis;
+
+  const RemoteConnectionTestResult({
+    required this.success,
+    required this.message,
+    this.latencyMillis,
+  });
+}
+
 class RemoteMediaService {
+  Future<RemoteConnectionTestResult> testConnection(RemoteServer server) async {
+    switch (server.protocol) {
+      case RemoteProtocol.webdav:
+        return _testWebDav(server);
+      case RemoteProtocol.ftp:
+      case RemoteProtocol.sftp:
+      case RemoteProtocol.smb:
+        return _testTcp(server);
+    }
+  }
+
   Future<bool> shouldBlockAutoLoadByWifiPolicy() async {
     if (!settings.remoteWifiOnlyDownload) return false;
     final result = await Connectivity().checkConnectivity();
@@ -197,6 +221,127 @@ class RemoteMediaService {
       return _mockNodes(path);
     } finally {
       client.close();
+    }
+  }
+
+  Future<RemoteConnectionTestResult> _testWebDav(RemoteServer server) async {
+    final base = server.webdavUrl;
+    if (base == null || base.isEmpty) {
+      return const RemoteConnectionTestResult(success: false, message: 'Missing WebDAV URL');
+    }
+    final uri = Uri.tryParse(base);
+    if (uri == null) {
+      return const RemoteConnectionTestResult(success: false, message: 'Invalid WebDAV URL');
+    }
+
+    final client = http.Client();
+    final watch = Stopwatch()..start();
+    try {
+      final headers = <String, String>{'Depth': '0'};
+      final username = server.username;
+      final password = server.password;
+      if (username != null && password != null) {
+        final token = base64Encode(utf8.encode('$username:$password'));
+        headers['Authorization'] = 'Basic $token';
+      }
+
+      final response = await client.send(
+        http.Request('PROPFIND', uri)
+          ..headers.addAll(headers)
+          ..body = '',
+      );
+      await response.stream.drain<void>();
+      watch.stop();
+      final ok = response.statusCode >= 200 && response.statusCode < 500;
+      await remoteMediaLogService.log(
+        'remote_load',
+        'webdav connection test',
+        data: {
+          'server': server.name,
+          'status': response.statusCode,
+          'latencyMs': watch.elapsedMilliseconds,
+        },
+      );
+      return RemoteConnectionTestResult(
+        success: ok,
+        message: ok ? 'WebDAV responded with ${response.statusCode}' : 'WebDAV failed with ${response.statusCode}',
+        latencyMillis: watch.elapsedMilliseconds,
+      );
+    } catch (error, stack) {
+      watch.stop();
+      await remoteMediaLogService.log(
+        'remote_load',
+        'webdav connection exception',
+        data: {
+          'server': server.name,
+          'error': '$error',
+        },
+      );
+      await reportService.recordError(error, stack);
+      return RemoteConnectionTestResult(
+        success: false,
+        message: 'WebDAV error: $error',
+        latencyMillis: watch.elapsedMilliseconds,
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<RemoteConnectionTestResult> _testTcp(RemoteServer server) async {
+    final host = server.host;
+    if (host == null || host.isEmpty) {
+      return const RemoteConnectionTestResult(success: false, message: 'Missing host');
+    }
+    final port =
+        server.port ??
+        switch (server.protocol) {
+          RemoteProtocol.ftp => 21,
+          RemoteProtocol.sftp => 22,
+          RemoteProtocol.smb => 445,
+          RemoteProtocol.webdav => 80,
+        };
+    final watch = Stopwatch()..start();
+    try {
+      final socket = await Socket.connect(host, port, timeout: const Duration(seconds: 6));
+      socket.destroy();
+      watch.stop();
+      await remoteMediaLogService.log(
+        'remote_load',
+        'tcp connection test success',
+        data: {
+          'server': server.name,
+          'protocol': server.protocol.name,
+          'host': host,
+          'port': port,
+          'latencyMs': watch.elapsedMilliseconds,
+          'ftpAnonymous': server.ftpAnonymous,
+          'ftpPassive': server.ftpPassiveMode,
+        },
+      );
+      return RemoteConnectionTestResult(
+        success: true,
+        message: '${server.protocol.name.toUpperCase()} TCP reachable',
+        latencyMillis: watch.elapsedMilliseconds,
+      );
+    } catch (error) {
+      watch.stop();
+      await remoteMediaLogService.log(
+        'remote_load',
+        'tcp connection test failed',
+        data: {
+          'server': server.name,
+          'protocol': server.protocol.name,
+          'host': host,
+          'port': port,
+          'error': '$error',
+        },
+      );
+      return RemoteConnectionTestResult(
+        success: false,
+        message: '${server.protocol.name.toUpperCase()} TCP failed: $error',
+        latencyMillis: watch.elapsedMilliseconds,
+      );
     }
   }
 
