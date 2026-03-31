@@ -178,14 +178,14 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     if (entry.isRemoteCachedMedia) {
       return settings.remoteGridVideoAutoPlay;
     }
-    return settings.videoAutoPlayMode != VideoAutoPlayMode.disabled;
+    return settings.gridVideoAutoPlay;
   }
 
   bool _shouldMute(Settings settings) {
     if (entry.isRemoteCachedMedia) {
       return !settings.remoteGridVideoSoundOn;
     }
-    return settings.videoAutoPlayMode != VideoAutoPlayMode.playWithSound;
+    return !settings.gridVideoSoundOn;
   }
 
   Future<void> _onCurrentChanged() async {

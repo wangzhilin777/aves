@@ -37,4 +37,12 @@ mixin VideoSettings on SettingsAccess {
   bool get videoGestureVerticalDragBrightnessVolume => getBool(SettingKeys.videoGestureVerticalDragBrightnessVolumeKey) ?? SettingsDefaults.videoGestureVerticalDragBrightnessVolume;
 
   set videoGestureVerticalDragBrightnessVolume(bool newValue) => set(SettingKeys.videoGestureVerticalDragBrightnessVolumeKey, newValue);
+
+  bool get gridVideoAutoPlay => getBool(SettingKeys.gridVideoAutoPlayKey) ?? SettingsDefaults.gridVideoAutoPlay;
+
+  set gridVideoAutoPlay(bool newValue) => set(SettingKeys.gridVideoAutoPlayKey, newValue);
+
+  bool get gridVideoSoundOn => getBool(SettingKeys.gridVideoSoundOnKey) ?? SettingsDefaults.gridVideoSoundOn;
+
+  set gridVideoSoundOn(bool newValue) => set(SettingKeys.gridVideoSoundOnKey, newValue);
 }

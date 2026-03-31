@@ -12,6 +12,8 @@ class VideoPlaybackPage extends StatelessWidget {
 
   const VideoPlaybackPage({super.key});
 
+  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+
   @override
   Widget build(BuildContext context) {
     return AvesScaffold(
@@ -34,6 +36,16 @@ class VideoPlaybackPage extends StatelessWidget {
               selector: (context, s) => s.videoAutoPlayMode,
               onSelection: (v) => settings.videoAutoPlayMode = v,
               tileTitle: context.l10n.settingsVideoAutoPlay,
+            ),
+            SettingsSwitchListTile(
+              selector: (context, s) => s.gridVideoAutoPlay,
+              onChanged: (v) => settings.gridVideoAutoPlay = v,
+              title: _tr(context, 'Auto-play videos in grid/mosaic preview', '网格/马赛克预览自动播放视频'),
+            ),
+            SettingsSwitchListTile(
+              selector: (context, s) => s.gridVideoSoundOn,
+              onChanged: (v) => settings.gridVideoSoundOn = v,
+              title: _tr(context, 'Play grid/mosaic preview videos with sound by default', '网格/马赛克预览视频默认有声播放'),
             ),
             SettingsSelectionListTile<VideoLoopMode>(
               values: VideoLoopMode.values,

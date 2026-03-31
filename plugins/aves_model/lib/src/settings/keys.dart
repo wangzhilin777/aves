@@ -121,6 +121,8 @@ class SettingKeys {
   static const videoGestureDoubleTapTogglePlayKey = 'video_gesture_double_tap_toggle_play';
   static const videoGestureSideDoubleTapSeekKey = 'video_gesture_side_double_tap_skip';
   static const videoGestureVerticalDragBrightnessVolumeKey = 'video_gesture_vertical_drag_brightness_volume';
+  static const gridVideoAutoPlayKey = 'grid_video_auto_play';
+  static const gridVideoSoundOnKey = 'grid_video_sound_on';
 
   // subtitles
   static const subtitleFontSizeKey = 'subtitle_font_size';

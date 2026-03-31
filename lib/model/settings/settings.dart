@@ -428,6 +428,8 @@ class Settings
           case SettingKeys.videoGestureDoubleTapTogglePlayKey:
           case SettingKeys.videoGestureSideDoubleTapSeekKey:
           case SettingKeys.videoGestureVerticalDragBrightnessVolumeKey:
+          case SettingKeys.gridVideoAutoPlayKey:
+          case SettingKeys.gridVideoSoundOnKey:
           case SettingKeys.subtitleShowOutlineKey:
           case SettingKeys.tagEditorCurrentFilterSectionExpandedKey:
           case SettingKeys.convertWriteMetadataKey:
