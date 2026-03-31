@@ -72,6 +72,45 @@ class RemotePreviewPlan {
 }
 
 class RemoteMediaService {
+  Future<Directory> getConnectionCacheDirectory(String serverId) async {
+    final externalCacheRoot = await storageService.getExternalCacheDirectory();
+    final rootPath = externalCacheRoot.isNotEmpty ? externalCacheRoot : Directory.systemTemp.path;
+    final dir = Directory('$rootPath${Platform.pathSeparator}remote${Platform.pathSeparator}$serverId');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  Future<int> getConnectionCacheBytes(String serverId) async {
+    final dir = await getConnectionCacheDirectory(serverId);
+    if (!await dir.exists()) return 0;
+
+    var bytes = 0;
+    await for (final entity in dir.list(recursive: true, followLinks: false)) {
+      if (entity is File) {
+        try {
+          bytes += await entity.length();
+        } catch (_) {}
+      }
+    }
+    return bytes;
+  }
+
+  Future<bool> clearConnectionCache(String serverId) async {
+    final dir = await getConnectionCacheDirectory(serverId);
+    if (!await dir.exists()) return true;
+    try {
+      await dir.delete(recursive: true);
+      await remoteMediaLogService.log('remote_load', 'cleared remote cache for server', data: {'serverId': serverId});
+      return true;
+    } catch (error, stack) {
+      await remoteMediaLogService.log('remote_load', 'failed to clear remote cache', data: {'serverId': serverId, 'error': '$error'});
+      await reportService.recordError(error, stack);
+      return false;
+    }
+  }
+
   Future<RemoteConnectionTestResult> testConnection(RemoteServer server) async {
     switch (server.protocol) {
       case RemoteProtocol.webdav:

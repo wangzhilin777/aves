@@ -5,6 +5,7 @@ import 'package:aves/model/remote/remote_server.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/theme/icons.dart';
+import 'package:aves/utils/file_utils.dart';
 import 'package:aves/widgets/common/action_mixins/feedback.dart';
 import 'package:aves/widgets/common/basic/scaffold.dart';
 import 'package:aves/widgets/common/extensions/build_context.dart';
@@ -71,6 +72,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
                     itemBuilder: (context) => [
                       PopupMenuItem(value: 'edit', child: Text(_tr(context, 'Edit', '编辑'))),
                       PopupMenuItem(value: 'test', child: Text(_tr(context, 'Test Connection', '测试连接'))),
+                      PopupMenuItem(value: 'clear_cache', child: Text(_tr(context, 'Clear Cache', '清理缓存'))),
                       PopupMenuItem(value: 'delete', child: Text(_tr(context, 'Delete', '删除'))),
                     ],
                   ),
@@ -125,6 +127,30 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
           settings.remoteServers = settings.remoteServers.where((v) => v.id != server.id).toList();
           settings.remotePinnedFolders = settings.remotePinnedFolders.where((v) => v.serverId != server.id).toList();
           await remoteMediaLogService.log('remote_load', 'deleted server', data: {'server': server.name});
+        }
+      case 'clear_cache':
+        final bytes = await remoteMediaService.getConnectionCacheBytes(server.id);
+        final hint = formatFileSize(context.locale, bytes, round: 1);
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(_tr(context, 'Clear remote cache?', '清理远程缓存？')),
+            content: Text(_tr(context, 'Current cache size: $hint', '当前缓存大小：$hint')),
+            actions: [
+              TextButton(onPressed: () => Navigator.maybeOf(context)?.pop(false), child: Text(MaterialLocalizations.of(context).cancelButtonLabel)),
+              TextButton(onPressed: () => Navigator.maybeOf(context)?.pop(true), child: Text(MaterialLocalizations.of(context).okButtonLabel)),
+            ],
+          ),
+        );
+        if (ok == true) {
+          final cleared = await remoteMediaService.clearConnectionCache(server.id);
+          if (mounted) {
+            showFeedback(
+              context,
+              cleared ? FeedbackType.info : FeedbackType.warn,
+              cleared ? _tr(context, 'Cache cleared', '缓存已清理') : _tr(context, 'Failed to clear cache', '清理缓存失败'),
+            );
+          }
         }
     }
   }
