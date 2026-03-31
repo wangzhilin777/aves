@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 
 import 'package:aves/model/remote/remote_protocol.dart';
@@ -465,3 +465,4 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
     Navigator.maybeOf(context)?.pop(server);
   }
 }
+
