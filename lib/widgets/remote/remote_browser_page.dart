@@ -263,13 +263,17 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                           title: Text(node.name),
                           subtitle: Text('${node.path}${node.sizeBytes != null ? '  (${formatFileSize(context.locale, node.sizeBytes!, round: 1)})' : ''}'),
                           trailing: node.isDirectory
-                              ? null
+                              ? IconButton(
+                                  icon: const Icon(Icons.more_horiz),
+                                  tooltip: tr('More actions', '更多操作'),
+                                  onPressed: () => _showDirectoryActions(node),
+                                )
                               : IconButton(
                                   icon: const Icon(Icons.more_horiz),
                                   tooltip: tr('More actions', '更多操作'),
                                   onPressed: () => _showFileActions(node),
                                 ),
-                          onLongPress: node.isDirectory ? null : () => _showFileActions(node),
+                          onLongPress: node.isDirectory ? () => _showDirectoryActions(node) : () => _showFileActions(node),
                           onTap: () => node.isDirectory ? _enterDirectory(node.path) : _openRemoteNode(node, _RemoteOpenAction.strategy),
                         );
                       },
@@ -331,6 +335,43 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
     );
     if (action == null) return;
     await _openRemoteNode(node, action);
+  }
+
+  Future<void> _showDirectoryActions(RemoteBrowseNode node) async {
+    if (!mounted) return;
+    String tr(String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+    final pinned = _isPathPinned(node.path);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(title: Text(node.name), subtitle: Text(node.path)),
+            ListTile(
+              leading: const Icon(AIcons.folder),
+              title: Text(tr('Enter folder', '进入目录')),
+              onTap: () => Navigator.of(context).pop('enter'),
+            ),
+            ListTile(
+              leading: Icon(pinned ? AIcons.unpin : AIcons.pin),
+              title: Text(pinned ? tr('Unpin from remote albums', '取消在远程相册显示') : tr('Show in remote albums', '在远程相册中显示')),
+              onTap: () => Navigator.of(context).pop('pin'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action == 'enter') {
+      _enterDirectory(node.path);
+      return;
+    }
+    if (action == 'pin') {
+      await _togglePinPath(node.path);
+      if (!mounted) return;
+      final nowPinned = _isPathPinned(node.path);
+      showFeedback(context, FeedbackType.info, nowPinned ? tr('Folder pinned', '目录已固定') : tr('Folder unpinned', '目录已取消固定'));
+    }
   }
 
   Future<void> _openRemoteNode(RemoteBrowseNode node, _RemoteOpenAction action) async {
@@ -462,25 +503,29 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
     }
   }
 
-  bool get _isPinned => settings.remotePinnedFolders.any((v) => v.serverId == widget.server.id && v.path == _path);
+  bool _isPathPinned(String path) => settings.remotePinnedFolders.any((v) => v.serverId == widget.server.id && v.path == path);
 
-  String get _pathLeaf {
-    final parts = _path.split('/').where((v) => v.isNotEmpty).toList();
-    return parts.isEmpty ? '/' : parts.last;
-  }
+  bool get _isPinned => _isPathPinned(_path);
 
   Future<void> _togglePin() async {
+    await _togglePinPath(_path);
+    setState(() {});
+  }
+
+  Future<void> _togglePinPath(String path) async {
     final all = settings.remotePinnedFolders;
-    if (_isPinned) {
-      settings.remotePinnedFolders = all.where((v) => !(v.serverId == widget.server.id && v.path == _path)).toList();
-      await remoteMediaLogService.log('remote_load', 'unpinned folder', data: {'server': widget.server.name, 'path': _path});
+    final pinned = _isPathPinned(path);
+    if (pinned) {
+      settings.remotePinnedFolders = all.where((v) => !(v.serverId == widget.server.id && v.path == path)).toList();
+      await remoteMediaLogService.log('remote_load', 'unpinned folder', data: {'server': widget.server.name, 'path': path});
     } else {
+      final parts = path.split('/').where((v) => v.isNotEmpty).toList();
+      final leaf = parts.isEmpty ? '/' : parts.last;
       settings.remotePinnedFolders = [
         ...all,
-        RemotePinnedFolder(serverId: widget.server.id, path: _path, title: '${widget.server.name}:$_pathLeaf'),
+        RemotePinnedFolder(serverId: widget.server.id, path: path, title: '${widget.server.name}:$leaf'),
       ];
-      await remoteMediaLogService.log('remote_load', 'pinned folder', data: {'server': widget.server.name, 'path': _path});
+      await remoteMediaLogService.log('remote_load', 'pinned folder', data: {'server': widget.server.name, 'path': path});
     }
-    setState(() {});
   }
 }
