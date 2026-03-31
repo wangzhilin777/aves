@@ -275,6 +275,18 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       await videoController.mute(true);
     }
 
+    try {
+      await videoController.untilReady.timeout(const Duration(milliseconds: 1200));
+    } catch (_) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'video not ready before autoplay timeout',
+          data: {'uri': uri},
+        ),
+      );
+    }
+
     if (resumeTimeMillis != null) {
       await videoController.seekTo(resumeTimeMillis);
     }
@@ -290,6 +302,20 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         },
       ),
     );
+
+    // Playback initialization can still race with focus transitions or decoder warm-up.
+    // If autoplay did not effectively start, retry once while the same entry stays focused.
+    await Future.delayed(const Duration(milliseconds: 350) * timeDilation);
+    if (token == _autoPlayRequestToken && isCurrent() && !videoController.isPlaying && videoController.status != VideoStatus.error) {
+      await videoController.play();
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'autoplay retry requested after initial non-playing state',
+          data: {'uri': uri},
+        ),
+      );
+    }
 
     // playing controllers are paused when the entry changes,
     // but the controller may still be preparing (not yet playing) when this happens
