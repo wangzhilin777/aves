@@ -330,6 +330,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   final GlobalKey _scrollableKey = GlobalKey(debugLabel: 'thumbnail-collection-scrollable');
   Timer? _focusDebounceTimer;
   AvesEntry? _pendingFocusTarget;
+  DateTime _lastFocusProbeLogAt = DateTime.fromMillisecondsSinceEpoch(0);
+  String? _lastFocusProbeTargetUri;
 
   CollectionLens get collection => widget.collection;
 
@@ -422,9 +424,18 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     ];
 
     AvesEntry? target;
+    final probeSamples = <Map<String, Object?>>[];
     for (final y in probesY) {
       for (final x in probesX) {
         final candidate = layout.getItemAt(Offset(x, y));
+        if (probeSamples.length < 8) {
+          probeSamples.add({
+            'x': x.toStringAsFixed(1),
+            'y': y.toStringAsFixed(1),
+            'uri': candidate?.uri,
+            'isVideo': candidate?.isVideo,
+          });
+        }
         if (candidate?.isVideo == true) {
           target = candidate;
           break;
@@ -432,7 +443,46 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       }
       if (target != null) break;
     }
+    _logFocusProbe(
+      target: target,
+      viewportTopY: viewportTopY,
+      viewportHeight: size.height,
+      probeSamples: probeSamples,
+    );
     _scheduleFocusUpdate(target);
+  }
+
+  void _logFocusProbe({
+    required AvesEntry? target,
+    required double viewportTopY,
+    required double viewportHeight,
+    required List<Map<String, Object?>> probeSamples,
+  }) {
+    final now = DateTime.now();
+    final targetUri = target?.uri;
+    final targetChanged = targetUri != _lastFocusProbeTargetUri;
+    final elapsed = now.difference(_lastFocusProbeLogAt).inMilliseconds;
+    final shouldLog = targetChanged || elapsed >= 900;
+    if (!shouldLog) return;
+
+    _lastFocusProbeLogAt = now;
+    _lastFocusProbeTargetUri = targetUri;
+    unawaited(
+      remoteMediaLogService.log(
+        'focus',
+        'collection preview focus probe',
+        data: {
+          'scrollOffset': scrollController.offset.toStringAsFixed(1),
+          'appBarHeight': _appBarHeightNotifier.value.toStringAsFixed(1),
+          'viewportTopY': viewportTopY.toStringAsFixed(1),
+          'viewportHeight': viewportHeight.toStringAsFixed(1),
+          'isScrolling': widget.isScrollingNotifier.value,
+          'targetUri': targetUri,
+          'targetIsVideo': target?.isVideo,
+          'samples': probeSamples,
+        },
+      ),
+    );
   }
 
   void _scheduleFocusUpdate(AvesEntry? target) {
