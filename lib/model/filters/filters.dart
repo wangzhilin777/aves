@@ -9,6 +9,7 @@ import 'package:aves/model/filters/container/set_or.dart';
 import 'package:aves/model/filters/container/tag_group.dart';
 import 'package:aves/model/filters/coordinate.dart';
 import 'package:aves/model/filters/covered/location.dart';
+import 'package:aves/model/filters/covered/remote_album.dart';
 import 'package:aves/model/filters/covered/stored_album.dart';
 import 'package:aves/model/filters/covered/tag.dart';
 import 'package:aves/model/filters/date.dart';
@@ -41,6 +42,7 @@ abstract class CollectionFilter extends Equatable implements Comparable<Collecti
     AlbumGroupFilter.type,
     TagGroupFilter.type,
     DynamicAlbumFilter.type,
+    RemoteAlbumFilter.type,
     StoredAlbumFilter.type,
     TypeFilter.type,
     RecentlyAddedFilter.type,
@@ -79,6 +81,8 @@ abstract class CollectionFilter extends Equatable implements Comparable<Collecti
         return FavouriteFilter.fromMap(jsonMap);
       case LocationFilter.type:
         return LocationFilter.fromMap(jsonMap);
+      case RemoteAlbumFilter.type:
+        return RemoteAlbumFilter.fromMap(jsonMap);
       case MimeFilter.type:
         return MimeFilter.fromMap(jsonMap);
       case MissingFilter.type:

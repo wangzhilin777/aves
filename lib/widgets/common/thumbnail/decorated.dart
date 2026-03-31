@@ -319,7 +319,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                 ),
               ),
               Positioned(
-                top: 6,
+                bottom: 6,
                 right: 6,
                 child: IgnorePointer(
                   ignoring: !show,

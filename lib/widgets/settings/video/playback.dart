@@ -1,8 +1,5 @@
-﻿import 'dart:async';
-
-import 'package:aves/model/device.dart';
+﻿import 'package:aves/model/device.dart';
 import 'package:aves/model/settings/settings.dart';
-import 'package:aves/services/common/services.dart';
 import 'package:aves/view/view.dart';
 import 'package:aves/widgets/common/basic/scaffold.dart';
 import 'package:aves/widgets/common/extensions/build_context.dart';
@@ -14,8 +11,6 @@ class VideoPlaybackPage extends StatelessWidget {
   static const routeName = '/settings/video/playback';
 
   const VideoPlaybackPage({super.key});
-
-  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
 
   @override
   Widget build(BuildContext context) {
@@ -39,34 +34,6 @@ class VideoPlaybackPage extends StatelessWidget {
               selector: (context, s) => s.videoAutoPlayMode,
               onSelection: (v) => settings.videoAutoPlayMode = v,
               tileTitle: context.l10n.settingsVideoAutoPlay,
-            ),
-            SettingsSwitchListTile(
-              selector: (context, s) => s.gridVideoAutoPlay,
-              onChanged: (v) {
-                settings.gridVideoAutoPlay = v;
-                unawaited(
-                  remoteMediaLogService.log(
-                    'autoplay',
-                    'updated grid preview autoplay setting',
-                    data: {'enabled': v},
-                  ),
-                );
-              },
-              title: _tr(context, 'Auto-play videos in grid/mosaic preview', '网格/马赛克预览自动播放视频'),
-            ),
-            SettingsSwitchListTile(
-              selector: (context, s) => s.gridVideoSoundOn,
-              onChanged: (v) {
-                settings.gridVideoSoundOn = v;
-                unawaited(
-                  remoteMediaLogService.log(
-                    'autoplay',
-                    'updated grid preview default sound setting',
-                    data: {'soundOn': v},
-                  ),
-                );
-              },
-              title: _tr(context, 'Play grid/mosaic preview videos with sound by default', '网格/马赛克预览视频默认有声播放'),
             ),
             SettingsSelectionListTile<VideoLoopMode>(
               values: VideoLoopMode.values,

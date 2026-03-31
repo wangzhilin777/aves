@@ -523,7 +523,7 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
       }
     }
 
-    final unsupportedByStreamOnly = unsupported && plan.reason == 'stream_only';
+    final unsupportedByStreamOnly = unsupported && plan.reason == 'video_stream_only';
     final warnMessage = unsupportedByStreamOnly
         ? tr('Streaming only is enabled, but this protocol cannot stream directly. Disable streaming-only or force download.', '已启用仅流式，但该协议不支持直接流式。请关闭仅流式或使用强制下载。')
         : tr('No playable source resolved', '未解析到可播放资源');

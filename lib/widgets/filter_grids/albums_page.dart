@@ -4,6 +4,7 @@ import 'package:aves/model/dynamic_albums.dart';
 import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/filters/container/album_group.dart';
 import 'package:aves/model/filters/container/dynamic_album.dart';
+import 'package:aves/model/filters/covered/remote_album.dart';
 import 'package:aves/model/filters/covered/stored_album.dart';
 import 'package:aves/model/filters/filters.dart';
 import 'package:aves/model/grouping/common.dart';
@@ -139,11 +140,28 @@ class AlbumListPage extends StatelessWidget {
 
     // always show groups, which are needed to navigate to other types
     final albumGroupFilters = groupContent.whereType<AlbumGroupFilter>().whereNot(hidden.contains).toSet();
+    final remotePinnedFilters = <RemoteAlbumFilter>{};
+    if (groupUri == null) {
+      for (final pinned in settings.remotePinnedFolders) {
+        final server = settings.remoteServers.firstWhereOrNull((v) => v.id == pinned.serverId);
+        if (server == null) continue;
+        final parts = pinned.path.split('/').where((v) => v.isNotEmpty).toList();
+        final leaf = parts.isEmpty ? '/' : parts.last;
+        remotePinnedFilters.add(
+          RemoteAlbumFilter(
+            serverId: pinned.serverId,
+            path: pinned.path,
+            title: '${server.name}:$leaf',
+          ),
+        );
+      }
+    }
 
     final filters = <AlbumBaseFilter>{
       ...albumGroupFilters,
       ...listedStoredAlbums,
       ...listedDynamicAlbums,
+      ...remotePinnedFilters,
     };
 
     return FilterNavigationPage.sort(settings.albumSortFactor, settings.albumSortReverse, source, filters);

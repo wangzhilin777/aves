@@ -1,4 +1,4 @@
-import 'package:aves/model/filters/favourite.dart';
+﻿import 'package:aves/model/filters/favourite.dart';
 import 'package:aves/model/filters/filters.dart';
 import 'package:aves/model/filters/mime.dart';
 import 'package:aves/model/filters/type.dart';

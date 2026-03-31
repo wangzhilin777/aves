@@ -219,12 +219,12 @@ class RemoteMediaService {
     final streamMode = settings.remoteStreamMode;
 
     final RemotePreviewPlan plan;
-    if (streamMode == RemoteStreamMode.streamOnly) {
+    if (streamMode == RemoteStreamMode.streamOnly && node.isVideo) {
       plan = const RemotePreviewPlan(
         streamFirst: true,
         shouldAutoDownload: false,
         allowDownloadFallback: false,
-        reason: 'stream_only',
+        reason: 'video_stream_only',
       );
     } else if (node.isVideo) {
       plan = RemotePreviewPlan(

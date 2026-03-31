@@ -39,6 +39,8 @@ class ViewerSection extends SettingsSection {
       if (!settings.useTvLayout) SettingsTileViewerGestureSideTapNext(),
       if (!settings.useTvLayout && isCutoutAware) SettingsTileViewerUseCutout(),
       SettingsTileViewerMotionPhotoAutoPlay(),
+      if (!settings.useTvLayout) SettingsTileViewerGridVideoAutoPlay(),
+      if (!settings.useTvLayout) SettingsTileViewerGridVideoSoundOn(),
       SettingsTileViewerImageBackground(),
     ];
   }
@@ -130,5 +132,51 @@ class SettingsTileViewerImageBackground extends SettingsTile {
         setter: (value) => settings.imageBackground = value,
       ),
     ),
+  );
+}
+
+class SettingsTileViewerGridVideoAutoPlay extends SettingsTile {
+  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+
+  @override
+  String title(BuildContext context) => _tr(context, 'Auto-play videos in grid/mosaic preview', '网格/马赛克预览自动播放视频');
+
+  @override
+  Widget build(BuildContext context) => SettingsSwitchListTile(
+    selector: (context, s) => s.gridVideoAutoPlay,
+    onChanged: (v) {
+      settings.gridVideoAutoPlay = v;
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'updated grid preview autoplay setting',
+          data: {'enabled': v},
+        ),
+      );
+    },
+    title: title(context),
+  );
+}
+
+class SettingsTileViewerGridVideoSoundOn extends SettingsTile {
+  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+
+  @override
+  String title(BuildContext context) => _tr(context, 'Play grid/mosaic preview videos with sound by default', '网格/马赛克预览视频默认有声播放');
+
+  @override
+  Widget build(BuildContext context) => SettingsSwitchListTile(
+    selector: (context, s) => s.gridVideoSoundOn,
+    onChanged: (v) {
+      settings.gridVideoSoundOn = v;
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'updated grid preview default sound setting',
+          data: {'soundOn': v},
+        ),
+      );
+    },
+    title: title(context),
   );
 }

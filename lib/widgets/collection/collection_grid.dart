@@ -404,17 +404,31 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
 
     final layout = context.read<SectionedListLayout<AvesEntry>>();
     final size = renderObject.size;
-    final center = Offset(
-      size.width / 2,
-      size.height / 2 + scrollController.offset - _appBarHeightNotifier.value,
-    );
-    final viewportBottomY = size.height + scrollController.offset - _appBarHeightNotifier.value - 1;
-    final focused =
-        layout.getItemAt(center) ??
-        layout.getItemAt(Offset(0, center.dy)) ??
-        layout.getItemAt(Offset(size.width / 2, viewportBottomY)) ??
-        layout.getItemAt(Offset(0, viewportBottomY));
-    final target = focused?.isVideo == true ? focused : null;
+    final viewportTopY = scrollController.offset - _appBarHeightNotifier.value;
+    final probesY = [
+      viewportTopY + size.height * .72,
+      viewportTopY + size.height * .62,
+      viewportTopY + size.height * .50,
+      viewportTopY + size.height * .82,
+    ];
+    final probesX = [
+      size.width * .5,
+      size.width * .2,
+      size.width * .8,
+      0.0,
+    ];
+
+    AvesEntry? target;
+    for (final y in probesY) {
+      for (final x in probesX) {
+        final candidate = layout.getItemAt(Offset(x, y));
+        if (candidate?.isVideo == true) {
+          target = candidate;
+          break;
+        }
+      }
+      if (target != null) break;
+    }
     if (widget.previewPlayingEntryNotifier.value != target) {
       widget.previewPlayingEntryNotifier.value = target;
       unawaited(

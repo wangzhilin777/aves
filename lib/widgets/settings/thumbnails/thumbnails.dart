@@ -1,4 +1,4 @@
-import 'package:aves/model/settings/settings.dart';
+﻿import 'package:aves/model/settings/settings.dart';
 import 'package:aves/ref/bursts.dart';
 import 'package:aves/theme/colors.dart';
 import 'package:aves/theme/icons.dart';

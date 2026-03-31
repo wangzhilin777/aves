@@ -1,5 +1,6 @@
 import 'package:aves/model/filters/container/album_group.dart';
 import 'package:aves/model/filters/container/group_base.dart';
+import 'package:aves/model/filters/covered/remote_album.dart';
 import 'package:aves/model/filters/covered/stored_album.dart';
 import 'package:aves/model/filters/filters.dart';
 import 'package:aves/model/selection.dart';
@@ -18,7 +19,9 @@ import 'package:aves/widgets/filter_grids/common/action_delegates/chip_set.dart'
 import 'package:aves/widgets/filter_grids/common/app_bar.dart';
 import 'package:aves/widgets/filter_grids/common/filter_grid_page.dart';
 import 'package:aves/widgets/filter_grids/common/section_keys.dart';
+import 'package:aves/widgets/remote/remote_browser_page.dart';
 import 'package:aves_model/aves_model.dart';
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -173,6 +176,17 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
 
                   if (filter is GroupBaseFilter) {
                     context.read<FilterGroupNotifier>().value = filter.uri;
+                  } else if (filter is RemoteAlbumFilter) {
+                    final server = settings.remoteServers.firstWhereOrNull((v) => v.id == filter.serverId);
+                    if (server == null) return;
+                    final route = MaterialPageRoute(
+                      settings: const RouteSettings(name: RemoteBrowserPage.routeName),
+                      builder: (context) => RemoteBrowserPage(
+                        server: server,
+                        initialPath: filter.path,
+                      ),
+                    );
+                    navigate(route);
                   } else {
                     final route = MaterialPageRoute(
                       settings: const RouteSettings(name: CollectionPage.routeName),
