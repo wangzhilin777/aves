@@ -50,8 +50,30 @@ try {
     --target-platform android-arm64 `
     --release
 
+  $candidateOutDirs = @(
+    "build\app\outputs\flutter-apk",
+    "android\app\build\outputs\flutter-apk"
+  )
+  $outDir = $candidateOutDirs | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+  if ([string]::IsNullOrWhiteSpace($outDir)) {
+    $outDir = $candidateOutDirs[0]
+  }
+  $targetName = "app-arm64-v8a-izzy-release.apk"
+  $targetPath = Join-Path $outDir $targetName
+  if (!(Test-Path -LiteralPath $targetPath)) {
+    $fallbackPath = Join-Path $outDir "app-izzy-release.apk"
+    if (Test-Path -LiteralPath $fallbackPath) {
+      Copy-Item -LiteralPath $fallbackPath -Destination $targetPath -Force
+      Write-Host "[build] normalized output name: $targetName"
+    }
+  }
+
   Write-Host "[done] output:"
-  Write-Host "android\app\build\outputs\flutter-apk\app-arm64-v8a-izzy-release.apk"
+  if (Test-Path -LiteralPath $targetPath) {
+    Write-Host $targetPath
+  } else {
+    Write-Warning "[done] expected output not found at $targetPath"
+  }
 } finally {
   if (Test-Path -LiteralPath $lockBackupPath) {
     Move-Item -LiteralPath $lockBackupPath -Destination $lockPath -Force

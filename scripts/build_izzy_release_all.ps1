@@ -48,7 +48,14 @@ try {
   Write-Host "[build] split-per-abi apk"
   & $flutter build apk --flavor izzy -t lib/main_izzy.dart --split-per-abi --release
 
-  $outDir = "android\app\build\outputs\flutter-apk"
+  $candidateOutDirs = @(
+    "build\app\outputs\flutter-apk",
+    "android\app\build\outputs\flutter-apk"
+  )
+  $outDir = $candidateOutDirs | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+  if ([string]::IsNullOrWhiteSpace($outDir)) {
+    $outDir = $candidateOutDirs[0]
+  }
   $renameMap = @{
     "app-izzy-release.apk" = "app-izzy-release-$version.apk"
     "app-armeabi-v7a-izzy-release.apk" = "app-armeabi-v7a-izzy-release-$version.apk"
