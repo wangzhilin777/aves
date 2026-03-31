@@ -108,6 +108,11 @@ extension ExtraAvesEntryProps on AvesEntry {
     return _storagePath != null && !File(_storagePath).existsSync();
   }
 
+  bool get isRemoteCachedMedia {
+    final source = '${path ?? ''} $uri';
+    return RegExp(r'[/\\]remote[/\\]', caseSensitive: false).hasMatch(source);
+  }
+
   // providers
 
   bool get _isVaultContent => path?.startsWith(androidFileUtils.vaultRoot) ?? false;
