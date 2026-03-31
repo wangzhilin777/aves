@@ -298,7 +298,7 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
             if (_protocol == RemoteProtocol.webdav) ...[
               TextField(
                 controller: _webdavUrlController,
-                decoration: const InputDecoration(labelText: 'WebDAV URL'),
+                decoration: InputDecoration(labelText: _tr(context, 'WebDAV URL', 'WebDAV 地址')),
               ),
               const SizedBox(height: 8),
             ] else ...[
