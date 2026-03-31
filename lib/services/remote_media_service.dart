@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/model/remote/remote_server.dart';
+import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/entry/origins.dart';
 import 'package:aves/model/settings/enums/remote_stream_mode.dart';
@@ -87,6 +88,56 @@ class RemoteMediaResolveResult {
 }
 
 class RemoteMediaService {
+  final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
+  final Set<String> _downloadInProgressUris = {};
+
+  void registerVirtualRemoteRef({
+    required String uri,
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+  }) {
+    _virtualRemoteRefs[uri] = (server, node);
+  }
+
+  bool hasVirtualRemoteRef(String uri) => _virtualRemoteRefs.containsKey(uri);
+
+  Future<File?> ensureDownloadedForEntry(
+    AvesEntry entry, {
+    String trigger = 'remote_entry_prefetch',
+  }) async {
+    final sourceUri = entry.uri;
+    final ref = _virtualRemoteRefs[sourceUri];
+    if (ref == null) return null;
+    if (_downloadInProgressUris.contains(sourceUri)) return null;
+
+    _downloadInProgressUris.add(sourceUri);
+    try {
+      final file = await downloadMedia(
+        server: ref.$1,
+        node: ref.$2,
+        trigger: trigger,
+      );
+      if (file == null) return null;
+      final fileUri = Uri.file(file.path).toString();
+      entry.uri = fileUri;
+      entry.path = file.path;
+      entry.sizeBytes = await file.length();
+      entry.visualChangeNotifier.notify();
+      await remoteMediaLogService.log(
+        'auto_download',
+        'entry switched to downloaded file',
+        data: {
+          'trigger': trigger,
+          'fromUri': sourceUri,
+          'toFile': file.path,
+        },
+      );
+      return file;
+    } finally {
+      _downloadInProgressUris.remove(sourceUri);
+    }
+  }
+
   Future<int> purgeIndexedRemoteCacheEntries() async {
     final entries = await localMediaDb.loadEntries(origin: EntryOrigins.mediaStoreContent);
     final remoteEntries = entries.where((entry) => entry.isRemoteCachedMedia).toSet();
@@ -987,9 +1038,7 @@ class RemoteMediaService {
     final normalizedNoSlash = normalizedPath.replaceFirst(RegExp(r'^/+'), '');
     final basePathNormalized = _normalizePath(basePath);
     final normalizedAsPath = _normalizePath(normalizedPath);
-    final fullPath = normalizedAsPath == basePathNormalized || normalizedAsPath.startsWith('$basePathNormalized/')
-        ? normalizedAsPath
-        : '$basePath/$normalizedNoSlash';
+    final fullPath = normalizedAsPath == basePathNormalized || normalizedAsPath.startsWith('$basePathNormalized/') ? normalizedAsPath : '$basePath/$normalizedNoSlash';
     return baseUri.replace(path: fullPath);
   }
 

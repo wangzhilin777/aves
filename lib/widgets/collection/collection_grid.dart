@@ -528,6 +528,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   void _applyFocusTarget(AvesEntry? target) {
     if (widget.previewPlayingEntryNotifier.value == target) return;
     widget.previewPlayingEntryNotifier.value = target;
+    unawaited(_prefetchRemoteWindow(target));
     unawaited(
       remoteMediaLogService.log(
         'focus',
@@ -538,6 +539,43 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
         },
       ),
     );
+  }
+
+  Future<void> _prefetchRemoteWindow(AvesEntry? focus) async {
+    if (focus == null || !mounted) return;
+    final entries = collection.sortedEntries;
+    if (entries.isEmpty) return;
+
+    final focusIndex = entries.indexOf(focus);
+    if (focusIndex < 0) return;
+
+    final candidates = <AvesEntry>[];
+    final upperBound = min(focusIndex + 4, entries.length);
+    for (var i = focusIndex; i < upperBound; i++) {
+      final entry = entries[i];
+      if (!entry.isImage) continue;
+      if (!remoteMediaService.hasVirtualRemoteRef(entry.uri)) continue;
+      candidates.add(entry);
+    }
+    if (candidates.isEmpty) return;
+
+    await remoteMediaLogService.log(
+      'lazy_load',
+      'trigger remote image lazy download window',
+      data: {
+        'focusUri': focus.uri,
+        'focusIndex': focusIndex,
+        'count': candidates.length,
+        'uris': candidates.map((e) => e.uri).toList(),
+      },
+    );
+
+    for (final entry in candidates) {
+      await remoteMediaService.ensureDownloadedForEntry(
+        entry,
+        trigger: 'collection_focus_image_window',
+      );
+    }
   }
 }
 

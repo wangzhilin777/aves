@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:aves/model/filters/container/album_group.dart';
 import 'package:aves/model/filters/container/group_base.dart';
 import 'package:aves/model/entry/entry.dart';
-import 'package:aves/model/entry/extensions/catalog.dart';
 import 'package:aves/model/entry/origins.dart';
 import 'package:aves/model/filters/covered/remote_album.dart';
 import 'package:aves/model/filters/covered/stored_album.dart';
@@ -137,6 +136,7 @@ class FilterNavigationPage<T extends CollectionFilter, CSAD extends ChipSetActio
 
 class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSetActionDelegate<T>> extends State<FilterNavigationPage<T, CSAD>> with FeedbackMixin, VaultAwareMixin {
   final ValueNotifier<double> _appBarHeightNotifier = ValueNotifier(0);
+  int _virtualEntrySeed = -1;
 
   @override
   void dispose() {
@@ -218,9 +218,9 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
 
     unawaited(
       showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
       ),
     );
 
@@ -240,59 +240,29 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
       directoryNodes.addAll(page.children.where((node) => node.isDirectory));
       final mediaNodes = page.children.where((node) => !node.isDirectory).toList();
       for (final node in mediaNodes) {
-        var resolved = await remoteMediaService.resolveMedia(server: server, node: node);
-        if (node.isImage && resolved.downloadedFile == null) {
-          final forcedImageFile = await remoteMediaService.downloadMedia(
-            server: server,
-            node: node,
-            trigger: 'native_injection_image_force_download',
-          );
-          if (forcedImageFile != null) {
-            resolved = RemoteMediaResolveResult(
-              streamUri: resolved.streamUri,
-              downloadedFile: forcedImageFile,
-              plan: resolved.plan,
-            );
-            await remoteMediaLogService.log(
-              'auto_download',
-              'forced image download for native collection injection',
-              data: {
-                'server': server.name,
-                'path': node.path,
-                'file': forcedImageFile.path,
-              },
-            );
-          }
-        }
-
-        final uri = resolved.downloadedFile != null ? Uri.file(resolved.downloadedFile!.path) : resolved.streamUri;
-        if (uri == null) continue;
-
+        final uri = remoteMediaService.buildStreamUri(server: server, node: node) ?? _buildDeferredRemoteUri(server.id, node.path);
+        remoteMediaService.registerVirtualRemoteRef(
+          uri: uri.toString(),
+          server: server,
+          node: node,
+        );
         final mimeType = remoteMediaService.inferMimeType(node);
-        AvesEntry? entry = await mediaFetchService.getEntry(uri.toString(), mimeType, allowUnsized: true);
-        if (entry != null) {
-          await entry.catalog(background: false, force: false, persist: false);
-          entries.add(entry);
-          continue;
-        }
-
-        entry = _buildVirtualRemoteEntry(
+        final entry = _buildVirtualRemoteEntry(
           serverId: server.id,
           node: node,
           uri: uri,
           mimeType: mimeType,
-          downloadedFile: resolved.downloadedFile,
         );
         entries.add(entry);
         await remoteMediaLogService.log(
           'remote_load',
-          'injected virtual remote entry for native collection page',
+          'injected deferred remote entry for native collection page',
           data: {
             'server': server.name,
             'path': node.path,
             'uri': uri.toString(),
             'mimeType': mimeType,
-            'downloaded': resolved.downloadedFile?.path,
+            'isStreamingUri': uri.scheme == 'http' || uri.scheme == 'https',
           },
         );
       }
@@ -394,13 +364,12 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
     required RemoteBrowseNode node,
     required Uri uri,
     required String mimeType,
-    required File? downloadedFile,
   }) {
     const defaultVideoWidth = 1280;
     const defaultVideoHeight = 720;
     final isVideo = mimeType.startsWith('video/');
     final remotePath = node.path.replaceAll('/', Platform.pathSeparator);
-    final path = downloadedFile?.path ?? '${Platform.pathSeparator}remote${Platform.pathSeparator}$serverId$remotePath';
+    final path = '${Platform.pathSeparator}remote${Platform.pathSeparator}$serverId$remotePath';
     final entryId = _stableRemoteVirtualEntryId(serverId: serverId, nodePath: node.path, uri: uri.toString());
     final title = node.name.isNotEmpty ? node.name : node.path.split('/').where((v) => v.isNotEmpty).lastOrNull;
     return AvesEntry(
@@ -429,8 +398,15 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
     required String nodePath,
     required String uri,
   }) {
-    final text = '$serverId|$nodePath|$uri';
-    final hash = text.hashCode & 0x7fffffff;
-    return hash == 0 ? 1 : hash;
+    return _virtualEntrySeed--;
+  }
+
+  Uri _buildDeferredRemoteUri(String serverId, String path) {
+    final normalizedPath = path.startsWith('/') ? path : '/$path';
+    return Uri(
+      scheme: 'aves-remote',
+      host: serverId,
+      path: normalizedPath,
+    );
   }
 }
