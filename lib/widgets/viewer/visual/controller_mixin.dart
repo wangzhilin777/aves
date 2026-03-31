@@ -27,6 +27,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   final Map<MultiPageController, Future<void> Function()> _multiPageControllerPageListeners = {};
   String? _lastAutoPlayUri;
   int _lastAutoPlayAttemptMillis = 0;
+  int _lastAutoPlayAnyAttemptMillis = 0;
   int _autoPlayRequestToken = 0;
 
   bool? videoMutedOverride;
@@ -240,6 +241,20 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     final uri = videoController.entry.uri;
     final token = ++_autoPlayRequestToken;
     final nowMillis = DateTime.now().millisecondsSinceEpoch;
+    final elapsedSinceAnyAttempt = nowMillis - _lastAutoPlayAnyAttemptMillis;
+    if (elapsedSinceAnyAttempt < 140) {
+      await Future.delayed(Duration(milliseconds: 140 - elapsedSinceAnyAttempt) * timeDilation);
+      if (token != _autoPlayRequestToken || !isCurrent()) {
+        unawaited(
+          remoteMediaLogService.log(
+            'focus',
+            'cancelled autoplay during anti-jitter throttle window',
+            data: {'uri': uri},
+          ),
+        );
+        return;
+      }
+    }
     if (_lastAutoPlayUri == uri && nowMillis - _lastAutoPlayAttemptMillis < 250) {
       unawaited(
         remoteMediaLogService.log(
@@ -250,6 +265,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       );
       return;
     }
+    _lastAutoPlayAnyAttemptMillis = nowMillis;
     _lastAutoPlayUri = uri;
     _lastAutoPlayAttemptMillis = nowMillis;
 
