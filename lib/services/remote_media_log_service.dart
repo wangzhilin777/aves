@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/ref/mime_types.dart';
@@ -41,5 +42,29 @@ class RemoteMediaLogService {
     final fileName = 'aves-remote-logs-${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}${MimeTypes.extensionFor(MimeTypes.plainText) ?? '.txt'}';
     final bytes = Uint8List.fromList(utf8.encode(entries.join('\n')));
     return storageService.createFile(fileName, MimeTypes.plainText, bytes);
+  }
+
+  Future<bool> exportAndShareTxt() async {
+    final file = await _exportTxtToCacheFile();
+    if (file == null) return false;
+    return appService.shareSingle(Uri.file(file.path).toString(), MimeTypes.plainText);
+  }
+
+  Future<File?> _exportTxtToCacheFile() async {
+    try {
+      final root = await storageService.getExternalCacheDirectory();
+      final basePath = root.isNotEmpty ? root : Directory.systemTemp.path;
+      final dir = Directory('$basePath${Platform.pathSeparator}remote${Platform.pathSeparator}logs');
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      final file = File(
+        '${dir.path}${Platform.pathSeparator}aves-remote-logs-${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}${MimeTypes.extensionFor(MimeTypes.plainText) ?? '.txt'}',
+      );
+      await file.writeAsString(entries.join('\n'));
+      return file;
+    } catch (_) {
+      return null;
+    }
   }
 }
