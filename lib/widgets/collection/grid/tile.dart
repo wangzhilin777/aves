@@ -11,6 +11,7 @@ import 'package:aves/widgets/common/thumbnail/decorated.dart';
 import 'package:aves/widgets/common/thumbnail/notifications.dart';
 import 'package:aves/widgets/viewer/hero.dart';
 import 'package:aves_model/aves_model.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -20,6 +21,7 @@ class InteractiveTile extends StatelessWidget {
   final double thumbnailExtent;
   final TileLayout tileLayout;
   final ValueNotifier<bool>? isScrollingNotifier;
+  final ValueListenable<AvesEntry?>? playbackFocusNotifier;
 
   const InteractiveTile({
     super.key,
@@ -28,6 +30,7 @@ class InteractiveTile extends StatelessWidget {
     required this.thumbnailExtent,
     required this.tileLayout,
     this.isScrollingNotifier,
+    this.playbackFocusNotifier,
   });
 
   @override
@@ -64,6 +67,7 @@ class InteractiveTile extends StatelessWidget {
           selectable: true,
           highlightable: true,
           isScrollingNotifier: isScrollingNotifier,
+          playbackFocusNotifier: playbackFocusNotifier,
           heroTagger: () => EntryHeroInfo(collection, entry).tag,
         ),
       ),
@@ -77,6 +81,7 @@ class Tile extends StatelessWidget {
   final TileLayout tileLayout;
   final bool selectable, highlightable;
   final ValueNotifier<bool>? isScrollingNotifier;
+  final ValueListenable<AvesEntry?>? playbackFocusNotifier;
   final Object? Function()? heroTagger;
 
   const Tile({
@@ -87,6 +92,7 @@ class Tile extends StatelessWidget {
     this.selectable = false,
     this.highlightable = false,
     this.isScrollingNotifier,
+    this.playbackFocusNotifier,
     this.heroTagger,
   });
 
@@ -122,6 +128,7 @@ class Tile extends StatelessWidget {
     // the retrieval task queue can pile up for thumbnails that got disposed
     // in this case we pause the image retrieval task to get it out of the queue
     cancellableNotifier: isScrollingNotifier,
+    playbackFocusNotifier: playbackFocusNotifier,
     selectable: selectable,
     highlightable: highlightable,
     heroTagger: heroTagger,

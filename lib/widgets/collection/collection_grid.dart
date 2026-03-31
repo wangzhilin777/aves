@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:aves/app_mode.dart';
 import 'package:aves/model/app/permissions.dart';
 import 'package:aves/model/entry/entry.dart';
+import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/favourites.dart';
 import 'package:aves/model/filters/favourite.dart';
 import 'package:aves/model/filters/mime.dart';
@@ -116,6 +117,7 @@ class _CollectionGridContent extends StatefulWidget {
 
 class _CollectionGridContentState extends State<_CollectionGridContent> {
   final ValueNotifier<AvesEntry?> _focusedItemNotifier = ValueNotifier(null);
+  final ValueNotifier<AvesEntry?> _previewPlayingEntryNotifier = ValueNotifier(null);
   final ValueNotifier<bool> _isScrollingNotifier = ValueNotifier(false);
   final ValueNotifier<AppMode> _selectingAppModeNotifier = ValueNotifier(AppMode.pickFilteredMediaInternal);
 
@@ -128,6 +130,7 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
   @override
   void dispose() {
     _focusedItemNotifier.dispose();
+    _previewPlayingEntryNotifier.dispose();
     _isScrollingNotifier.dispose();
     _selectingAppModeNotifier.dispose();
     super.dispose();
@@ -195,6 +198,7 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
                                       thumbnailExtent: extent,
                                       tileLayout: tileLayout,
                                       isScrollingNotifier: _isScrollingNotifier,
+                                      playbackFocusNotifier: _previewPlayingEntryNotifier,
                                     );
                                     if (!settings.useTvLayout) return tile;
 
@@ -239,6 +243,7 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
           child: _CollectionSectionedContent(
             collection: collection,
             isScrollingNotifier: _isScrollingNotifier,
+            previewPlayingEntryNotifier: _previewPlayingEntryNotifier,
             scrollController: PrimaryScrollController.of(context),
             tileLayout: tileLayout,
             selectable: selectable,
@@ -300,6 +305,7 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
 class _CollectionSectionedContent extends StatefulWidget {
   final CollectionLens collection;
   final ValueNotifier<bool> isScrollingNotifier;
+  final ValueNotifier<AvesEntry?> previewPlayingEntryNotifier;
   final ScrollController scrollController;
   final TileLayout tileLayout;
   final bool selectable;
@@ -307,6 +313,7 @@ class _CollectionSectionedContent extends StatefulWidget {
   const _CollectionSectionedContent({
     required this.collection,
     required this.isScrollingNotifier,
+    required this.previewPlayingEntryNotifier,
     required this.scrollController,
     required this.tileLayout,
     required this.selectable,
@@ -330,10 +337,14 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   void initState() {
     super.initState();
     _appBarHeightNotifier.addListener(_onAppBarHeightChanged);
+    scrollController.addListener(_onScrollOrLayoutChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onScrollOrLayoutChanged());
   }
 
   @override
   void dispose() {
+    scrollController.removeListener(_onScrollOrLayoutChanged);
+    widget.previewPlayingEntryNotifier.value = null;
     _appBarHeightNotifier.dispose();
     super.dispose();
   }
@@ -381,6 +392,26 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   }
 
   void _onAppBarHeightChanged() => setState(() {});
+
+  void _onScrollOrLayoutChanged() {
+    final scrollableContext = _scrollableKey.currentContext;
+    if (scrollableContext == null) return;
+    final renderObject = scrollableContext.findRenderObject();
+    if (renderObject is! RenderBox) return;
+    if (!mounted) return;
+
+    final layout = context.read<SectionedListLayout<AvesEntry>>();
+    final size = renderObject.size;
+    final center = Offset(
+      size.width / 2,
+      size.height / 2 + scrollController.offset - _appBarHeightNotifier.value,
+    );
+    final focused = layout.getItemAt(center) ?? layout.getItemAt(Offset(0, center.dy));
+    final target = focused?.isVideo == true ? focused : null;
+    if (widget.previewPlayingEntryNotifier.value != target) {
+      widget.previewPlayingEntryNotifier.value = target;
+    }
+  }
 }
 
 class _CollectionScaler extends StatelessWidget {

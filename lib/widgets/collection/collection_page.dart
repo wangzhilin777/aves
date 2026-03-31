@@ -28,6 +28,7 @@ import 'package:aves/widgets/dialogs/aves_dialog.dart';
 import 'package:aves/widgets/navigation/drawer/app_drawer.dart';
 import 'package:aves/widgets/navigation/nav_bar/nav_bar.dart';
 import 'package:aves/widgets/navigation/tv_rail.dart';
+import 'package:aves/widgets/viewer/providers.dart';
 import 'package:aves_model/aves_model.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -170,7 +171,10 @@ class _CollectionPageState extends State<CollectionPage> {
           // this provider should be above `TvRail`
           return ChangeNotifierProvider<CollectionLens>.value(
             value: _collection,
-            child: page,
+            child: VideoConductorProvider(
+              collection: _collection,
+              child: page,
+            ),
           );
         },
       ),
