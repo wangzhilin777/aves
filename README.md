@@ -44,6 +44,7 @@ Aves is a gallery and metadata explorer app. It is built for Android, with Flutt
   - per-file manual open actions (strategy / force download / stream only)
   - stream-open failure fallback to download and reopen
   - per-server cache cleanup and connection-level management
+  - when remote cache is allowed in smart sets, downloaded media can be scanned into MediaStore on demand
 - Added autoplay stability hardening in preview/video flow:
   - duplicate autoplay trigger protection
   - focus token guard to reduce jitter/racing playback
@@ -69,6 +70,7 @@ Aves is a gallery and metadata explorer app. It is built for Android, with Flutt
   - 文件级手动打开策略（按策略/强制下载/仅流式）
   - 流式打开失败自动回退下载并重试打开
   - 按连接清理缓存与连接级管理
+  - 开启“缓存纳入媒体集合”时，下载后的远程缓存可按需触发 MediaStore 扫描
 - 增强预览/视频自动播放稳定性：
   - 自动播放重复触发保护
   - 焦点令牌机制，降低抖动与竞态播放

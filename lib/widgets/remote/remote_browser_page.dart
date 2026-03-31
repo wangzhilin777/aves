@@ -1,6 +1,7 @@
 ﻿import 'dart:async';
 
 import 'package:aves/model/remote/remote_server.dart';
+import 'package:aves/model/entry/extensions/catalog.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/services/remote_media_service.dart';
@@ -8,7 +9,9 @@ import 'package:aves/theme/icons.dart';
 import 'package:aves/utils/file_utils.dart';
 import 'package:aves/widgets/common/action_mixins/feedback.dart';
 import 'package:aves/widgets/common/basic/scaffold.dart';
+import 'package:aves/widgets/common/behaviour/routes.dart';
 import 'package:aves/widgets/common/extensions/build_context.dart';
+import 'package:aves/widgets/viewer/entry_viewer_page.dart';
 import 'package:flutter/material.dart';
 
 enum _RemoteOpenAction {
@@ -380,19 +383,38 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
     final streamUri = _service.buildStreamUri(server: widget.server, node: node);
 
     Future<bool> openUri(Uri uri) async {
-      final opened = await appService.open(
-        uri.toString(),
-        mimeType,
-        forceChooser: false,
-      );
+      final uriString = uri.toString();
+      var opened = false;
+      var openMode = 'external';
+      final entry = await mediaFetchService.getEntry(uriString, mimeType, allowUnsized: true);
+      if (entry != null && mounted) {
+        await entry.catalog(background: false, force: false, persist: false);
+        await Navigator.maybeOf(context)?.push(
+          DirectMaterialPageRoute(
+            settings: const RouteSettings(name: EntryViewerPage.routeName),
+            builder: (_) => EntryViewerPage(
+              initialEntry: entry,
+            ),
+          ),
+        );
+        opened = true;
+        openMode = 'in_app_viewer';
+      } else {
+        opened = await appService.open(
+          uriString,
+          mimeType,
+          forceChooser: false,
+        );
+      }
       await remoteMediaLogService.log(
         'remote_load',
         'open remote media uri',
         data: {
           'server': widget.server.name,
           'path': node.path,
-          'uri': uri.toString(),
+          'uri': uriString,
           'opened': opened,
+          'openMode': openMode,
           'action': action.name,
         },
       );
