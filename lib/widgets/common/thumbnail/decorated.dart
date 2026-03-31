@@ -290,8 +290,10 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                 fit: StackFit.expand,
                 children: [
                   IgnorePointer(
-                    child: FittedBox(
-                      fit: BoxFit.cover,
+                    child: ColoredBox(
+                      color: Colors.black,
+                      child: FittedBox(
+                        fit: widget.isMosaic ? BoxFit.cover : BoxFit.contain,
                       clipBehavior: Clip.hardEdge,
                       child: SizedBox(
                         width: entry.displaySize.width,
@@ -301,6 +303,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                           controller: controller,
                         ),
                       ),
+                    ),
                     ),
                   ),
                   Positioned(
