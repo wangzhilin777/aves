@@ -27,6 +27,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   final Map<MultiPageController, Future<void> Function()> _multiPageControllerPageListeners = {};
   String? _lastAutoPlayUri;
   int _lastAutoPlayAttemptMillis = 0;
+  int _autoPlayRequestToken = 0;
 
   bool? videoMutedOverride;
 
@@ -228,6 +229,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
   Future<void> _autoPlayVideo(AvesVideoController videoController, bool Function() isCurrent, {int? resumeTimeMillis}) async {
     final uri = videoController.entry.uri;
+    final token = ++_autoPlayRequestToken;
     final nowMillis = DateTime.now().millisecondsSinceEpoch;
     if (_lastAutoPlayUri == uri && nowMillis - _lastAutoPlayAttemptMillis < 250) {
       unawaited(
@@ -246,6 +248,16 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     // during this widget initialization (because of the page transition and hero animation?)
     // so we play after a delay for increased stability
     await Future.delayed(const Duration(milliseconds: 300) * timeDilation);
+    if (token != _autoPlayRequestToken) {
+      unawaited(
+        remoteMediaLogService.log(
+          'focus',
+          'cancelled autoplay because newer focus request exists',
+          data: {'uri': uri},
+        ),
+      );
+      return;
+    }
     if (!isCurrent()) {
       unawaited(
         remoteMediaLogService.log(
@@ -282,7 +294,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     // playing controllers are paused when the entry changes,
     // but the controller may still be preparing (not yet playing) when this happens
     // so we make sure the current entry is still the same to keep playing
-    if (!isCurrent()) {
+    if (token != _autoPlayRequestToken || !isCurrent()) {
       await videoController.pause();
       unawaited(
         remoteMediaLogService.log(
@@ -296,7 +308,10 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-  Future<void> pauseVideoControllers() => context.read<VideoConductor>().pauseAll();
+  Future<void> pauseVideoControllers() {
+    _autoPlayRequestToken++;
+    return context.read<VideoConductor>().pauseAll();
+  }
 
   static const _pipRatioMax = Rational(43, 18);
   static const _pipRatioMin = Rational(18, 43);
