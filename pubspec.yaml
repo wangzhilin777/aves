@@ -139,6 +139,9 @@ dependencies:
   vector_tile_renderer:
   volume_controller:
   xml:
+  ftpconnect: ^2.0.10
+  dartssh2: ^2.14.0
+  smb_connect: ^0.0.9
 
 dependency_overrides:
   media_kit_video:

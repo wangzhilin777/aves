@@ -7,6 +7,7 @@ import 'package:aves/services/remote_media_service.dart';
 import 'package:aves/theme/icons.dart';
 import 'package:aves/widgets/common/action_mixins/feedback.dart';
 import 'package:aves/widgets/common/basic/scaffold.dart';
+import 'package:aves/widgets/common/extensions/build_context.dart';
 import 'package:flutter/material.dart';
 
 class RemoteBrowserPage extends StatefulWidget {
@@ -48,6 +49,8 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
 
   @override
   Widget build(BuildContext context) {
+    String tr(String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+
     return AvesScaffold(
       appBar: AppBar(
         title: Text('${widget.server.name}  $_path'),
@@ -55,12 +58,12 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
           IconButton(
             onPressed: () => setState(() => _loader = _load(force: true)),
             icon: const Icon(AIcons.refresh),
-            tooltip: 'Refresh',
+            tooltip: tr('Refresh', '刷新'),
           ),
           IconButton(
             onPressed: _togglePin,
             icon: Icon(_isPinned ? AIcons.unpin : AIcons.pin),
-            tooltip: _isPinned ? 'Unpin folder' : 'Show in remote albums',
+            tooltip: _isPinned ? tr('Unpin folder', '取消固定文件夹') : tr('Show in remote albums', '在远程相册中显示'),
           ),
         ],
       ),
@@ -73,7 +76,7 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                 controller: _queryController,
                 decoration: InputDecoration(
                   prefixIcon: const Icon(AIcons.search),
-                  hintText: 'Search this level',
+                  hintText: tr('Search this level', '搜索当前层级'),
                   suffixIcon: _queryController.text.isNotEmpty
                       ? IconButton(
                           onPressed: _queryController.clear,
@@ -102,11 +105,11 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                         children: [
                           const Icon(AIcons.error),
                           const SizedBox(height: 8),
-                          const Text('Wi-Fi only auto-load is enabled'),
+                          Text(tr('Wi-Fi only auto-load is enabled', '已开启仅 Wi-Fi 自动加载')),
                           const SizedBox(height: 8),
                           FilledButton(
                             onPressed: () => setState(() => _loader = _load(force: true)),
-                            child: const Text('Load now'),
+                            child: Text(tr('Load now', '立即加载')),
                           ),
                         ],
                       ),
@@ -116,7 +119,7 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                   final q = _queryController.text.trim().toLowerCase();
                   final nodes = q.isEmpty ? data.children : data.children.where((v) => v.name.toLowerCase().contains(q)).toList();
                   if (nodes.isEmpty) {
-                    return const Center(child: Text('No matching remote folders or media'));
+                    return Center(child: Text(tr('No matching remote folders or media', '没有匹配的远程文件夹或媒体')));
                   }
 
                   return ListView.builder(
@@ -126,17 +129,24 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                       return ListTile(
                         leading: Icon(node.isDirectory ? AIcons.folder : (node.isVideo ? AIcons.video : AIcons.image)),
                         title: Text(node.name),
-                        subtitle: Text(node.path),
-                        onTap: () {
+                        subtitle: Text('${node.path}${node.sizeBytes != null ? '  (${node.sizeBytes}B)' : ''}'),
+                        onTap: () async {
                           if (node.isDirectory) {
-                            Navigator.maybeOf(context)?.push(
-                              MaterialPageRoute(
-                                settings: const RouteSettings(name: RemoteBrowserPage.routeName),
-                                builder: (_) => RemoteBrowserPage(server: widget.server, initialPath: node.path),
+                            unawaited(
+                              Navigator.maybeOf(context)?.push(
+                                MaterialPageRoute(
+                                  settings: const RouteSettings(name: RemoteBrowserPage.routeName),
+                                  builder: (_) => RemoteBrowserPage(server: widget.server, initialPath: node.path),
+                                ),
                               ),
                             );
                           } else {
-                            showFeedback(context, FeedbackType.info, 'Preview chain will be connected in next step');
+                            final plan = await _service.decidePreviewPlan(server: widget.server, node: node);
+                            if (!mounted) return;
+                            final mode = plan.streamFirst ? tr('Stream first', '优先流式') : tr('Download first', '优先下载');
+                            final fallback = plan.allowDownloadFallback ? tr('fallback enabled', '允许回退下载') : tr('fallback disabled', '不允许回退下载');
+                            final auto = plan.shouldAutoDownload ? tr('auto-download', '自动下载') : tr('no auto-download', '不自动下载');
+                            showFeedback(context, FeedbackType.info, '$mode, $auto, $fallback');
                           }
                         },
                       );

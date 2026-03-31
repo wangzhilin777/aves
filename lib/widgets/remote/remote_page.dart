@@ -25,16 +25,18 @@ class RemotePage extends StatefulWidget {
 class _RemotePageState extends State<RemotePage> with FeedbackMixin {
   bool _busy = false;
 
+  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+
   @override
   Widget build(BuildContext context) {
     return AvesScaffold(
       appBar: AppBar(
-        title: const Text('Remote Media'),
+        title: Text(_tr(context, 'Remote Media', '远程媒体')),
         actions: [
           IconButton(
             onPressed: _busy ? null : _showEditor,
             icon: const Icon(AIcons.add),
-            tooltip: 'Add',
+            tooltip: _tr(context, 'Add', '添加'),
           ),
         ],
       ),
@@ -45,7 +47,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
             if (servers.isEmpty) {
               return EmptyContent(
                 icon: AIcons.storageMain,
-                text: context.locale.startsWith('zh') ? '还没有远程连接，点击右上角添加' : 'No remote server yet, tap + to add one',
+                text: _tr(context, 'No remote server yet, tap + to add one', '还没有远程连接，点击右上角添加'),
               );
             }
             return ListView.builder(
@@ -66,10 +68,10 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
                   },
                   trailing: PopupMenuButton<String>(
                     onSelected: (action) => _onServerAction(server, action),
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(value: 'edit', child: Text('Edit')),
-                      PopupMenuItem(value: 'test', child: Text('Test Connection')),
-                      PopupMenuItem(value: 'delete', child: Text('Delete')),
+                    itemBuilder: (context) => [
+                      PopupMenuItem(value: 'edit', child: Text(_tr(context, 'Edit', '编辑'))),
+                      PopupMenuItem(value: 'test', child: Text(_tr(context, 'Test Connection', '测试连接'))),
+                      PopupMenuItem(value: 'delete', child: Text(_tr(context, 'Delete', '删除'))),
                     ],
                   ),
                 );
@@ -111,8 +113,8 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
         final ok = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: Text(context.locale.startsWith('zh') ? '删除远程连接？' : 'Delete remote server?'),
-            content: Text(context.locale.startsWith('zh') ? '将移除该连接及其固定目录。' : 'This will remove the server and pinned folders.'),
+            title: Text(_tr(context, 'Delete remote server?', '删除远程连接？')),
+            content: Text(_tr(context, 'This will remove the server and pinned folders.', '将移除此连接及其固定目录。')),
             actions: [
               TextButton(onPressed: () => Navigator.maybeOf(context)?.pop(false), child: Text(MaterialLocalizations.of(context).cancelButtonLabel)),
               TextButton(onPressed: () => Navigator.maybeOf(context)?.pop(true), child: Text(MaterialLocalizations.of(context).okButtonLabel)),
@@ -333,7 +335,6 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
       protocol: _protocol,
       webdavUrl: webdavUrl.isNotEmpty ? webdavUrl : null,
       host: host.isNotEmpty ? host : null,
-      // if WebDAV URL already includes a port, keep port nullable to avoid confusion.
       port: _protocol == RemoteProtocol.webdav ? null : parsedPort,
       basePath: _basePathController.text.trim().isNotEmpty ? _basePathController.text.trim() : null,
       username: _usernameController.text.trim().isNotEmpty ? _usernameController.text.trim() : null,
