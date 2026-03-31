@@ -215,7 +215,13 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                     }
 
                     final q = _queryController.text.trim().toLowerCase();
-                    final nodes = q.isEmpty ? data.children : data.children.where((v) => v.name.toLowerCase().contains(q)).toList();
+                    final nodes = q.isEmpty
+                        ? data.children
+                        : data.children.where((v) {
+                            final nameMatched = v.name.toLowerCase().contains(q);
+                            final pathMatched = v.path.toLowerCase().contains(q);
+                            return nameMatched || pathMatched;
+                          }).toList();
                     if (nodes.isEmpty) {
                       return Center(child: Text(tr('No matching remote folders or media', '没有匹配的远程文件夹或媒体')));
                     }
