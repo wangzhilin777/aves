@@ -192,7 +192,19 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                     final data = snapshot.data;
                     if (data == null) {
                       if (snapshot.hasError) {
-                        return Center(child: Text('Error: ${snapshot.error}'));
+                        return Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('${tr('Load failed', '加载失败')}: ${snapshot.error}'),
+                              const SizedBox(height: 8),
+                              FilledButton(
+                                onPressed: () => setState(() => _loader = _load(force: true)),
+                                child: Text(tr('Retry', '重试')),
+                              ),
+                            ],
+                          ),
+                        );
                       }
                       return const Center(child: CircularProgressIndicator());
                     }
