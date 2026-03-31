@@ -240,7 +240,31 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
       directoryNodes.addAll(page.children.where((node) => node.isDirectory));
       final mediaNodes = page.children.where((node) => !node.isDirectory).toList();
       for (final node in mediaNodes) {
-        final resolved = await remoteMediaService.resolveMedia(server: server, node: node);
+        var resolved = await remoteMediaService.resolveMedia(server: server, node: node);
+        if (node.isImage && resolved.downloadedFile == null) {
+          final forcedImageFile = await remoteMediaService.downloadMedia(
+            server: server,
+            node: node,
+            trigger: 'native_injection_image_force_download',
+          );
+          if (forcedImageFile != null) {
+            resolved = RemoteMediaResolveResult(
+              streamUri: resolved.streamUri,
+              downloadedFile: forcedImageFile,
+              plan: resolved.plan,
+            );
+            await remoteMediaLogService.log(
+              'auto_download',
+              'forced image download for native collection injection',
+              data: {
+                'server': server.name,
+                'path': node.path,
+                'file': forcedImageFile.path,
+              },
+            );
+          }
+        }
+
         final uri = resolved.downloadedFile != null ? Uri.file(resolved.downloadedFile!.path) : resolved.streamUri;
         if (uri == null) continue;
 

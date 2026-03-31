@@ -8,6 +8,7 @@ import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/entry/origins.dart';
 import 'package:aves/model/settings/enums/remote_stream_mode.dart';
 import 'package:aves/model/settings/settings.dart';
+import 'package:aves/ref/mime_types.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:collection/collection.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -335,7 +336,14 @@ class RemoteMediaService {
       case RemoteProtocol.webdav:
         final base = server.webdavUrl;
         if (base == null || base.isEmpty) return null;
-        return _buildWebDavUri(base, _resolveEffectivePath(server, node.path));
+        var uri = _buildWebDavUri(base, _resolveEffectivePath(server, node.path));
+        if (uri == null) return null;
+        final username = server.username?.trim();
+        final password = server.password;
+        if (uri.userInfo.isEmpty && username != null && username.isNotEmpty && password != null) {
+          uri = uri.replace(userInfo: '$username:$password');
+        }
+        return uri;
       case RemoteProtocol.ftp:
       case RemoteProtocol.sftp:
       case RemoteProtocol.smb:
@@ -344,11 +352,14 @@ class RemoteMediaService {
   }
 
   String inferMimeType(RemoteBrowseNode node) {
-    if (node.isImage) return 'image/*';
-    if (node.isVideo) return 'video/*';
     final lower = node.name.toLowerCase();
-    if (_imageExt.any(lower.endsWith)) return 'image/*';
-    if (_videoExt.any(lower.endsWith)) return 'video/*';
+    for (final ext in _extensionToMimeType.keys) {
+      if (lower.endsWith(ext)) {
+        return _extensionToMimeType[ext]!;
+      }
+    }
+    if (node.isImage) return MimeTypes.anyImage;
+    if (node.isVideo) return MimeTypes.anyVideo;
     return 'application/octet-stream';
   }
 
@@ -1087,4 +1098,23 @@ class RemoteMediaService {
 
   static const _videoExt = ['.mp4', '.mkv', '.mov', '.avi', '.webm', '.m4v', '.ts'];
   static const _imageExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.bmp', '.tiff', '.avif', '.svg'];
+  static const Map<String, String> _extensionToMimeType = {
+    '.jpg': MimeTypes.jpeg,
+    '.jpeg': MimeTypes.jpeg,
+    '.png': MimeTypes.png,
+    '.webp': MimeTypes.webp,
+    '.gif': MimeTypes.gif,
+    '.heic': MimeTypes.heic,
+    '.bmp': MimeTypes.bmp,
+    '.tiff': MimeTypes.tiff,
+    '.avif': MimeTypes.avif,
+    '.svg': MimeTypes.svg,
+    '.mp4': MimeTypes.mp4,
+    '.mkv': MimeTypes.mkv,
+    '.mov': MimeTypes.mov,
+    '.avi': MimeTypes.avi,
+    '.webm': MimeTypes.webm,
+    '.m4v': MimeTypes.mp4,
+    '.ts': MimeTypes.mp2t,
+  };
 }
