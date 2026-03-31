@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:aves/model/remote/remote_server.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/services/common/services.dart';
@@ -78,10 +80,19 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
       canPop: _path == '/' || _path == '.',
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
+        final from = _path;
+        final to = _parentPath(_path);
         setState(() {
-          _path = _parentPath(_path);
+          _path = to;
           _loader = _load(force: true);
         });
+        unawaited(
+          remoteMediaLogService.log(
+            'lazy_load',
+            'navigate to parent by system back',
+            data: {'server': widget.server.name, 'from': from, 'to': to},
+          ),
+        );
       },
       child: AvesScaffold(
         appBar: AppBar(
@@ -90,8 +101,17 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
             if (_path != '/')
               IconButton(
                 onPressed: () => setState(() {
-                  _path = _parentPath(_path);
+                  final from = _path;
+                  final to = _parentPath(_path);
+                  _path = to;
                   _loader = _load(force: true);
+                  unawaited(
+                    remoteMediaLogService.log(
+                      'lazy_load',
+                      'navigate to parent by app bar',
+                      data: {'server': widget.server.name, 'from': from, 'to': to},
+                    ),
+                  );
                 }),
                 icon: const Icon(Icons.arrow_upward),
                 tooltip: tr('Parent folder', '上级目录'),
@@ -139,8 +159,16 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                         selected: isCurrent,
                         label: Text(crumb.key),
                         onSelected: (_) => setState(() {
+                          final from = _path;
                           _path = crumb.value;
                           _loader = _load(force: true);
+                          unawaited(
+                            remoteMediaLogService.log(
+                              'lazy_load',
+                              'navigate by breadcrumb',
+                              data: {'server': widget.server.name, 'from': from, 'to': crumb.value},
+                            ),
+                          );
                         }),
                       ),
                     );
@@ -215,10 +243,18 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
   }
 
   void _enterDirectory(String path) {
+    final from = _path;
     setState(() {
       _path = path;
       _loader = _load(force: true);
     });
+    unawaited(
+      remoteMediaLogService.log(
+        'lazy_load',
+        'enter child directory',
+        data: {'server': widget.server.name, 'from': from, 'to': path},
+      ),
+    );
   }
 
   Future<void> _showFileActions(RemoteBrowseNode node) async {
@@ -286,6 +322,11 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
         final opened = await openUri(Uri.file(file.path));
         showFeedback(context, opened ? FeedbackType.info : FeedbackType.warn, opened ? tr('Opened downloaded file', '已打开下载文件') : tr('Downloaded but open failed', '已下载但打开失败'));
       } else {
+        await remoteMediaLogService.log(
+          'auto_download',
+          'manual force download failed',
+          data: {'server': widget.server.name, 'path': node.path},
+        );
         showFeedback(context, FeedbackType.warn, tr('Download failed', '下载失败'));
       }
       return;
@@ -293,11 +334,23 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
 
     if (action == _RemoteOpenAction.streamOnly) {
       if (streamUri == null) {
+        await remoteMediaLogService.log(
+          'remote_load',
+          'stream-only rejected because stream uri unavailable',
+          data: {'server': widget.server.name, 'path': node.path},
+        );
         showFeedback(context, FeedbackType.warn, tr('Stream unavailable for this protocol', '该协议不支持直接流式'));
         return;
       }
       final opened = await openUri(streamUri);
       if (!mounted) return;
+      if (!opened) {
+        await remoteMediaLogService.log(
+          'remote_load',
+          'stream-only open failed',
+          data: {'server': widget.server.name, 'path': node.path, 'uri': streamUri.toString()},
+        );
+      }
       showFeedback(context, opened ? FeedbackType.info : FeedbackType.warn, opened ? tr('Opened stream', '已打开流') : tr('Stream open failed', '流式打开失败'));
       return;
     }
@@ -348,6 +401,22 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
       unsupported || !opened ? FeedbackType.warn : FeedbackType.info,
       unsupported ? tr('No playable source resolved', '未解析到可播放资源') : '$mode, $auto, $fallback, $cached',
     );
+    if (unsupported || !opened) {
+      await remoteMediaLogService.log(
+        'remote_load',
+        'open remote node ended with warning state',
+        data: {
+          'server': widget.server.name,
+          'path': node.path,
+          'unsupported': unsupported,
+          'opened': opened,
+          'streamUri': result.streamUri?.toString(),
+          'downloadedFile': result.downloadedFile?.path,
+          'planReason': plan.reason,
+          'allowFallback': plan.allowDownloadFallback,
+        },
+      );
+    }
   }
 
   bool get _isPinned => settings.remotePinnedFolders.any((v) => v.serverId == widget.server.id && v.path == _path);
