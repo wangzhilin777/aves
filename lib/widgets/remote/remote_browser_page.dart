@@ -165,6 +165,11 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
 
   bool get _isPinned => settings.remotePinnedFolders.any((v) => v.serverId == widget.server.id && v.path == _path);
 
+  String get _pathLeaf {
+    final parts = _path.split('/').where((v) => v.isNotEmpty).toList();
+    return parts.isEmpty ? '/' : parts.last;
+  }
+
   Future<void> _togglePin() async {
     final all = settings.remotePinnedFolders;
     if (_isPinned) {
@@ -173,7 +178,7 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
     } else {
       settings.remotePinnedFolders = [
         ...all,
-        RemotePinnedFolder(serverId: widget.server.id, path: _path, title: '${widget.server.name}:$_path'),
+        RemotePinnedFolder(serverId: widget.server.id, path: _path, title: '${widget.server.name}:$_pathLeaf'),
       ];
       await remoteMediaLogService.log('remote_load', 'pinned folder', data: {'server': widget.server.name, 'path': _path});
     }

@@ -443,9 +443,13 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver {
     return [
       const Divider(),
       ...items.map((folder) {
+        final server = servers.byId(folder.serverId);
+        final pathParts = folder.path.split('/').where((v) => v.isNotEmpty).toList();
+        final leafName = pathParts.isEmpty ? '/' : pathParts.last;
+        final title = server == null ? leafName : '${server.name}:$leafName';
         return ListTile(
           leading: const Icon(AIcons.storageMain),
-          title: Text(folder.title),
+          title: Text(title),
           subtitle: Text(folder.path),
           onTap: () => goToPinned(folder),
         );
