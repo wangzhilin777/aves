@@ -9,7 +9,6 @@ import 'package:aves/widgets/explorer/explorer_page.dart';
 import 'package:aves/widgets/filter_grids/albums_page.dart';
 import 'package:aves/widgets/filter_grids/countries_page.dart';
 import 'package:aves/widgets/filter_grids/tags_page.dart';
-import 'package:aves/widgets/remote/remote_page.dart';
 import 'package:aves/widgets/navigation/nav_item.dart';
 import 'package:aves_model/aves_model.dart';
 
@@ -42,7 +41,6 @@ class SettingsDefaults {
     RecentlyAddedFilter.instance,
   ];
   static const drawerPageBookmarks = [
-    RemotePage.routeName,
     AlbumListPage.routeName,
     CountryListPage.routeName,
     TagListPage.routeName,
@@ -73,6 +71,7 @@ class SettingsDefaults {
   static const showThumbnailRating = true;
   static const showThumbnailRaw = true;
   static const showThumbnailVideoDuration = true;
+  static const allowSingleColumnPreview = true;
 
   // filter grids
   static const albumGroupFactor = AlbumChipSectionFactor.importance;

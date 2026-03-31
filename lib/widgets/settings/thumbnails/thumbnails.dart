@@ -28,9 +28,24 @@ class ThumbnailsSection extends SettingsSection {
   @override
   Future<List<SettingsTile>> tiles(BuildContext context) => Future.value([
     if (!settings.useTvLayout) SettingsTileCollectionQuickActions(),
+    if (!settings.useTvLayout) _SettingsTileAllowSingleColumnPreview(),
     SettingsTileThumbnailOverlay(),
     SettingsTileBurstPatterns(),
   ]);
+}
+
+class _SettingsTileAllowSingleColumnPreview extends SettingsTile {
+  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+
+  @override
+  String title(BuildContext context) => _tr(context, 'Allow zoom to single-column preview', '允许缩放到单列预览');
+
+  @override
+  Widget build(BuildContext context) => SettingsSwitchListTile(
+    selector: (context, s) => s.allowSingleColumnPreview,
+    onChanged: (v) => settings.allowSingleColumnPreview = v,
+    title: title(context),
+  );
 }
 
 class SettingsTileCollectionQuickActions extends SettingsTile {

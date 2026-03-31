@@ -75,6 +75,7 @@ class SettingKeys {
   static const showThumbnailRatingKey = 'show_thumbnail_rating';
   static const showThumbnailRawKey = 'show_thumbnail_raw';
   static const showThumbnailVideoDurationKey = 'show_thumbnail_video_duration';
+  static const allowSingleColumnPreviewKey = 'allow_single_column_preview';
 
   // filter grids
   static const albumSectionFactorKey = 'album_section_factor';

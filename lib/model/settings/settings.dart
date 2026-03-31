@@ -409,6 +409,7 @@ class Settings
           case SettingKeys.showThumbnailRatingKey:
           case SettingKeys.showThumbnailRawKey:
           case SettingKeys.showThumbnailVideoDurationKey:
+          case SettingKeys.allowSingleColumnPreviewKey:
           case SettingKeys.albumSortReverseKey:
           case SettingKeys.countrySortReverseKey:
           case SettingKeys.stateSortReverseKey:

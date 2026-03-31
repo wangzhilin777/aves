@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:aves/model/device.dart';
 import 'package:aves/model/settings/settings.dart';
@@ -47,7 +47,7 @@ class VideoPlaybackPage extends StatelessWidget {
                 unawaited(
                   remoteMediaLogService.log(
                     'autoplay',
-                    'updated local grid preview autoplay setting',
+                    'updated grid preview autoplay setting',
                     data: {'enabled': v},
                   ),
                 );
@@ -61,7 +61,7 @@ class VideoPlaybackPage extends StatelessWidget {
                 unawaited(
                   remoteMediaLogService.log(
                     'autoplay',
-                    'updated local grid preview default sound setting',
+                    'updated grid preview default sound setting',
                     data: {'soundOn': v},
                   ),
                 );

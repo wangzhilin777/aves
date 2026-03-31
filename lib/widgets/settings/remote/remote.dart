@@ -11,6 +11,7 @@ import 'package:aves/utils/file_utils.dart';
 import 'package:aves/widgets/common/extensions/build_context.dart';
 import 'package:aves/widgets/settings/common/tile_leading.dart';
 import 'package:aves/widgets/settings/common/tiles.dart';
+import 'package:aves/widgets/remote/remote_page.dart';
 import 'package:aves/widgets/settings/remote/remote_logs_page.dart';
 import 'package:aves/widgets/settings/settings_definition.dart';
 import 'package:flutter/material.dart';
@@ -34,18 +35,31 @@ class RemoteMediaSection extends SettingsSection {
   @override
   Future<List<SettingsTile>> tiles(BuildContext context) async {
     return [
+      _SettingsTileRemoteManager(),
       _SettingsTileRemoteLogs(),
       _SettingsTileRemoteLogEnabled(),
       _SettingsTileRemoteWifiOnlyDownload(),
       _SettingsTileRemotePinAtTop(),
       _SettingsTileRemoteCacheInSmartCollections(),
       _SettingsTileRemoteStreamMode(),
-      _SettingsTileRemoteGridVideoAutoPlay(),
-      _SettingsTileRemoteGridVideoSoundOn(),
       _SettingsTileRemoteAutoDownloadImageMax(),
       _SettingsTileRemoteAutoDownloadVideoMax(),
     ];
   }
+}
+
+class _SettingsTileRemoteManager extends SettingsTile {
+  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+
+  @override
+  String title(BuildContext context) => _tr(context, 'Remote Media Manager', '远程媒体管理');
+
+  @override
+  Widget build(BuildContext context) => SettingsSubPageTile(
+    title: title(context),
+    routeName: RemotePage.routeName,
+    builder: (context) => const RemotePage(),
+  );
 }
 
 class _SettingsTileRemoteLogs extends SettingsTile {
@@ -139,52 +153,6 @@ class _SettingsTileRemoteCacheInSmartCollections extends SettingsTile {
       );
     }
   }
-}
-
-class _SettingsTileRemoteGridVideoAutoPlay extends SettingsTile {
-  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
-
-  @override
-  String title(BuildContext context) => _tr(context, 'Auto-play remote videos in grid/mosaic', '网格/马赛克中自动播放远程视频');
-
-  @override
-  Widget build(BuildContext context) => SettingsSwitchListTile(
-    selector: (context, s) => s.remoteGridVideoAutoPlay,
-    onChanged: (v) {
-      settings.remoteGridVideoAutoPlay = v;
-      unawaited(
-        remoteMediaLogService.log(
-          'autoplay',
-          'updated remote grid preview autoplay setting',
-          data: {'enabled': v},
-        ),
-      );
-    },
-    title: title(context),
-  );
-}
-
-class _SettingsTileRemoteGridVideoSoundOn extends SettingsTile {
-  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
-
-  @override
-  String title(BuildContext context) => _tr(context, 'Remote grid video playback with sound by default', '网格远程视频默认有声播放');
-
-  @override
-  Widget build(BuildContext context) => SettingsSwitchListTile(
-    selector: (context, s) => s.remoteGridVideoSoundOn,
-    onChanged: (v) {
-      settings.remoteGridVideoSoundOn = v;
-      unawaited(
-        remoteMediaLogService.log(
-          'autoplay',
-          'updated remote grid preview default sound setting',
-          data: {'soundOn': v},
-        ),
-      );
-    },
-    title: title(context),
-  );
 }
 
 class _SettingsTileRemoteStreamMode extends SettingsTile {

@@ -42,7 +42,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
   Widget build(BuildContext context) {
     return AvesScaffold(
       appBar: AppBar(
-        title: Text(_tr(context, 'Remote Media', '远程媒体')),
+        title: Text(_tr(context, 'Remote Media Manager', '远程媒体管理')),
         actions: [
           IconButton(
             onPressed: _busy ? null : _showEditor,
@@ -85,6 +85,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
                     onSelected: (action) => _onServerAction(server, action),
                     itemBuilder: (context) => [
                       PopupMenuItem(value: 'edit', child: Text(_tr(context, 'Edit', '编辑'))),
+                      PopupMenuItem(value: 'select_folder', child: Text(_tr(context, 'Select folder for albums', '选择文件夹加入相册'))),
                       PopupMenuItem(value: 'test', child: Text(_tr(context, 'Test Connection', '测试连接'))),
                       PopupMenuItem(value: 'clear_cache', child: Text(_tr(context, 'Clear Cache', '清理缓存'))),
                       PopupMenuItem(value: 'delete', child: Text(_tr(context, 'Delete', '删除'))),
@@ -116,6 +117,13 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
     switch (action) {
       case 'edit':
         await _showEditor(initial: server);
+      case 'select_folder':
+        await Navigator.maybeOf(context)?.push(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: RemoteBrowserPage.routeName),
+            builder: (_) => RemoteBrowserPage(server: server, albumSelectionMode: true),
+          ),
+        );
       case 'test':
         setState(() => _busy = true);
         final result = await remoteMediaService.testConnection(server);

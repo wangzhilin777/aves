@@ -52,7 +52,7 @@ class NavigationDisplay {
       case ExplorerPage.routeName:
         return l10n.explorerPageTitle;
       case RemotePage.routeName:
-        return 'Remote Media';
+        return context.locale.startsWith('zh') ? '远程媒体管理' : 'Remote Media Manager';
       case SearchPage.routeName:
         return MaterialLocalizations.of(context).searchFieldLabel;
       case SettingsPage.routeName:

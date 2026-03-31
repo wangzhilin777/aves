@@ -9,6 +9,7 @@ import 'package:aves/widgets/explorer/explorer_page.dart';
 import 'package:aves/widgets/filter_grids/albums_page.dart';
 import 'package:aves/widgets/filter_grids/tags_page.dart';
 import 'package:aves/widgets/navigation/nav_item.dart';
+import 'package:aves/widgets/remote/remote_page.dart';
 import 'package:aves_model/aves_model.dart';
 import 'package:synchronized/synchronized.dart';
 
@@ -87,9 +88,9 @@ mixin NavigationSettings on SettingsAccess {
 
   set drawerAlbumBookmarks(List<AlbumBaseFilter>? newValue) => set(SettingKeys.drawerAlbumBookmarksKey, newValue?.map((filter) => filter.toJson()).toList());
 
-  List<String> get drawerPageBookmarks => getStringList(SettingKeys.drawerPageBookmarksKey) ?? SettingsDefaults.drawerPageBookmarks;
+  List<String> get drawerPageBookmarks => _sanitizeDrawerPageBookmarks(getStringList(SettingKeys.drawerPageBookmarksKey) ?? SettingsDefaults.drawerPageBookmarks);
 
-  set drawerPageBookmarks(List<String> newValue) => set(SettingKeys.drawerPageBookmarksKey, newValue);
+  set drawerPageBookmarks(List<String> newValue) => set(SettingKeys.drawerPageBookmarksKey, _sanitizeDrawerPageBookmarks(newValue));
 
   List<AvesNavItem> get bottomNavigationActions => getStringList(SettingKeys.bottomNavigationActionsKey)?.map(AvesNavItem.fromJson).nonNulls.toList() ?? SettingsDefaults.bottomNavigationActions;
 
@@ -139,4 +140,6 @@ mixin NavigationSettings on SettingsAccess {
       }
     });
   }
+
+  List<String> _sanitizeDrawerPageBookmarks(List<String> routes) => routes.where((route) => route != RemotePage.routeName).toList();
 }

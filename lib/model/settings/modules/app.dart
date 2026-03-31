@@ -101,6 +101,10 @@ mixin AppSettings on SettingsAccess {
 
   void setTileLayout(String routeName, TileLayout newValue) => set(SettingKeys.tileLayoutPrefixKey + routeName, newValue.toString());
 
+  bool get allowSingleColumnPreview => getBool(SettingKeys.allowSingleColumnPreviewKey) ?? SettingsDefaults.allowSingleColumnPreview;
+
+  set allowSingleColumnPreview(bool newValue) => set(SettingKeys.allowSingleColumnPreviewKey, newValue);
+
   String get entryRenamingPattern => getString(SettingKeys.entryRenamingPatternKey) ?? SettingsDefaults.entryRenamingPattern;
 
   set entryRenamingPattern(String newValue) => set(SettingKeys.entryRenamingPatternKey, newValue);

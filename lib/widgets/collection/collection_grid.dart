@@ -95,6 +95,7 @@ class _CollectionGridState extends State<CollectionGrid> {
     if (_tileExtentController?.spacing != spacing) {
       _tileExtentController = TileExtentController(
         settingsRouteKey: settingsRouteKey,
+        columnCountMin: settings.allowSingleColumnPreview ? 1 : 2,
         columnCountDefault: CollectionGrid.columnCountDefault,
         extentMin: CollectionGrid.extentMin,
         extentMax: CollectionGrid.extentMax,

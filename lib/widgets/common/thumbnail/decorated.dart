@@ -175,16 +175,10 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   }
 
   bool _isAutoPlayEnabled(Settings settings) {
-    if (entry.isRemoteCachedMedia) {
-      return settings.remoteGridVideoAutoPlay;
-    }
     return settings.gridVideoAutoPlay;
   }
 
   bool _shouldMute(Settings settings) {
-    if (entry.isRemoteCachedMedia) {
-      return !settings.remoteGridVideoSoundOn;
-    }
     return !settings.gridVideoSoundOn;
   }
 
@@ -206,8 +200,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
               'uri': entry.uri,
               'reason': reason,
               'isRemoteCached': entry.isRemoteCachedMedia,
-              'localGridAutoPlay': settings.gridVideoAutoPlay,
-              'remoteGridAutoPlay': settings.remoteGridVideoAutoPlay,
+              'gridAutoPlay': settings.gridVideoAutoPlay,
             },
           ),
         );

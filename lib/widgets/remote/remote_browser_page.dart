@@ -28,11 +28,13 @@ class RemoteBrowserPage extends StatefulWidget {
   static const routeName = '/remote/browser';
   final RemoteServer server;
   final String initialPath;
+  final bool albumSelectionMode;
 
   const RemoteBrowserPage({
     super.key,
     required this.server,
     this.initialPath = '/',
+    this.albumSelectionMode = false,
   });
 
   @override
@@ -112,7 +114,7 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
       },
       child: AvesScaffold(
         appBar: AppBar(
-          title: Text('${widget.server.name}  $_path'),
+          title: Text(widget.albumSelectionMode ? '${widget.server.name}  ${tr('Select Folder', '选择目录')}  $_path' : '${widget.server.name}  $_path'),
           actions: [
             if (_path != '/')
               IconButton(
@@ -140,7 +142,7 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
             IconButton(
               onPressed: _togglePin,
               icon: Icon(_isPinned ? AIcons.unpin : AIcons.pin),
-              tooltip: _isPinned ? tr('Unpin folder', '取消固定文件夹') : tr('Show in remote albums', '在远程相册中显示'),
+              tooltip: _isPinned ? tr('Remove current folder from albums', '将当前目录移出相册') : tr('Add current folder to albums', '将当前目录加入相册'),
             ),
             IconButton(
               onPressed: _openCachedAlbum,
@@ -274,7 +276,17 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                           leading: Icon(node.isDirectory ? AIcons.folder : (node.isVideo ? AIcons.video : AIcons.image)),
                           title: Text(node.name),
                           subtitle: Text('${node.path}${node.sizeBytes != null ? '  (${formatFileSize(context.locale, node.sizeBytes!, round: 1)})' : ''}'),
-                          trailing: node.isDirectory
+                          trailing: node.isDirectory && widget.albumSelectionMode
+                              ? IconButton(
+                                  icon: Icon(_isPathPinned(node.path) ? AIcons.unpin : AIcons.pin),
+                                  tooltip: _isPathPinned(node.path) ? tr('Remove from albums', '从相册移除') : tr('Add to albums', '加入相册'),
+                                  onPressed: () async {
+                                    await _togglePinPath(node.path);
+                                    if (!mounted) return;
+                                    setState(() {});
+                                  },
+                                )
+                              : node.isDirectory
                               ? IconButton(
                                   icon: const Icon(Icons.more_horiz),
                                   tooltip: tr('More actions', '更多操作'),
@@ -283,10 +295,10 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                               : IconButton(
                                   icon: const Icon(Icons.more_horiz),
                                   tooltip: tr('More actions', '更多操作'),
-                                  onPressed: () => _showFileActions(node),
+                                  onPressed: widget.albumSelectionMode ? null : () => _showFileActions(node),
                                 ),
-                          onLongPress: node.isDirectory ? () => _showDirectoryActions(node) : () => _showFileActions(node),
-                          onTap: () => node.isDirectory ? _enterDirectory(node.path) : _openRemoteNode(node, _RemoteOpenAction.strategy),
+                          onLongPress: node.isDirectory ? () => _showDirectoryActions(node) : (widget.albumSelectionMode ? null : () => _showFileActions(node)),
+                          onTap: () => node.isDirectory ? _enterDirectory(node.path) : (widget.albumSelectionMode ? null : _openRemoteNode(node, _RemoteOpenAction.strategy)),
                         );
                       },
                     );
