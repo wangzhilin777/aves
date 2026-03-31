@@ -24,6 +24,40 @@ Aves is a gallery and metadata explorer app. It is built for Android, with Flutt
 
 
 [Compare versions](https://github.com/deckerst/aves/wiki/App-Versions)
+
+### Remote Media Extension Summary (EN)
+
+- Added a new **Remote Media** settings section with strategy controls for:
+  - Wi-Fi only auto-load
+  - stream-only / stream-with-download-fallback
+  - image/video auto-download size limits
+  - remote entry pin-to-top and cache visibility in smart sets
+- Added a dedicated **Remote Logs** page with:
+  - toggleable logging
+  - copy logs
+  - export logs as TXT
+  - clear logs
+- Added autoplay stability hardening in preview/video flow:
+  - duplicate autoplay trigger protection
+  - pause-all-before-play guard to reduce multi-video contention
+  - extra diagnostic logs for autoplay/focus transitions
+
+### 远程媒体扩展功能摘要（中文）
+
+- 新增 **远程媒体** 设置分组，支持：
+  - 仅 Wi-Fi 自动加载
+  - 仅流式 / 流式失败回退下载
+  - 图片/视频自动下载大小上限
+  - 远程入口置顶与缓存是否纳入媒体集合
+- 新增独立 **远程日志** 页面，支持：
+  - 日志开关
+  - 复制日志
+  - 导出 TXT
+  - 清空日志
+- 增强预览/视频自动播放稳定性：
+  - 重复自动播放触发保护
+  - 播放前统一暂停，减少多视频竞争
+  - 自动播放与焦点切换关键日志埋点
       
 <div align="left">
 
