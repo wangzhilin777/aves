@@ -45,6 +45,7 @@
   - 构建脚本新增 `pubspec.lock` 备份恢复，避免构建过程污染工作区。
   - 兼容 `build/app` 与 `android/app/build` 两种产物目录，统一 arm64 输出文件名。
   - 简化依赖拉取流程并保留 lock 恢复，减少构建噪音日志。
+  - 新增 `scripts/quick_verify.ps1` 快速静态校验脚本，默认 `analyze --no-pub` 以降低日常验证耗时。
 
 ### 优化
 - 优化单列预览卡片边距（上下左右更易区分）。

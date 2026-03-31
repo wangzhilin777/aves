@@ -1,5 +1,6 @@
 param(
-  [switch]$All
+  [switch]$All,
+  [switch]$RunPub
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,6 +40,11 @@ $targets = Get-AnalyzeTargets
 Write-Host "[verify] targets:"
 $targets | ForEach-Object { Write-Host "  - $_" }
 
-& $flutter analyze $targets
+$args = @("analyze")
+if (-not $RunPub) {
+  $args += "--no-pub"
+}
+$args += $targets
+& $flutter $args
 
 Write-Host "[verify] done"
