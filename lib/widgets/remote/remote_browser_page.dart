@@ -52,6 +52,17 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
     return parent.isEmpty ? '/' : '/$parent';
   }
 
+  List<MapEntry<String, String>> _breadcrumbs() {
+    final out = <MapEntry<String, String>>[const MapEntry('/', '/')];
+    final parts = _path.split('/').where((v) => v.isNotEmpty).toList();
+    var current = '';
+    for (final p in parts) {
+      current = '$current/$p';
+      out.add(MapEntry(p, current));
+    }
+    return out;
+  }
+
   @override
   Widget build(BuildContext context) {
     String tr(String en, String zh) => context.locale.startsWith('zh') ? zh : en;
@@ -109,6 +120,27 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
                   ),
                 ),
               ),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  children: _breadcrumbs().map((crumb) {
+                    final isCurrent = crumb.value == _path || (crumb.value == '/' && (_path == '/' || _path == '.'));
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: ChoiceChip(
+                        selected: isCurrent,
+                        label: Text(crumb.key),
+                        onSelected: (_) => setState(() {
+                          _path = crumb.value;
+                          _loader = _load(force: true);
+                        }),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 4),
               Expanded(
                 child: FutureBuilder<RemoteFolderPageData>(
                   future: _loader,
