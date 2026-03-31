@@ -6,6 +6,7 @@ import 'package:aves/ref/mime_types.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:path/path.dart' as p;
 
 class RemoteMediaLogService {
   static const int _maxLogEntries = 1200;
@@ -58,6 +59,7 @@ class RemoteMediaLogService {
       if (!await dir.exists()) {
         await dir.create(recursive: true);
       }
+      await _cleanupOldExportFiles(dir);
       final file = File(
         '${dir.path}${Platform.pathSeparator}aves-remote-logs-${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}${MimeTypes.extensionFor(MimeTypes.plainText) ?? '.txt'}',
       );
@@ -67,4 +69,22 @@ class RemoteMediaLogService {
       return null;
     }
   }
+
+  Future<void> _cleanupOldExportFiles(Directory dir) async {
+    final files = <File>[];
+    await for (final entity in dir.list(followLinks: false)) {
+      if (entity is File && p.basename(entity.path).startsWith('aves-remote-logs-') && entity.path.toLowerCase().endsWith('.txt')) {
+        files.add(entity);
+      }
+    }
+    if (files.length <= _maxRetainedExportFiles) return;
+    files.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+    for (final file in files.skip(_maxRetainedExportFiles)) {
+      try {
+        await file.delete();
+      } catch (_) {}
+    }
+  }
+
+  static const int _maxRetainedExportFiles = 20;
 }
