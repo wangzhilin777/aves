@@ -209,6 +209,8 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
   bool _ftpAnonymous = false;
   bool _ftpPassive = true;
 
+  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+
   @override
   void initState() {
     super.initState();
@@ -249,19 +251,19 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
   Widget build(BuildContext context) {
     final l10n = MaterialLocalizations.of(context);
     return AlertDialog(
-      title: Text(widget.initial == null ? 'Add Remote Server' : 'Edit Remote Server'),
+      title: Text(widget.initial == null ? _tr(context, 'Add Remote Server', '新增远程连接') : _tr(context, 'Edit Remote Server', '编辑远程连接')),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: _nameController,
-              decoration: const InputDecoration(labelText: 'Display name'),
+              decoration: InputDecoration(labelText: _tr(context, 'Display name', '显示名称')),
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<RemoteProtocol>(
               initialValue: _protocol,
-              decoration: const InputDecoration(labelText: 'Protocol'),
+              decoration: InputDecoration(labelText: _tr(context, 'Protocol', '协议')),
               items: RemoteProtocol.values
                   .map(
                     (v) => DropdownMenuItem(
@@ -284,41 +286,41 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
             ] else ...[
               TextField(
                 controller: _hostController,
-                decoration: const InputDecoration(labelText: 'Host'),
+                decoration: InputDecoration(labelText: _tr(context, 'Host', '主机')),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: _portController,
-                decoration: const InputDecoration(labelText: 'Port'),
+                decoration: InputDecoration(labelText: _tr(context, 'Port', '端口')),
                 keyboardType: TextInputType.number,
               ),
               const SizedBox(height: 8),
             ],
             TextField(
               controller: _basePathController,
-              decoration: const InputDecoration(labelText: 'Base path'),
+              decoration: InputDecoration(labelText: _tr(context, 'Base path', '基础路径')),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _usernameController,
-              decoration: const InputDecoration(labelText: 'Username'),
+              decoration: InputDecoration(labelText: _tr(context, 'Username', '用户名')),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _passwordController,
               obscureText: true,
-              decoration: const InputDecoration(labelText: 'Password'),
+              decoration: InputDecoration(labelText: _tr(context, 'Password', '密码')),
             ),
             if (_protocol == RemoteProtocol.ftp) ...[
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Anonymous login'),
+                title: Text(_tr(context, 'Anonymous login', '匿名登录')),
                 value: _ftpAnonymous,
                 onChanged: (v) => setState(() => _ftpAnonymous = v),
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Passive mode'),
+                title: Text(_tr(context, 'Passive mode', '被动模式')),
                 value: _ftpPassive,
                 onChanged: (v) => setState(() => _ftpPassive = v),
               ),
@@ -326,25 +328,25 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
             if (_protocol == RemoteProtocol.smb) ...[
               TextField(
                 controller: _smbDomainController,
-                decoration: const InputDecoration(labelText: 'SMB domain'),
+                decoration: InputDecoration(labelText: _tr(context, 'SMB domain', 'SMB 域')),
               ),
             ],
             if (_protocol == RemoteProtocol.sftp) ...[
               TextField(
                 controller: _sftpPrivateKeyController,
-                decoration: const InputDecoration(labelText: 'SFTP private key'),
+                decoration: InputDecoration(labelText: _tr(context, 'SFTP private key', 'SFTP 私钥')),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: _sftpPassphraseController,
-                decoration: const InputDecoration(labelText: 'SFTP passphrase'),
+                decoration: InputDecoration(labelText: _tr(context, 'SFTP passphrase', 'SFTP 私钥口令')),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: _sftpAdvancedController,
                 minLines: 2,
                 maxLines: 4,
-                decoration: const InputDecoration(labelText: 'SFTP advanced config (JSON)'),
+                decoration: InputDecoration(labelText: _tr(context, 'SFTP advanced config (JSON)', 'SFTP 高级配置（JSON）')),
               ),
             ],
           ],
