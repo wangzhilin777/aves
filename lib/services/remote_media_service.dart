@@ -817,6 +817,11 @@ class RemoteMediaService {
 
     final client = http.Client();
     try {
+      final summary = <String, Object?>{
+        'server': server.name,
+        'path': node.path,
+        'uri': targetUri.toString(),
+      };
       final headers = <String, String>{};
       final username = server.username;
       final password = server.password;
@@ -825,16 +830,85 @@ class RemoteMediaService {
         headers['Authorization'] = 'Basic $token';
       }
 
-      final response = await client.send(http.Request('HEAD', targetUri)..headers.addAll(headers)).timeout(const Duration(seconds: 8));
-      await response.stream.drain<void>();
-      if (response.statusCode >= 200 && response.statusCode < 400) {
+      final headResponse = await client.send(http.Request('HEAD', targetUri)..headers.addAll(headers)).timeout(const Duration(seconds: 8));
+      await headResponse.stream.drain<void>();
+      final headSize = int.tryParse(headResponse.headers['content-length'] ?? '');
+      final headModified = _parseHttpDateMillis(headResponse.headers['last-modified']);
+      await remoteMediaLogService.log(
+        'metadata',
+        'webdav file metadata via head',
+        data: {
+          ...summary,
+          'status': headResponse.statusCode,
+          'sizeBytes': headSize,
+          'modifiedMillis': headModified,
+        },
+      );
+      if (headResponse.statusCode >= 200 && headResponse.statusCode < 400 && (headSize != null || headModified != null)) {
         return {
-          'sizeBytes': int.tryParse(response.headers['content-length'] ?? ''),
-          'modifiedMillis': _parseHttpDateMillis(response.headers['last-modified']),
+          'sizeBytes': headSize,
+          'modifiedMillis': headModified,
         };
       }
-    } catch (_) {
-      // ignore and fall back to list metadata
+
+      final propfindHeaders = <String, String>{
+        ...headers,
+        'Depth': '0',
+        'Content-Type': 'application/xml; charset=utf-8',
+      };
+      const propfindBody = '''<?xml version="1.0" encoding="utf-8" ?>
+<d:propfind xmlns:d="DAV:">
+  <d:prop>
+    <d:getcontentlength/>
+    <d:getlastmodified/>
+    <d:getcontenttype/>
+  </d:prop>
+</d:propfind>''';
+      final propfindResponse = await client
+          .send(
+            http.Request('PROPFIND', targetUri)
+              ..headers.addAll(propfindHeaders)
+              ..body = propfindBody,
+          )
+          .timeout(const Duration(seconds: 8));
+      final propfindText = await propfindResponse.stream.bytesToString();
+      int? propfindSize;
+      int? propfindModified;
+      if (propfindResponse.statusCode == 207 || propfindResponse.statusCode == 200) {
+        final doc = XmlDocument.parse(propfindText);
+        final responseNode = doc.findAllElements('response', namespace: 'DAV:').firstOrNull;
+        if (responseNode != null) {
+          propfindSize = int.tryParse(_findDavValue(responseNode, 'getcontentlength') ?? '');
+          propfindModified = _parseHttpDateMillis(_findDavValue(responseNode, 'getlastmodified'));
+        }
+      }
+      await remoteMediaLogService.log(
+        'metadata',
+        'webdav file metadata via propfind',
+        data: {
+          ...summary,
+          'status': propfindResponse.statusCode,
+          'sizeBytes': propfindSize,
+          'modifiedMillis': propfindModified,
+        },
+      );
+      if (propfindSize != null || propfindModified != null) {
+        return {
+          'sizeBytes': propfindSize,
+          'modifiedMillis': propfindModified,
+        };
+      }
+    } catch (error) {
+      await remoteMediaLogService.log(
+        'metadata',
+        'webdav file metadata lookup failed',
+        data: {
+          'server': server.name,
+          'path': node.path,
+          'uri': targetUri.toString(),
+          'error': '$error',
+        },
+      );
     } finally {
       client.close();
     }
@@ -905,7 +979,7 @@ class RemoteMediaService {
       final responses = doc.findAllElements('response', namespace: 'DAV:').toList();
       final out = <RemoteBrowseNode>[];
       for (final node in responses) {
-        final hrefText = node.findElements('href', namespace: 'DAV:').firstOrNull?.innerText;
+        final hrefText = _findDavValue(node, 'href');
         if (hrefText == null || hrefText.isEmpty) continue;
         final hrefUri = Uri.tryParse(hrefText);
         final decodedPath = Uri.decodeFull((hrefUri?.path ?? hrefText).trim());
@@ -915,12 +989,12 @@ class RemoteMediaService {
           continue;
         }
 
-        final displayName = node.findElements('displayname', namespace: 'DAV:').firstOrNull?.innerText.trim();
+        final displayName = _findDavValue(node, 'displayname')?.trim();
         final resourceType = node.findAllElements('collection', namespace: 'DAV:').isNotEmpty;
-        final contentType = node.findElements('getcontenttype', namespace: 'DAV:').firstOrNull?.innerText.toLowerCase() ?? '';
-        final contentLengthText = node.findElements('getcontentlength', namespace: 'DAV:').firstOrNull?.innerText.trim();
+        final contentType = (_findDavValue(node, 'getcontenttype') ?? '').toLowerCase();
+        final contentLengthText = _findDavValue(node, 'getcontentlength')?.trim();
         final contentLength = int.tryParse(contentLengthText ?? '');
-        final modifiedText = node.findElements('getlastmodified', namespace: 'DAV:').firstOrNull?.innerText.trim();
+        final modifiedText = _findDavValue(node, 'getlastmodified')?.trim();
         final modifiedMillis = _parseHttpDateMillis(modifiedText);
 
         final hrefName = decodedPath.split('/').where((v) => v.isNotEmpty).lastOrNull ?? decodedPath;
@@ -949,6 +1023,18 @@ class RemoteMediaService {
           'webdav empty level',
           data: {
             'uri': targetUri.toString(),
+          },
+        );
+      } else {
+        final missingSizeCount = out.where((v) => !v.isDirectory && v.sizeBytes == null).length;
+        await remoteMediaLogService.log(
+          'metadata',
+          'webdav list metadata summary',
+          data: {
+            'uri': targetUri.toString(),
+            'responseCount': responses.length,
+            'itemCount': out.length,
+            'missingSizeCount': missingSizeCount,
           },
         );
       }
@@ -1211,13 +1297,93 @@ class RemoteMediaService {
     final metadata = await _fetchWebDavFileMetadata(server: server, node: node);
     final totalLength = (metadata['sizeBytes'] as int?) ?? node.sizeBytes ?? 0;
     final lastModified = _millisToDateTime((metadata['modifiedMillis'] as int?) ?? node.modifiedMillis);
-    return _proxyChunkedRemote(
-      server: server,
-      node: node,
-      request: request,
-      totalLength: totalLength,
-      lastModified: lastModified,
-      fetchChunk: (chunkRange) => _fetchWebDavChunk(server: server, node: node, uri: targetUri, range: chunkRange),
+    if (totalLength <= 0) {
+      await remoteMediaLogService.log(
+        'stream',
+        'fallback to passthrough webdav stream because file length is unknown',
+        data: {
+          'server': server.name,
+          'path': node.path,
+        },
+      );
+      return _proxyWebDavPassthrough(
+        server: server,
+        node: node,
+        request: request,
+        targetUri: targetUri,
+      );
+    }
+
+    try {
+      return await _proxyChunkedRemote(
+        server: server,
+        node: node,
+        request: request,
+        totalLength: totalLength,
+        lastModified: lastModified,
+        fetchChunk: (chunkRange) => _fetchWebDavChunk(server: server, node: node, uri: targetUri, range: chunkRange),
+      );
+    } catch (error) {
+      await remoteMediaLogService.log(
+        'stream',
+        'fallback to passthrough webdav stream after chunked proxy failure',
+        data: {
+          'server': server.name,
+          'path': node.path,
+          'error': '$error',
+        },
+      );
+      return _proxyWebDavPassthrough(
+        server: server,
+        node: node,
+        request: request,
+        targetUri: targetUri,
+      );
+    }
+  }
+
+  Future<RemoteProxyResponse> _proxyWebDavPassthrough({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteProxyRequest request,
+    required Uri targetUri,
+  }) async {
+    final headers = <String, String>{};
+    final username = server.username;
+    final password = server.password;
+    if (username != null && password != null) {
+      final token = base64Encode(utf8.encode('$username:$password'));
+      headers[HttpHeaders.authorizationHeader] = 'Basic $token';
+    }
+    if (request.method != 'HEAD' && request.rangeHeader != null && request.rangeHeader!.isNotEmpty) {
+      headers[HttpHeaders.rangeHeader] = request.rangeHeader!;
+    }
+
+    final client = http.Client();
+    final upstreamRequest = http.Request(request.method, targetUri)..headers.addAll(headers);
+    final upstreamResponse = await client.send(upstreamRequest);
+
+    Stream<List<int>> stream() async* {
+      try {
+        if (request.method != 'HEAD') {
+          await for (final chunk in upstreamResponse.stream) {
+            yield chunk;
+          }
+        }
+      } finally {
+        client.close();
+      }
+    }
+
+    return RemoteProxyResponse(
+      statusCode: upstreamResponse.statusCode,
+      stream: request.method == 'HEAD' ? const Stream<List<int>>.empty() : stream(),
+      contentType: upstreamResponse.headers[HttpHeaders.contentTypeHeader] ?? inferMimeType(node),
+      contentLength: int.tryParse(upstreamResponse.headers[HttpHeaders.contentLengthHeader] ?? ''),
+      totalLength: int.tryParse(upstreamResponse.headers[HttpHeaders.contentLengthHeader] ?? ''),
+      contentRange: upstreamResponse.headers[HttpHeaders.contentRangeHeader],
+      lastModified: _parseHeaderHttpDate(upstreamResponse.headers[HttpHeaders.lastModifiedHeader]),
+      acceptRanges: (upstreamResponse.headers[HttpHeaders.acceptRangesHeader] ?? '').toLowerCase() == 'bytes',
     );
   }
 
@@ -1342,6 +1508,15 @@ class RemoteMediaService {
   }
 
   DateTime? _millisToDateTime(int? millis) => millis != null && millis > 0 ? DateTime.fromMillisecondsSinceEpoch(millis) : null;
+
+  DateTime? _parseHeaderHttpDate(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return HttpDate.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<RemoteProxyResponse> _proxyChunkedRemote({
     required RemoteServer server,
@@ -1623,7 +1798,9 @@ class RemoteMediaService {
     required RemoteServer server,
     required RemoteBrowseNode node,
   }) async {
-    final targetUri = buildStreamUri(server: server, node: node);
+    final base = server.webdavUrl;
+    if (base == null || base.isEmpty) return null;
+    final targetUri = _buildWebDavUri(base, _resolveEffectivePath(server, node.path));
     if (targetUri == null) return null;
     final cacheFile = await _getOrCreateCacheFile(server, node);
 
@@ -2149,6 +2326,10 @@ class RemoteMediaService {
         );
       }
     }
+  }
+
+  String? _findDavValue(XmlElement node, String localName) {
+    return node.findAllElements(localName, namespace: 'DAV:').firstOrNull?.innerText;
   }
 
   Future<void> _tryMergeCompleteChunkCache({
