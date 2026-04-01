@@ -27,6 +27,7 @@ class RemoteBrowseNode {
   final bool isVideo;
   final bool isImage;
   final int? sizeBytes;
+  final int? modifiedMillis;
 
   const RemoteBrowseNode({
     required this.path,
@@ -35,6 +36,7 @@ class RemoteBrowseNode {
     this.isVideo = false,
     this.isImage = false,
     this.sizeBytes,
+    this.modifiedMillis,
   });
 }
 
@@ -203,6 +205,15 @@ class RemoteMediaService {
     final sameTarget = candidateUri.scheme == originalUri.scheme && candidateUri.host.toLowerCase() == originalUri.host.toLowerCase() && candidateUri.port == originalUri.port;
     if (!sameTarget) return candidateUriRaw;
     return candidateUri.replace(userInfo: originalUri.userInfo).toString();
+  }
+
+  int? _parseHttpDateMillis(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return HttpDate.parse(raw).millisecondsSinceEpoch;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<File?> ensureDownloadedForEntry(
@@ -463,6 +474,24 @@ class RemoteMediaService {
     required RemoteBrowseNode node,
   }) async {
     final plan = await decidePreviewPlan(server: server, node: node);
+    final cachedFile = await _getExistingCacheFile(server, node);
+    if (cachedFile != null && (!node.isVideo || settings.remoteStreamMode != RemoteStreamMode.streamOnly)) {
+      await remoteMediaLogService.log(
+        'auto_download',
+        'reuse cached remote media',
+        data: {
+          'server': server.name,
+          'path': node.path,
+          'file': cachedFile.path,
+        },
+      );
+      return RemoteMediaResolveResult(
+        streamUri: null,
+        downloadedFile: cachedFile,
+        plan: plan,
+      );
+    }
+
     final streamUri = buildStreamUri(server: server, node: node);
     File? downloadedFile;
     if (plan.shouldAutoDownload) {
@@ -646,6 +675,7 @@ class RemoteMediaService {
     <d:resourcetype/>
     <d:getcontenttype/>
     <d:getcontentlength/>
+    <d:getlastmodified/>
   </d:prop>
 </d:propfind>''';
       final response = await client.send(
@@ -685,6 +715,8 @@ class RemoteMediaService {
         final contentType = node.findElements('getcontenttype', namespace: 'DAV:').firstOrNull?.innerText.toLowerCase() ?? '';
         final contentLengthText = node.findElements('getcontentlength', namespace: 'DAV:').firstOrNull?.innerText.trim();
         final contentLength = int.tryParse(contentLengthText ?? '');
+        final modifiedText = node.findElements('getlastmodified', namespace: 'DAV:').firstOrNull?.innerText.trim();
+        final modifiedMillis = _parseHttpDateMillis(modifiedText);
 
         final hrefName = decodedPath.split('/').where((v) => v.isNotEmpty).lastOrNull ?? decodedPath;
         final name = resourceType ? (displayName != null && displayName.isNotEmpty ? displayName : hrefName) : hrefName;
@@ -701,6 +733,7 @@ class RemoteMediaService {
             isVideo: isVideo,
             isImage: isImage,
             sizeBytes: isDirectory ? null : contentLength,
+            modifiedMillis: modifiedMillis,
           ),
         );
       }
@@ -772,6 +805,7 @@ class RemoteMediaService {
           isVideo: !isDirectory && _videoExt.any(lower.endsWith),
           isImage: !isDirectory && _imageExt.any(lower.endsWith),
           sizeBytes: isDirectory ? null : v.size,
+          modifiedMillis: null,
         );
       }).toList()..sort(_compareNodes);
       return out;
@@ -823,6 +857,7 @@ class RemoteMediaService {
           isVideo: !isDirectory && _videoExt.any(lower.endsWith),
           isImage: !isDirectory && _imageExt.any(lower.endsWith),
           sizeBytes: isDirectory ? null : v.attr.size,
+          modifiedMillis: null,
         );
       }).toList()..sort(_compareNodes);
       return out;
@@ -851,7 +886,7 @@ class RemoteMediaService {
       final targetPath = _resolveEffectivePath(server, path);
       if (_normalizePath(targetPath) == '/') {
         final shares = await smb.listShares();
-        return shares.map((v) => RemoteBrowseNode(path: '/${v.name}', name: v.name, isDirectory: true)).toList()..sort(_compareNodes);
+        return shares.map((v) => RemoteBrowseNode(path: '/${v.name}', name: v.name, isDirectory: true, modifiedMillis: null)).toList()..sort(_compareNodes);
       }
 
       final folder = await smb.file(targetPath);
@@ -867,6 +902,7 @@ class RemoteMediaService {
           isVideo: !isDirectory && _videoExt.any(lower.endsWith),
           isImage: !isDirectory && _imageExt.any(lower.endsWith),
           sizeBytes: isDirectory ? null : v.size,
+          modifiedMillis: null,
         );
       }).toList()..sort(_compareNodes);
       return out;
@@ -1283,11 +1319,22 @@ class RemoteMediaService {
     return trimmed.replaceAll(RegExp(r'[\\\\/:*?\"<>|]'), '_');
   }
 
-  Future<File> _getOrCreateCacheFile(RemoteServer server, RemoteBrowseNode node) async {
+  Future<File?> _getExistingCacheFile(RemoteServer server, RemoteBrowseNode node) async {
     final cacheDir = await getConnectionCacheDirectory(server.id);
     final cacheFile = File(
       '${cacheDir.path}${Platform.pathSeparator}${_safeFileName(node.name)}_${node.path.hashCode.abs()}',
     );
+    if (await cacheFile.exists() && await cacheFile.length() > 0) {
+      return cacheFile;
+    }
+    return null;
+  }
+
+  Future<File> _getOrCreateCacheFile(RemoteServer server, RemoteBrowseNode node) async {
+    final cacheFile = await _getExistingCacheFile(server, node) ??
+        File(
+          '${(await getConnectionCacheDirectory(server.id)).path}${Platform.pathSeparator}${_safeFileName(node.name)}_${node.path.hashCode.abs()}',
+        );
     if (await cacheFile.exists() && await cacheFile.length() > 0) {
       await remoteMediaLogService.log('auto_download', 'cache hit', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
       return cacheFile;

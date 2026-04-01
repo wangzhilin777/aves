@@ -49,68 +49,71 @@ class DecoratedThumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final double thumbnailHeight = tileExtent;
-    final double thumbnailWidth;
-    if (isMosaic) {
-      thumbnailWidth =
-          thumbnailHeight *
-          entry.displayAspectRatio.clamp(
-            MosaicSectionLayoutBuilder.minThumbnailAspectRatio,
-            MosaicSectionLayoutBuilder.maxThumbnailAspectRatio,
-          );
-    } else {
-      thumbnailWidth = tileExtent;
-    }
+    return AnimatedBuilder(
+      animation: entry.visualChangeNotifier,
+      builder: (context, child) {
+        final double thumbnailHeight = tileExtent;
+        final double thumbnailWidth;
+        if (isMosaic) {
+          thumbnailWidth =
+              thumbnailHeight *
+              entry.displayAspectRatio.clamp(
+                MosaicSectionLayoutBuilder.minThumbnailAspectRatio,
+                MosaicSectionLayoutBuilder.maxThumbnailAspectRatio,
+              );
+        } else {
+          thumbnailWidth = tileExtent;
+        }
 
-    Widget child = ThumbnailImage(
-      entry: entry,
-      extent: tileExtent,
-      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-      isMosaic: isMosaic,
-      cancellableNotifier: cancellableNotifier,
-      heroTag: heroTagger?.call(),
-      heroPlaceholderBuilder: heroPlaceholderBuilder,
-    );
+        Widget child = ThumbnailImage(
+          entry: entry,
+          extent: tileExtent,
+          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+          isMosaic: isMosaic,
+          cancellableNotifier: cancellableNotifier,
+          heroTag: heroTagger?.call(),
+          heroPlaceholderBuilder: heroPlaceholderBuilder,
+        );
 
-    child = Stack(
-      fit: StackFit.passthrough,
-      children: [
-        imageDecorator?.call(context, child) ?? child,
-        ThumbnailEntryOverlay(entry: entry),
-        if (selectable) ...[
-          GridItemSelectionOverlay<AvesEntry>(
-            item: entry,
-            padding: const EdgeInsets.all(2),
-          ),
-          ThumbnailZoomOverlay(
-            onZoom: () => OpenViewerNotification(entry).dispatch(context),
-          ),
-        ],
-        if (playbackFocusNotifier != null && entry.isVideo)
-          _AutoPlayVideoThumbnail(
-            entry: entry,
-            isCurrentNotifier: playbackFocusNotifier!,
-            isMosaic: isMosaic,
-            tileExtent: tileExtent,
-          ),
-        if (highlightable) ThumbnailHighlightOverlay(entry: entry),
-      ],
-    );
+        child = Stack(
+          fit: StackFit.passthrough,
+          children: [
+            imageDecorator?.call(context, child) ?? child,
+            ThumbnailEntryOverlay(entry: entry),
+            if (selectable) ...[
+              GridItemSelectionOverlay<AvesEntry>(
+                item: entry,
+                padding: const EdgeInsets.all(2),
+              ),
+              ThumbnailZoomOverlay(
+                onZoom: () => OpenViewerNotification(entry).dispatch(context),
+              ),
+            ],
+            if (playbackFocusNotifier != null && entry.isVideo)
+              _AutoPlayVideoThumbnail(
+                entry: entry,
+                isCurrentNotifier: playbackFocusNotifier!,
+                isMosaic: isMosaic,
+                tileExtent: tileExtent,
+              ),
+            if (highlightable) ThumbnailHighlightOverlay(entry: entry),
+          ],
+        );
 
-    return Container(
-      // `decoration` with sub logical pixel width yields scintillating borders
-      // so we use `foregroundDecoration` instead
-      foregroundDecoration: BoxDecoration(
-        border: Border.fromBorderSide(
-          BorderSide(
-            color: borderColor(context),
-            width: borderWidth(context),
+        return Container(
+          foregroundDecoration: BoxDecoration(
+            border: Border.fromBorderSide(
+              BorderSide(
+                color: borderColor(context),
+                width: borderWidth(context),
+              ),
+            ),
           ),
-        ),
-      ),
-      width: thumbnailWidth,
-      height: thumbnailHeight,
-      child: child,
+          width: thumbnailWidth,
+          height: thumbnailHeight,
+          child: child,
+        );
+      },
     );
   }
 }
@@ -341,91 +344,94 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null) return const SizedBox();
-    return StreamBuilder<VideoStatus>(
-      stream: controller.statusStream,
-      builder: (context, snapshot) {
-        // Show video layer only when playback is effectively running, otherwise keep thumbnail visible.
-        // This avoids a short black flash between readiness and first rendered frame.
-        final show = isCurrent && controller.isPlaying;
-        final tileHeight = widget.tileExtent;
-        final tileWidth = widget.isMosaic
-            ? tileHeight *
-                  entry.displayAspectRatio.clamp(
-                    MosaicSectionLayoutBuilder.minThumbnailAspectRatio,
-                    MosaicSectionLayoutBuilder.maxThumbnailAspectRatio,
-                  )
-            : tileHeight;
-        return SizedBox(
-          width: tileWidth,
-          height: tileHeight,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              IgnorePointer(
-                child: AnimatedOpacity(
-                  opacity: show ? 1 : 0,
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOut,
-                  child: FittedBox(
-                    fit: widget.isMosaic ? BoxFit.cover : BoxFit.contain,
-                    clipBehavior: Clip.hardEdge,
-                    child: SizedBox(
-                      width: entry.displaySize.width,
-                      height: entry.displaySize.height,
-                      child: VideoView(
-                        entry: entry,
-                        controller: controller,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                bottom: 6,
-                right: 6,
-                child: IgnorePointer(
-                  ignoring: !show,
-                  child: AnimatedOpacity(
-                    opacity: show ? 1 : 0,
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOut,
-                    child: Material(
-                      color: Colors.black45,
-                      shape: const CircleBorder(),
-                      child: InkWell(
-                        customBorder: const CircleBorder(),
-                        onTap: () async {
-                          final muted = !controller.isMuted;
-                          await controller.mute(muted);
-                          if (!mounted) return;
-                          setState(() {});
-                          unawaited(
-                            remoteMediaLogService.log(
-                              'autoplay',
-                              'grid preview mute toggled',
-                              data: {
-                                'uri': entry.uri,
-                                'muted': muted,
-                              },
-                            ),
-                          );
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.all(5),
-                          child: Icon(
-                            controller.isMuted ? AIcons.mute : AIcons.unmute,
-                            size: 14,
-                            color: Colors.white,
-                            semanticLabel: controller.isMuted ? context.l10n.videoActionMute : context.l10n.videoActionUnmute,
+    return AnimatedBuilder(
+      animation: entry.visualChangeNotifier,
+      builder: (context, child) {
+        return StreamBuilder<VideoStatus>(
+          stream: controller.statusStream,
+          builder: (context, snapshot) {
+            final show = isCurrent && controller.isPlaying;
+            final tileHeight = widget.tileExtent;
+            final tileWidth = widget.isMosaic
+                ? tileHeight *
+                      entry.displayAspectRatio.clamp(
+                        MosaicSectionLayoutBuilder.minThumbnailAspectRatio,
+                        MosaicSectionLayoutBuilder.maxThumbnailAspectRatio,
+                      )
+                : tileHeight;
+            return SizedBox(
+              width: tileWidth,
+              height: tileHeight,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  IgnorePointer(
+                    child: AnimatedOpacity(
+                      opacity: show ? 1 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                      child: FittedBox(
+                        fit: widget.isMosaic ? BoxFit.cover : BoxFit.contain,
+                        clipBehavior: Clip.hardEdge,
+                        child: SizedBox(
+                          width: entry.displaySize.width,
+                          height: entry.displaySize.height,
+                          child: VideoView(
+                            entry: entry,
+                            controller: controller,
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
+                  Positioned(
+                    bottom: 6,
+                    right: 6,
+                    child: IgnorePointer(
+                      ignoring: !show,
+                      child: AnimatedOpacity(
+                        opacity: show ? 1 : 0,
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOut,
+                        child: Material(
+                          color: Colors.black45,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () async {
+                              final muted = !controller.isMuted;
+                              await controller.mute(muted);
+                              if (!mounted) return;
+                              setState(() {});
+                              unawaited(
+                                remoteMediaLogService.log(
+                                  'autoplay',
+                                  'grid preview mute toggled',
+                                  data: {
+                                    'uri': entry.uri,
+                                    'muted': muted,
+                                  },
+                                ),
+                              );
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(5),
+                              child: Icon(
+                                controller.isMuted ? AIcons.mute : AIcons.unmute,
+                                size: 14,
+                                color: Colors.white,
+                                semanticLabel: controller.isMuted ? context.l10n.videoActionMute : context.l10n.videoActionUnmute,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );

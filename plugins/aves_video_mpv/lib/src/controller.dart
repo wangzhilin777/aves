@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:aves/model/entry/entry.dart';
+import 'package:aves/model/media/video/metadata.dart';
 import 'package:aves_model/aves_model.dart';
 import 'package:aves_utils/aves_utils.dart';
 import 'package:aves_video/aves_video.dart';
@@ -29,6 +30,7 @@ class MpvVideoController extends AvesVideoController {
   bool _recoveringFromStreamError = false;
   bool _openInProgress = false;
   bool _ignoreNextVisualRefresh = false;
+  bool _metadataSyncInFlight = false;
 
   static final _pContext = p.Context();
 
@@ -150,6 +152,7 @@ class MpvVideoController extends AvesVideoController {
       playerStream.videoParams.listen((v) {
         sarNotifier.value = v.par;
         _syncEntryGeometry(v);
+        unawaited(_syncEntryPlaybackMetadata());
       }),
     );
     _subscriptions.add(playerStream.log.listen((v) => debugPrint('libmpv log: $v')));
@@ -521,9 +524,43 @@ class MpvVideoController extends AvesVideoController {
         final audioStreamCount = _audioTracks.length;
         final textStreamCount = _subtitleTracks.length;
         canSelectStreamNotifier.value = videoStreamCount > 1 || audioStreamCount > 1 || textStreamCount > 0;
+        unawaited(_syncEntryPlaybackMetadata());
       }
       _stopStreamFetchTimer();
     });
+  }
+
+  Future<void> _syncEntryPlaybackMetadata() async {
+    if (_metadataSyncInFlight || entry is! AvesEntry) {
+      return;
+    }
+    final mediaEntry = entry as AvesEntry;
+    _metadataSyncInFlight = true;
+    try {
+      var changed = false;
+
+      final durationMillis = _mkPlayer.state.duration.inMilliseconds;
+      if (durationMillis > 0 && mediaEntry.durationMillis != durationMillis) {
+        mediaEntry.durationMillis = durationMillis;
+        changed = true;
+      }
+
+      if (mediaEntry.catalogDateMillis == null && mediaEntry.sourceDateTakenMillis == null) {
+        try {
+          final catalogMetadata = await VideoMetadataFormatter.completeCatalogMetadata(mediaEntry);
+          if (catalogMetadata != null) {
+            mediaEntry.catalogMetadata = catalogMetadata;
+            changed = true;
+          }
+        } catch (_) {}
+      }
+
+      if (changed) {
+        mediaEntry.metadataChangeNotifier.notify();
+      }
+    } finally {
+      _metadataSyncInFlight = false;
+    }
   }
 
   @override
