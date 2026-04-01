@@ -25,6 +25,7 @@ import 'package:provider/provider.dart';
 mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   final Map<AvesEntry, VoidCallback> _metadataChangeListeners = {};
   final Map<MultiPageController, Future<void> Function()> _multiPageControllerPageListeners = {};
+  final Set<String> _sampledRemoteErrorProbeUris = {};
   String? _lastAutoPlayUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
@@ -150,12 +151,13 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       ),
     );
 
-    if (entry.uri.startsWith('http://') || entry.uri.startsWith('https://')) {
+    if ((entry.uri.startsWith('http://') || entry.uri.startsWith('https://')) && settings.remoteLogEnabled) {
       unawaited(
         controller.statusStream
             .firstWhere((status) => status == VideoStatus.error)
             .timeout(const Duration(seconds: 4))
             .then((_) async {
+              if (!_sampledRemoteErrorProbeUris.add(entry.uri)) return;
               final probe = await remoteMediaService.probeStreamUriHealth(entry.uri);
               return remoteMediaLogService.log(
                 'autoplay',
@@ -166,16 +168,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
                 },
               );
             })
-            .catchError((_) async {
-              await remoteMediaLogService.log(
-                'autoplay',
-                'viewer remote stream did not enter error status within probe window',
-                data: {
-                  'uri': entry.uri,
-                  'status': controller.status.name,
-                },
-              );
-            }),
+            .catchError((_) {}),
       );
     }
 
@@ -329,7 +322,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       return;
     }
 
-    await context.read<VideoConductor>().pauseAll();
+    await context.read<VideoConductor>().pauseOthers(videoController);
 
     if (!videoController.isMuted && (videoController.entry.isAnimated || shouldAutoPlayVideoMuted)) {
       await videoController.mute(true);

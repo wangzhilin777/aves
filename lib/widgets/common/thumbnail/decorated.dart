@@ -304,7 +304,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       }
 
       if (!mounted || token != _playToken || !isCurrent) return;
-      await conductor.pauseAll();
+      await conductor.pauseOthers(controller);
       await controller.mute(_shouldMute(settings));
       await controller.play();
       unawaited(

@@ -103,6 +103,13 @@ class VideoConductor {
 
   Future<void> pauseAll() => _applyToAll((controller) => controller.pause());
 
+  Future<void> pauseOthers(AvesVideoController keepController) async {
+    for (final controller in _controllers) {
+      if (identical(controller, keepController)) continue;
+      await controller.pause();
+    }
+  }
+
   Future<void> muteAll(bool muted) => _applyToAll((controller) => controller.mute(muted));
 
   Future<void> _disposeController(AvesVideoController controller) async {

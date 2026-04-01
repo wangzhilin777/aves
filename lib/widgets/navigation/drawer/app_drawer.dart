@@ -1,5 +1,6 @@
 import 'package:aves/model/filters/container/album_group.dart';
 import 'package:aves/model/filters/container/dynamic_album.dart';
+import 'package:aves/model/filters/covered/remote_album.dart';
 import 'package:aves/model/filters/covered/stored_album.dart';
 import 'package:aves/model/filters/trash.dart';
 import 'package:aves/model/remote/remote_server.dart';
@@ -22,14 +23,17 @@ import 'package:aves/widgets/common/basic/text/outlined.dart';
 import 'package:aves/widgets/common/extensions/build_context.dart';
 import 'package:aves/widgets/common/extensions/media_query.dart';
 import 'package:aves/widgets/common/identity/aves_logo.dart';
+import 'package:aves/widgets/common/identity/empty.dart';
 import 'package:aves/widgets/debug/app_debug_page.dart';
 import 'package:aves/widgets/explorer/explorer_page.dart';
 import 'package:aves/widgets/filter_grids/albums_page.dart';
+import 'package:aves/widgets/filter_grids/common/action_delegates/album_set.dart';
+import 'package:aves/widgets/filter_grids/common/filter_nav_page.dart';
+import 'package:aves/widgets/filter_grids/common/section_keys.dart';
 import 'package:aves/widgets/filter_grids/countries_page.dart';
 import 'package:aves/widgets/filter_grids/places_page.dart';
 import 'package:aves/widgets/filter_grids/tags_page.dart';
 import 'package:aves/widgets/home/home_page.dart';
-import 'package:aves/widgets/remote/remote_browser_page.dart';
 import 'package:aves/widgets/navigation/drawer/collection_nav_tile.dart';
 import 'package:aves/widgets/navigation/drawer/page_nav_tile.dart';
 import 'package:aves/widgets/navigation/drawer/tile.dart';
@@ -432,10 +436,37 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver {
       if (server == null) return;
       Navigator.maybeOf(context)?.pop();
       await Future.delayed(ADurations.drawerTransitionLoose);
+      final source = context.read<CollectionSource>();
+      final pathParts = folder.path.split('/').where((v) => v.isNotEmpty).toList();
+      final leafName = pathParts.isEmpty ? '/' : pathParts.last;
+      final remoteFilter = RemoteAlbumFilter(
+        serverId: folder.serverId,
+        path: folder.path,
+        title: '${server.name}:$leafName',
+      );
+      final remoteFilters = {remoteFilter}.cast<AlbumBaseFilter>();
+      final gridItems = FilterNavigationPage.sort<AlbumBaseFilter, AlbumChipSetActionDelegate>(
+        settings.albumSortFactor,
+        settings.albumSortReverse,
+        source,
+        remoteFilters,
+      );
       await Navigator.maybeOf(context)?.push(
         MaterialPageRoute(
-          settings: const RouteSettings(name: RemoteBrowserPage.routeName),
-          builder: (_) => RemoteBrowserPage(server: server, initialPath: folder.path),
+          settings: const RouteSettings(name: '/remote-pinned-filter'),
+          builder: (_) => FilterNavigationPage<AlbumBaseFilter, AlbumChipSetActionDelegate>(
+            source: source,
+            title: remoteFilter.title,
+            sortFactor: settings.albumSortFactor,
+            actionDelegate: AlbumChipSetActionDelegate(gridItems),
+            filterSections: {
+              const ChipSectionKey(): gridItems,
+            },
+            emptyBuilder: () => EmptyContent(
+              icon: AIcons.storageMain,
+              text: context.l10n.albumEmpty,
+            ),
+          ),
         ),
       );
     }

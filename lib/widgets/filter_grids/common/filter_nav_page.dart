@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:aves/model/filters/container/album_group.dart';
@@ -135,7 +136,6 @@ class FilterNavigationPage<T extends CollectionFilter, CSAD extends ChipSetActio
 
 class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSetActionDelegate<T>> extends State<FilterNavigationPage<T, CSAD>> with FeedbackMixin, VaultAwareMixin {
   final ValueNotifier<double> _appBarHeightNotifier = ValueNotifier(0);
-  int _virtualEntrySeed = -1;
 
   @override
   void dispose() {
@@ -395,7 +395,15 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
     required String nodePath,
     required String uri,
   }) {
-    return _virtualEntrySeed--;
+    // Use a deterministic hash so the same remote entry keeps a stable virtual ID
+    // across refresh/navigation, improving resume/selection consistency.
+    final data = utf8.encode('$serverId|$nodePath|$uri');
+    var hash = 0x811C9DC5;
+    for (final b in data) {
+      hash ^= b;
+      hash = (hash * 0x01000193) & 0x7fffffff;
+    }
+    return -(hash + 1);
   }
 
   Uri _buildDeferredRemoteUri(String serverId, String path) {

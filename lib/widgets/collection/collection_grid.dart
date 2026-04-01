@@ -339,6 +339,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   AvesEntry? _pendingFocusTarget;
   DateTime _lastPrefetchAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastPrefetchSignature;
+  DateTime _lastKeepFocusLogAt = DateTime.fromMillisecondsSinceEpoch(0);
+  String? _lastKeepFocusLogUri;
 
   CollectionLens get collection => widget.collection;
 
@@ -462,6 +464,15 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     if (current == target) return;
 
     if (target == null && isScrolling && current != null) {
+      final now = DateTime.now();
+      final currentUri = current.uri;
+      final sameUri = _lastKeepFocusLogUri == currentUri;
+      final withinCooldown = now.difference(_lastKeepFocusLogAt) < const Duration(seconds: 2);
+      if (sameUri && withinCooldown) {
+        return;
+      }
+      _lastKeepFocusLogUri = currentUri;
+      _lastKeepFocusLogAt = now;
       unawaited(
         remoteMediaLogService.log(
           'focus',
