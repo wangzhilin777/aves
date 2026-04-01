@@ -29,7 +29,6 @@ import 'package:aves/widgets/filter_grids/common/action_delegates/chip_set.dart'
 import 'package:aves/widgets/filter_grids/common/app_bar.dart';
 import 'package:aves/widgets/filter_grids/common/filter_grid_page.dart';
 import 'package:aves/widgets/filter_grids/common/section_keys.dart';
-import 'package:aves/widgets/remote/remote_browser_page.dart';
 import 'package:aves_model/aves_model.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -321,17 +320,18 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
 
       await remoteMediaLogService.log(
         'remote_load',
-        'remote folder injection produced no entries, fallback to remote browser',
+        'remote folder is empty, open native collection page with empty selection',
         data: {
           'server': server.name,
           'path': filter.path,
         },
       );
       final route = MaterialPageRoute(
-        settings: const RouteSettings(name: RemoteBrowserPage.routeName),
-        builder: (context) => RemoteBrowserPage(
-          server: server,
-          initialPath: filter.path,
+        settings: const RouteSettings(name: CollectionPage.routeName),
+        builder: (context) => CollectionPage(
+          source: widget.source,
+          filters: const {},
+          fixedSelection: const [],
         ),
       );
       navigate(route);

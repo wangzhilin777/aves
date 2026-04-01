@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:aves_model/aves_model.dart';
@@ -196,7 +195,7 @@ class MpvVideoController extends AvesVideoController {
     // cf https://github.com/media-kit/media-kit/issues/1061
 
     await _applyLoop();
-    await _mkPlayer.open(_buildPlayableMedia(entry.uri), play: playing);
+    await _mkPlayer.open(Media(entry.uri), play: playing);
     await _mkPlayer.setSubtitleTrack(SubtitleTrack.no());
     if (startMillis > 0) {
       await seekTo(startMillis);
@@ -204,23 +203,6 @@ class MpvVideoController extends AvesVideoController {
 
     _fetchStreams();
     _statusStreamController.add(_mkPlayer.state.playing ? VideoStatus.playing : VideoStatus.paused);
-  }
-
-  Media _buildPlayableMedia(String rawUri) {
-    final uri = Uri.tryParse(rawUri);
-    if (uri == null || uri.userInfo.isEmpty || !(uri.isScheme('http') || uri.isScheme('https'))) {
-      return Media(rawUri);
-    }
-
-    final userInfo = uri.userInfo;
-    final authToken = base64Encode(utf8.encode(userInfo));
-    final sanitized = uri.replace(userInfo: '').toString();
-    return Media(
-      sanitized,
-      httpHeaders: {
-        'Authorization': 'Basic $authToken',
-      },
-    );
   }
 
   void _initController() {

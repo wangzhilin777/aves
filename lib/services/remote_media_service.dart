@@ -383,6 +383,50 @@ class RemoteMediaService {
     );
   }
 
+  Future<Map<String, Object?>> probeStreamUriHealth(String rawUri) async {
+    final uri = Uri.tryParse(rawUri);
+    if (uri == null) {
+      return {'ok': false, 'reason': 'invalid_uri'};
+    }
+    if (!(uri.isScheme('http') || uri.isScheme('https'))) {
+      return {'ok': false, 'reason': 'unsupported_scheme', 'scheme': uri.scheme};
+    }
+
+    final targetUri = uri.userInfo.isNotEmpty ? uri.replace(userInfo: '') : uri;
+    final headers = <String, String>{
+      'Range': 'bytes=0-1',
+    };
+    if (uri.userInfo.isNotEmpty) {
+      final token = base64Encode(utf8.encode(uri.userInfo));
+      headers['Authorization'] = 'Basic $token';
+    }
+
+    final client = http.Client();
+    try {
+      final req = http.Request('GET', targetUri)..headers.addAll(headers);
+      final resp = await client.send(req).timeout(const Duration(seconds: 8));
+      await resp.stream.drain<void>();
+      return {
+        'ok': resp.statusCode >= 200 && resp.statusCode < 400,
+        'status': resp.statusCode,
+        'reasonPhrase': resp.reasonPhrase,
+        'contentType': resp.headers['content-type'],
+        'contentLength': resp.headers['content-length'],
+        'acceptRanges': resp.headers['accept-ranges'],
+        'targetUri': targetUri.toString(),
+      };
+    } catch (error) {
+      return {
+        'ok': false,
+        'reason': 'request_exception',
+        'error': '$error',
+        'targetUri': targetUri.toString(),
+      };
+    } finally {
+      client.close();
+    }
+  }
+
   Future<File?> downloadMedia({
     required RemoteServer server,
     required RemoteBrowseNode node,

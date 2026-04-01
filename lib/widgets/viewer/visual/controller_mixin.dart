@@ -155,12 +155,14 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         controller.statusStream
             .firstWhere((status) => status == VideoStatus.error)
             .timeout(const Duration(seconds: 4))
-            .then((_) {
+            .then((_) async {
+              final probe = await remoteMediaService.probeStreamUriHealth(entry.uri);
               return remoteMediaLogService.log(
                 'autoplay',
                 'viewer remote stream entered error status',
                 data: {
                   'uri': entry.uri,
+                  'probe': probe,
                 },
               );
             })
