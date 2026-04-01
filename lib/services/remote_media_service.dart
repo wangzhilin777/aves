@@ -132,8 +132,10 @@ class _ChunkFileSegment {
 
 class RemoteMediaService {
   static const _streamChunkSizeBytes = 2 * 1024 * 1024;
-  static const _streamChunkCacheVersion = 3;
+  static const _streamChunkCacheVersion = 4;
   static const _streamChunkPrefetchCount = 8;
+  static const _ftpSftpInitialWarmupChunkCount = 24;
+  static const _smbInitialWarmupChunkCount = 8;
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
   final Set<String> _downloadInProgressUris = {};
   final Set<String> _cacheWarmupKeys = {};
@@ -546,23 +548,32 @@ class RemoteMediaService {
         },
       );
 
+      final initialChunkCount = switch (server.protocol) {
+        RemoteProtocol.ftp || RemoteProtocol.sftp => _ftpSftpInitialWarmupChunkCount,
+        RemoteProtocol.smb => _smbInitialWarmupChunkCount,
+        RemoteProtocol.webdav => 1,
+      };
       final ranges = <RemoteByteRange>[
-        RemoteByteRange(
-          start: 0,
-          endInclusive: min(totalLength - 1, _streamChunkSizeBytes - 1),
-          totalLength: totalLength,
-        ),
+        for (var chunkIndex = 0; chunkIndex < initialChunkCount; chunkIndex++)
+          if (chunkIndex * _streamChunkSizeBytes < totalLength)
+            RemoteByteRange(
+              start: chunkIndex * _streamChunkSizeBytes,
+              endInclusive: min(totalLength - 1, ((chunkIndex + 1) * _streamChunkSizeBytes) - 1),
+              totalLength: totalLength,
+            ),
       ];
 
       if (totalLength > _streamChunkSizeBytes) {
         final tailStart = max(0, totalLength - _streamChunkSizeBytes);
-        ranges.add(
-          RemoteByteRange(
-            start: tailStart,
-            endInclusive: totalLength - 1,
-            totalLength: totalLength,
-          ),
-        );
+        if (!ranges.any((range) => range.start == tailStart && range.endInclusive == totalLength - 1)) {
+          ranges.add(
+            RemoteByteRange(
+              start: tailStart,
+              endInclusive: totalLength - 1,
+              totalLength: totalLength,
+            ),
+          );
+        }
       }
 
       Future<List<int>> Function(RemoteByteRange range)? fetchChunk;
@@ -1944,27 +1955,32 @@ class RemoteMediaService {
       if (await file.exists()) {
         final length = await file.length();
         if (length == range.contentLength) {
-          await _logInitialChunkSignatureFromFile(
+          final isUsable = await _inspectCachedInitialChunkAndValidate(
             server: server,
             node: node,
             range: range,
             file: file,
-            source: 'cache_hit',
           );
-          await remoteMediaLogService.log(
-            'cache',
-            'stream chunk cache hit',
-            data: {
-              'server': server.name,
-              'path': node.path,
-              'start': range.start,
-              'end': range.endInclusive,
-              'file': file.path,
-            },
-          );
-          return file;
+          if (!isUsable) {
+            await file.delete();
+          } else {
+            await remoteMediaLogService.log(
+              'cache',
+              'stream chunk cache hit',
+              data: {
+                'server': server.name,
+                'path': node.path,
+                'start': range.start,
+                'end': range.endInclusive,
+                'file': file.path,
+              },
+            );
+            return file;
+          }
         }
-        await file.delete();
+        if (await file.exists()) {
+          await file.delete();
+        }
       }
 
       List<int> bytes;
@@ -2039,14 +2055,13 @@ class RemoteMediaService {
     }
   }
 
-  Future<void> _logInitialChunkSignatureFromFile({
+  Future<bool> _inspectCachedInitialChunkAndValidate({
     required RemoteServer server,
     required RemoteBrowseNode node,
     required RemoteByteRange range,
     required File file,
-    required String source,
   }) async {
-    if (!node.isVideo || range.start != 0) return;
+    if (!node.isVideo || range.start != 0) return true;
     try {
       final bytes = await file
           .openRead(0, min(64, range.contentLength))
@@ -2054,13 +2069,28 @@ class RemoteMediaService {
             BytesBuilder(copy: false),
             (builder, chunk) => builder..add(chunk),
           );
+      final headBytes = bytes.takeBytes();
       await _logInitialChunkSignature(
         server: server,
         node: node,
         range: range,
-        bytes: bytes.takeBytes(),
-        source: source,
+        bytes: headBytes,
+        source: 'cache_hit',
       );
+      final looksValid = _looksLikePlayableVideoHeader(headBytes);
+      if (!looksValid) {
+        await remoteMediaLogService.log(
+          'cache',
+          'discard invalid cached initial video stream chunk',
+          data: {
+            'server': server.name,
+            'protocol': server.protocol.name,
+            'path': node.path,
+            'file': file.path,
+          },
+        );
+      }
+      return looksValid;
     } catch (error) {
       await remoteMediaLogService.log(
         'stream',
@@ -2069,10 +2099,11 @@ class RemoteMediaService {
           'server': server.name,
           'protocol': server.protocol.name,
           'path': node.path,
-          'source': source,
+          'source': 'cache_hit',
           'error': '$error',
         },
       );
+      return false;
     }
   }
 
@@ -2127,6 +2158,13 @@ class RemoteMediaService {
       if (match) return i;
     }
     return -1;
+  }
+
+  bool _looksLikePlayableVideoHeader(List<int> bytes) {
+    if (bytes.isEmpty) return false;
+    final head = bytes.take(min(64, bytes.length)).toList(growable: false);
+    final ftypIndex = _indexOfPattern(head, asciiPattern: 'ftyp', limit: head.length);
+    return ftypIndex >= 0 && ftypIndex <= 16;
   }
 
   Future<int> _fetchSftpFileSize({
