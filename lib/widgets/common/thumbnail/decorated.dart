@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/props.dart';
+import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/theme/icons.dart';
@@ -238,6 +239,15 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _lastAutoPlayAnyAttemptMillis = nowMillis;
       _lastAutoPlayUri = entry.uri;
       _lastAutoPlayAttemptMillis = nowMillis;
+
+      final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+      if (entry.isVideo && remoteProtocol != null) {
+        await remoteMediaService.prepareEntryForPlayback(
+          entry,
+          trigger: 'grid_preview',
+          allowDownload: remoteProtocol == RemoteProtocol.smb,
+        );
+      }
 
       final conductor = context.read<VideoConductor>();
       AvesVideoController controller;

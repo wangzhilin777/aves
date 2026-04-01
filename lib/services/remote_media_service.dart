@@ -304,6 +304,69 @@ class RemoteMediaService {
     }
   }
 
+  (RemoteServer server, RemoteBrowseNode node)? getVirtualRemoteRef(String uri) => _virtualRemoteRefs[uri];
+
+  RemoteProtocol? getRemoteProtocolForEntry(AvesEntry entry) => _virtualRemoteRefs[entry.uri]?.$1.protocol;
+
+  Future<File?> bindExistingCacheFileForEntry(
+    AvesEntry entry, {
+    String trigger = 'remote_entry_bind_existing_cache',
+  }) async {
+    final sourceUri = entry.uri;
+    final ref = _virtualRemoteRefs[sourceUri];
+    if (ref == null) return null;
+
+    final file = await _getExistingCacheFile(ref.$1, ref.$2);
+    if (file == null) return null;
+
+    final fileUri = Uri.file(file.path).toString();
+    if (entry.uri == fileUri && entry.path == file.path) {
+      return file;
+    }
+
+    entry.uri = fileUri;
+    entry.path = file.path;
+    entry.sizeBytes = await file.length();
+    _virtualRemoteRefs[fileUri] = ref;
+    await _refreshEntryMetadataFromLocalFile(entry, fileUri);
+    entry.visualChangeNotifier.notify();
+    await remoteMediaLogService.log(
+      'auto_download',
+      'entry switched to existing cached file',
+      data: {
+        'trigger': trigger,
+        'fromUri': sourceUri,
+        'toFile': file.path,
+        'server': ref.$1.name,
+        'protocol': ref.$1.protocol.name,
+        'path': ref.$2.path,
+      },
+    );
+    return file;
+  }
+
+  Future<File?> prepareEntryForPlayback(
+    AvesEntry entry, {
+    required String trigger,
+    bool allowDownload = false,
+  }) async {
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref == null || !entry.isVideo) return null;
+
+    final server = ref.$1;
+    if (server.protocol == RemoteProtocol.webdav) {
+      return bindExistingCacheFileForEntry(entry, trigger: '${trigger}_bind_existing');
+    }
+
+    final existing = await bindExistingCacheFileForEntry(entry, trigger: '${trigger}_bind_existing');
+    if (existing != null) {
+      return existing;
+    }
+    if (!allowDownload) return null;
+
+    return ensureDownloadedForEntry(entry, trigger: '${trigger}_download');
+  }
+
   Future<void> ensureEntryMetadata(
     AvesEntry entry, {
     String trigger = 'remote_metadata',
