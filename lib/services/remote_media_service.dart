@@ -1,3 +1,5 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -19,6 +21,9 @@ import 'package:collection/collection.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dartssh2/dartssh2.dart';
 import 'package:ftpconnect/ftpconnect.dart';
+import 'package:ftpconnect/src/ftp_reply.dart';
+import 'package:ftpconnect/src/ftp_socket.dart';
+import 'package:ftpconnect/src/utils.dart';
 import 'package:http/http.dart' as http;
 import 'package:smb_connect/smb_connect.dart';
 import 'package:xml/xml.dart';
@@ -1320,7 +1325,7 @@ class RemoteMediaService {
         case RemoteProtocol.webdav:
           return await _proxyWebDav(server: server, node: node, request: request);
         case RemoteProtocol.ftp:
-          return await _proxyCachedFile(server: server, node: node, request: request, reason: 'ftp_cache_backed_stream');
+          return await _proxyFtp(server: server, node: node, request: request);
         case RemoteProtocol.sftp:
           return await _proxySftp(server: server, node: node, request: request);
         case RemoteProtocol.smb:
@@ -1454,6 +1459,39 @@ class RemoteMediaService {
       totalLength: totalLength,
       lastModified: _millisToDateTime(node.modifiedMillis),
       fetchChunk: (chunkRange) => _fetchSftpChunk(server: server, path: node.path, range: chunkRange),
+    );
+  }
+
+  Future<RemoteProxyResponse> _proxyFtp({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteProxyRequest request,
+  }) async {
+    final host = server.host;
+    if (host == null || host.isEmpty) {
+      throw StateError('Missing FTP host');
+    }
+
+    final totalLength = node.sizeBytes ?? await _fetchFtpFileSize(server: server, path: node.path);
+    if (totalLength <= 0) {
+      await remoteMediaLogService.log(
+        'stream',
+        'fallback to ftp cache-backed stream because file length is unknown',
+        data: {
+          'server': server.name,
+          'path': node.path,
+        },
+      );
+      return _proxyCachedFile(server: server, node: node, request: request, reason: 'ftp_unknown_size_fallback');
+    }
+
+    return _proxyChunkedRemote(
+      server: server,
+      node: node,
+      request: request,
+      totalLength: totalLength,
+      lastModified: _millisToDateTime(node.modifiedMillis),
+      fetchChunk: (chunkRange) => _fetchFtpChunk(server: server, path: node.path, range: chunkRange),
     );
   }
 
@@ -1730,6 +1768,137 @@ class RemoteMediaService {
       }
     } finally {
       client.close();
+    }
+  }
+
+  Future<int> _fetchFtpFileSize({
+    required RemoteServer server,
+    required String path,
+  }) async {
+    final host = server.host;
+    if (host == null || host.isEmpty) return 0;
+
+    final ftp = FTPConnect(
+      host,
+      port: server.port ?? 21,
+      user: server.ftpAnonymous ? 'anonymous' : (server.username ?? 'anonymous'),
+      pass: server.ftpAnonymous ? 'anonymous@' : (server.password ?? ''),
+      timeout: 20,
+    );
+    ftp.transferMode = server.ftpPassiveMode ? TransferMode.passive : TransferMode.active;
+    try {
+      final connected = await ftp.connect();
+      if (!connected) return 0;
+      final effectivePath = _resolveEffectivePath(server, path);
+      final slash = effectivePath.lastIndexOf('/');
+      final parent = slash <= 0 ? '/' : effectivePath.substring(0, slash);
+      final name = slash == -1 ? effectivePath : effectivePath.substring(slash + 1);
+      if (name.isEmpty) return 0;
+      final changed = await ftp.changeDirectory(parent);
+      if (!changed) return 0;
+      final size = await ftp.sizeFile(name);
+      return size > 0 ? size : 0;
+    } catch (_) {
+      return 0;
+    } finally {
+      try {
+        await ftp.disconnect();
+      } catch (_) {}
+    }
+  }
+
+  Future<List<int>> _fetchFtpChunk({
+    required RemoteServer server,
+    required String path,
+    required RemoteByteRange range,
+  }) async {
+    final host = server.host;
+    if (host == null || host.isEmpty) {
+      throw StateError('Missing FTP host');
+    }
+
+    final user = server.ftpAnonymous ? 'anonymous' : (server.username ?? 'anonymous');
+    final pass = server.ftpAnonymous ? 'anonymous@' : (server.password ?? '');
+    final socket = FTPSocket(
+      host,
+      server.port ?? 21,
+      SecurityType.ftp,
+      Logger(isEnabled: false),
+      20,
+    );
+    socket.transferMode = server.ftpPassiveMode ? TransferMode.passive : TransferMode.active;
+
+    Socket? dataSocket;
+    try {
+      await socket.connect(user, pass);
+      await socket.setTransferType(TransferType.binary);
+
+      final effectivePath = _resolveEffectivePath(server, path);
+      final slash = effectivePath.lastIndexOf('/');
+      final parent = slash <= 0 ? '/' : effectivePath.substring(0, slash);
+      final name = slash == -1 ? effectivePath : effectivePath.substring(slash + 1);
+      if (name.isEmpty) {
+        throw StateError('Invalid FTP file path');
+      }
+
+      final cwdResponse = await socket.sendCommand('CWD $parent');
+      if (!cwdResponse.isSuccessCode()) {
+        throw StateError('FTP change directory failed with ${cwdResponse.code}');
+      }
+
+      final restResponse = await socket.sendCommand('REST ${range.start}');
+      if (restResponse.code != 350) {
+        throw StateError('FTP REST failed with ${restResponse.code}');
+      }
+
+      final dataResponse = await socket.openDataTransferChannel();
+      final dataPort = Utils.parsePort(dataResponse.message, socket.supportIPV6);
+      socket.sendCommandWithoutWaitingResponse('RETR $name');
+      dataSocket = await Socket.connect(host, dataPort, timeout: const Duration(seconds: 20));
+
+      FTPReply response = await socket.readResponse();
+      final accepted = response.isSuccessCode() || response.code == 125 || response.code == 150;
+      if (!accepted) {
+        throw StateError('FTP RETR failed with ${response.code}');
+      }
+
+      final builder = BytesBuilder(copy: false);
+      var remaining = range.contentLength;
+      await for (final data in dataSocket) {
+        if (remaining <= 0) break;
+        if (data.length <= remaining) {
+          builder.add(data);
+          remaining -= data.length;
+        } else {
+          builder.add(data.sublist(0, remaining));
+          remaining = 0;
+          break;
+        }
+      }
+
+      await dataSocket.close();
+      dataSocket = null;
+
+      if (response.code == 125 || response.code == 150) {
+        try {
+          await socket.readResponse();
+        } catch (_) {
+          // Some servers report a transfer-aborted status after the client closes early.
+        }
+      }
+
+      final bytes = builder.takeBytes();
+      if (bytes.length != range.contentLength) {
+        throw StateError('FTP chunk length mismatch expected=${range.contentLength} actual=${bytes.length}');
+      }
+      return bytes;
+    } finally {
+      try {
+        await dataSocket?.close();
+      } catch (_) {}
+      try {
+        await socket.disconnect();
+      } catch (_) {}
     }
   }
 
