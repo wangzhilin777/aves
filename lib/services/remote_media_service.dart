@@ -133,6 +133,7 @@ class _ChunkFileSegment {
 class RemoteMediaService {
   static const _streamChunkSizeBytes = 2 * 1024 * 1024;
   static const _streamChunkCacheVersion = 3;
+  static const _streamChunkPrefetchCount = 8;
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
   final Set<String> _downloadInProgressUris = {};
   final Set<String> _cacheWarmupKeys = {};
@@ -1860,6 +1861,19 @@ class RemoteMediaService {
   }) async* {
     final firstChunk = requestedRange.start ~/ _streamChunkSizeBytes;
     final lastChunk = requestedRange.endInclusive ~/ _streamChunkSizeBytes;
+    final prefetchCount = min(_streamChunkPrefetchCount, lastChunk - firstChunk + 1);
+    if (prefetchCount > 1) {
+      unawaited(
+        _prefetchUpcomingStreamChunks(
+          server: server,
+          node: node,
+          startChunkIndex: firstChunk + 1,
+          count: prefetchCount - 1,
+          totalLength: totalLength,
+          fetchChunk: fetchChunk,
+        ),
+      );
+    }
     for (var chunkIndex = firstChunk; chunkIndex <= lastChunk; chunkIndex++) {
       final chunkStart = chunkIndex * _streamChunkSizeBytes;
       final chunkEnd = min(totalLength - 1, chunkStart + _streamChunkSizeBytes - 1);
@@ -1878,6 +1892,45 @@ class RemoteMediaService {
       yield* chunkFile.openRead(localStart, localEndExclusive);
     }
     unawaited(_tryMergeCompleteChunkCache(server: server, node: node, totalLength: totalLength));
+  }
+
+  Future<void> _prefetchUpcomingStreamChunks({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required int startChunkIndex,
+    required int count,
+    required int totalLength,
+    required Future<List<int>> Function(RemoteByteRange range) fetchChunk,
+  }) async {
+    if (count <= 0) return;
+    final futures = <Future<void>>[];
+    for (var chunkIndex = startChunkIndex; chunkIndex < startChunkIndex + count; chunkIndex++) {
+      final chunkStart = chunkIndex * _streamChunkSizeBytes;
+      if (chunkStart >= totalLength) break;
+      final chunkEnd = min(totalLength - 1, chunkStart + _streamChunkSizeBytes - 1);
+      final chunkRange = RemoteByteRange(start: chunkStart, endInclusive: chunkEnd, totalLength: totalLength);
+      futures.add(
+        _getOrCreateStreamChunkFile(
+          server: server,
+          node: node,
+          range: chunkRange,
+          fetchChunk: fetchChunk,
+        ).then((_) {}),
+      );
+    }
+    if (futures.isEmpty) return;
+    await remoteMediaLogService.log(
+      'stream',
+      'prefetch upcoming remote stream chunks',
+      data: {
+        'server': server.name,
+        'protocol': server.protocol.name,
+        'path': node.path,
+        'startChunkIndex': startChunkIndex,
+        'count': futures.length,
+      },
+    );
+    await Future.wait(futures, eagerError: false);
   }
 
   Future<File> _getOrCreateStreamChunkFile({
@@ -2370,27 +2423,28 @@ class RemoteMediaService {
         },
       );
       final file = await smb.file(_resolveEffectivePath(server, path));
-      final stream = await smb.openRead(file, range.start, range.endInclusive + 1);
-      final buffer = BytesBuilder(copy: false);
-      await for (final chunk in stream) {
-        buffer.add(chunk);
+      final raf = await smb.open(file);
+      try {
+        await raf.setPosition(range.start);
+        final bytes = await raf.read(range.contentLength);
+        if (bytes.length != range.contentLength) {
+          throw StateError('SMB chunk length mismatch expected=${range.contentLength} actual=${bytes.length}');
+        }
+        await remoteMediaLogService.log(
+          'stream',
+          'received smb stream chunk',
+          data: {
+            'server': server.name,
+            'path': path,
+            'start': range.start,
+            'end': range.endInclusive,
+            'bytes': bytes.length,
+          },
+        );
+        return bytes;
+      } finally {
+        await raf.close();
       }
-      final bytes = buffer.takeBytes();
-      if (bytes.length != range.contentLength) {
-        throw StateError('SMB chunk length mismatch expected=${range.contentLength} actual=${bytes.length}');
-      }
-      await remoteMediaLogService.log(
-        'stream',
-        'received smb stream chunk',
-        data: {
-          'server': server.name,
-          'path': path,
-          'start': range.start,
-          'end': range.endInclusive,
-          'bytes': bytes.length,
-        },
-      );
-      return bytes;
     } finally {
       await smb.close();
     }
