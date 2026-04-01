@@ -41,6 +41,28 @@ class RemoteBrowseNode {
     this.sizeBytes,
     this.modifiedMillis,
   });
+
+  RemoteBrowseNode copyWith({
+    String? path,
+    String? name,
+    bool? isDirectory,
+    bool? isVideo,
+    bool? isImage,
+    int? sizeBytes,
+    int? modifiedMillis,
+    bool preserveExistingSizeBytes = true,
+    bool preserveExistingModifiedMillis = true,
+  }) {
+    return RemoteBrowseNode(
+      path: path ?? this.path,
+      name: name ?? this.name,
+      isDirectory: isDirectory ?? this.isDirectory,
+      isVideo: isVideo ?? this.isVideo,
+      isImage: isImage ?? this.isImage,
+      sizeBytes: sizeBytes ?? (preserveExistingSizeBytes ? this.sizeBytes : null),
+      modifiedMillis: modifiedMillis ?? (preserveExistingModifiedMillis ? this.modifiedMillis : null),
+    );
+  }
 }
 
 class RemoteFolderPageData {
@@ -359,6 +381,62 @@ class RemoteMediaService {
         },
       );
     }
+  }
+
+  Future<RemoteBrowseNode> ensureNodeMetadata(
+    RemoteServer server,
+    RemoteBrowseNode node, {
+    String trigger = 'node_prepare',
+  }) async {
+    var sizeBytes = node.sizeBytes;
+    var modifiedMillis = node.modifiedMillis;
+
+    final cachedFile = await _getExistingCacheFile(server, node);
+    if (cachedFile != null) {
+      try {
+        final stat = await cachedFile.stat();
+        final localLength = stat.size;
+        if (localLength > 0) {
+          sizeBytes = localLength;
+        }
+        final localModifiedMillis = stat.modified.millisecondsSinceEpoch;
+        if (localModifiedMillis > 0) {
+          modifiedMillis = localModifiedMillis;
+        }
+      } catch (_) {
+        // ignore local stat issues and keep trying remote metadata below
+      }
+    }
+
+    if (server.protocol == RemoteProtocol.webdav && (sizeBytes == null || modifiedMillis == null || sizeBytes <= 0)) {
+      final metadata = await _fetchWebDavFileMetadata(server: server, node: node);
+      final remoteSizeBytes = metadata['sizeBytes'] as int?;
+      final remoteModifiedMillis = metadata['modifiedMillis'] as int?;
+      if (remoteSizeBytes != null && remoteSizeBytes > 0) {
+        sizeBytes = remoteSizeBytes;
+      }
+      if (remoteModifiedMillis != null && remoteModifiedMillis > 0) {
+        modifiedMillis = remoteModifiedMillis;
+      }
+    }
+
+    final enrichedNode = node.copyWith(
+      sizeBytes: sizeBytes,
+      modifiedMillis: modifiedMillis,
+    );
+    await remoteMediaLogService.log(
+      'metadata',
+      'prepared remote node metadata',
+      data: {
+        'trigger': trigger,
+        'server': server.name,
+        'path': node.path,
+        'sizeBytes': enrichedNode.sizeBytes,
+        'modifiedMillis': enrichedNode.modifiedMillis,
+        'usedCachedFile': cachedFile != null,
+      },
+    );
+    return enrichedNode;
   }
 
   Future<void> warmupVideoCacheForEntry(
@@ -844,7 +922,7 @@ class RemoteMediaService {
           'modifiedMillis': headModified,
         },
       );
-      if (headResponse.statusCode >= 200 && headResponse.statusCode < 400 && (headSize != null || headModified != null)) {
+      if (headResponse.statusCode >= 200 && headResponse.statusCode < 300 && (headSize != null || headModified != null)) {
         return {
           'sizeBytes': headSize,
           'modifiedMillis': headModified,

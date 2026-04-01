@@ -240,30 +240,38 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
       directoryNodes.addAll(page.children.where((node) => node.isDirectory));
       final mediaNodes = page.children.where((node) => !node.isDirectory).toList();
       for (final node in mediaNodes) {
-        final cachedFile = await remoteMediaService.getExistingCacheFile(server, node);
-        final uri = cachedFile != null ? Uri.file(cachedFile.path) : (remoteMediaService.buildStreamUri(server: server, node: node) ?? _buildDeferredRemoteUri(server.id, node.path));
+        final preparedNode = await remoteMediaService.ensureNodeMetadata(server, node, trigger: 'collection_inject');
+        final cachedFile = await remoteMediaService.getExistingCacheFile(server, preparedNode);
+        final uri = cachedFile != null ? Uri.file(cachedFile.path) : (remoteMediaService.buildStreamUri(server: server, node: preparedNode) ?? _buildDeferredRemoteUri(server.id, preparedNode.path));
         remoteMediaService.registerVirtualRemoteRef(
           uri: uri.toString(),
           server: server,
-          node: node,
+          node: preparedNode,
         );
-        final mimeType = remoteMediaService.inferMimeType(node);
+        final mimeType = remoteMediaService.inferMimeType(preparedNode);
         final entry = _buildVirtualRemoteEntry(
           serverId: server.id,
-          node: node,
+          node: preparedNode,
           uri: uri,
           mimeType: mimeType,
           actualPath: cachedFile?.path,
         );
         entries.add(entry);
+        if (entry.sizeBytes == null || entry.dateModifiedMillis == null) {
+          unawaited(remoteMediaService.ensureEntryMetadata(entry, trigger: 'collection_inject'));
+        }
         await remoteMediaLogService.log(
           'remote_load',
           'injected deferred remote entry for native collection page',
           data: {
             'server': server.name,
-            'path': node.path,
+            'path': preparedNode.path,
             'uri': uri.toString(),
             'mimeType': mimeType,
+            'sizeBytes': preparedNode.sizeBytes,
+            'dateModifiedMillis': preparedNode.modifiedMillis,
+            'entrySizeBytes': entry.sizeBytes,
+            'entryDateModifiedMillis': entry.dateModifiedMillis,
             'usedCachedFile': cachedFile != null,
             'isStreamingUri': uri.scheme == 'http' || uri.scheme == 'https',
           },
