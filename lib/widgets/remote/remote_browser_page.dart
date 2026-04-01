@@ -467,11 +467,24 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
 
   Future<void> _openRemoteNode(RemoteBrowseNode node, _RemoteOpenAction action) async {
     String tr(String en, String zh) => context.locale.startsWith('zh') ? zh : en;
-    final mimeType = _service.inferMimeType(node);
-    final streamUri = _service.buildStreamUri(server: widget.server, node: node);
+    final preparedNode = await _service.ensureNodeMetadata(widget.server, node, trigger: 'browser_open');
+    final mimeType = _service.inferMimeType(preparedNode);
+    final streamUri = _service.buildStreamUri(server: widget.server, node: preparedNode);
+    if (streamUri != null) {
+      _service.registerVirtualRemoteRef(
+        uri: streamUri.toString(),
+        server: widget.server,
+        node: preparedNode,
+      );
+    }
 
     Future<bool> openUri(Uri uri) async {
       final uriString = uri.toString();
+      _service.registerVirtualRemoteRef(
+        uri: uriString,
+        server: widget.server,
+        node: preparedNode,
+      );
       var opened = false;
       var openMode = 'external';
       final entry = await mediaFetchService.getEntry(uriString, mimeType, allowUnsized: true);
@@ -549,7 +562,7 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
       return;
     }
 
-    final result = await _service.resolveMedia(server: widget.server, node: node);
+    final result = await _service.resolveMedia(server: widget.server, node: preparedNode);
     if (!mounted) return;
     await remoteMediaLogService.log(
       'remote_load',

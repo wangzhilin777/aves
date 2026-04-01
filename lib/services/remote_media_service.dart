@@ -1219,11 +1219,26 @@ class RemoteMediaService {
       await client.authenticated.timeout(const Duration(seconds: 12));
       sftp = await client.sftp();
       final targetPath = _resolveEffectivePath(server, path);
-      final list = await sftp.listdir(targetPath);
+      var list = await sftp.listdir(targetPath);
+      if (list.isEmpty && targetPath != '/' && !targetPath.endsWith('/')) {
+        final retryPath = '$targetPath/';
+        await remoteMediaLogService.log(
+          'remote_load',
+          'retry sftp list with trailing slash',
+          data: {
+            'server': server.name,
+            'path': path,
+            'targetPath': targetPath,
+            'retryPath': retryPath,
+          },
+        );
+        list = await sftp.listdir(retryPath);
+      }
 
       final out = list.where((v) => v.filename != '.' && v.filename != '..').map((v) {
-        final name = v.filename;
-        final isDirectory = v.attr.isDirectory;
+        final name = v.filename.trim().isNotEmpty ? v.filename : _deriveSftpFallbackName(v.longname);
+        final longName = v.longname.toLowerCase();
+        final isDirectory = v.attr.isDirectory || longName.startsWith('d');
         final lower = name.toLowerCase();
         return RemoteBrowseNode(
           path: _joinRemotePath(path, name),
@@ -1241,6 +1256,8 @@ class RemoteMediaService {
         data: {
           'server': server.name,
           'path': path,
+          'targetPath': targetPath,
+          'rawCount': list.length,
           'children': out.length,
           'mediaCount': out.where((v) => !v.isDirectory && (v.isImage || v.isVideo)).length,
           'missingModifiedCount': out.where((v) => v.modifiedMillis == null).length,
@@ -2132,6 +2149,13 @@ class RemoteMediaService {
   int? _secondsToMillis(int? value) => value != null && value > 0 ? value * 1000 : null;
 
   int? _normalizeSmbMillis(int? value) => value != null && value > 0 ? value : null;
+
+  String _deriveSftpFallbackName(String longname) {
+    final trimmed = longname.trim();
+    if (trimmed.isEmpty) return '';
+    final parts = trimmed.split(RegExp(r'\s+'));
+    return parts.isEmpty ? trimmed : parts.last;
+  }
 
   Future<File?> _downloadWebDavFile({
     required RemoteServer server,
