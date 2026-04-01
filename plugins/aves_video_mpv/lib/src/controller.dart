@@ -23,6 +23,10 @@ class MpvVideoController extends AvesVideoController {
   final StreamController<String?> _timedTextStreamController = StreamController.broadcast();
   final AChangeNotifier _completedNotifier = AChangeNotifier();
   final List<SubtitleTrack> _externalSubtitleTracks = [];
+  List<Media> _mediaCandidates = const [];
+  int _mediaCandidateIndex = 0;
+  bool _recoveringFromStreamError = false;
+  bool _openInProgress = false;
 
   static final _pContext = p.Context();
 
@@ -145,7 +149,7 @@ class MpvVideoController extends AvesVideoController {
     _subscriptions.add(
       playerStream.error.listen((v) {
         debugPrint('libmpv error: $v');
-        _statusStreamController.add(VideoStatus.error);
+        unawaited(_recoverFromRemoteStreamError());
       }),
     );
 
@@ -187,41 +191,84 @@ class MpvVideoController extends AvesVideoController {
   }
 
   Future<void> _init({int startMillis = 0}) async {
-    final playing = _mkPlayer.state.playing;
+    if (_openInProgress) return;
+    _openInProgress = true;
+    try {
+      final playing = _mkPlayer.state.playing;
 
-    // Audio quality is better with `audiotrack` than `opensles` (the default).
-    // Calling `setAudioDevice` does not seem to work.
-    // As of 2025/01/13, directly setting audio output via property works for some files but not all,
-    // and switching from a supported file to an unsupported file crashes:
-    // cf https://github.com/media-kit/media-kit/issues/1061
+      // Audio quality is better with `audiotrack` than `opensles` (the default).
+      // Calling `setAudioDevice` does not seem to work.
+      // As of 2025/01/13, directly setting audio output via property works for some files but not all,
+      // and switching from a supported file to an unsupported file crashes:
+      // cf https://github.com/media-kit/media-kit/issues/1061
 
-    await _applyLoop();
-    await _mkPlayer.open(_buildMediaForPlayback(), play: playing);
-    await _mkPlayer.setSubtitleTrack(SubtitleTrack.no());
-    if (startMillis > 0) {
-      await seekTo(startMillis);
+      await _applyLoop();
+      _mediaCandidates = _buildMediaCandidatesForPlayback();
+      if (_mediaCandidates.isEmpty) {
+        _mediaCandidates = [Media(entry.uri)];
+      }
+      _mediaCandidateIndex = 0;
+      await _mkPlayer.open(_mediaCandidates[_mediaCandidateIndex], play: playing);
+      await _mkPlayer.setSubtitleTrack(SubtitleTrack.no());
+      if (startMillis > 0) {
+        await seekTo(startMillis);
+      }
+
+      _fetchStreams();
+      _statusStreamController.add(_mkPlayer.state.playing ? VideoStatus.playing : VideoStatus.paused);
+    } finally {
+      _openInProgress = false;
     }
-
-    _fetchStreams();
-    _statusStreamController.add(_mkPlayer.state.playing ? VideoStatus.playing : VideoStatus.paused);
   }
 
-  Media _buildMediaForPlayback() {
+  List<Media> _buildMediaCandidatesForPlayback() {
     final rawUri = entry.uri;
     final uri = Uri.tryParse(rawUri);
     if (uri == null) {
-      return Media(rawUri);
+      return [Media(rawUri)];
     }
     if ((uri.isScheme('http') || uri.isScheme('https')) && uri.userInfo.isNotEmpty) {
       final auth = base64Encode(utf8.encode(uri.userInfo));
-      return Media(
-        uri.replace(userInfo: '').toString(),
-        httpHeaders: {
-          'Authorization': 'Basic $auth',
-        },
-      );
+      return [
+        Media(
+          uri.replace(userInfo: '').toString(),
+          httpHeaders: {
+            'Authorization': 'Basic $auth',
+          },
+        ),
+        // fallback for servers/player paths that reject header auth
+        Media(rawUri),
+      ];
     }
-    return Media(rawUri);
+    return [Media(rawUri)];
+  }
+
+  Future<void> _recoverFromRemoteStreamError() async {
+    if (_recoveringFromStreamError || _openInProgress) {
+      return;
+    }
+    final uri = Uri.tryParse(entry.uri);
+    if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
+      _statusStreamController.add(VideoStatus.error);
+      return;
+    }
+    if (_mediaCandidateIndex + 1 >= _mediaCandidates.length) {
+      _statusStreamController.add(VideoStatus.error);
+      return;
+    }
+
+    _recoveringFromStreamError = true;
+    try {
+      _mediaCandidateIndex += 1;
+      final shouldPlay = _mkPlayer.state.playing || _status == VideoStatus.playing;
+      await _mkPlayer.open(_mediaCandidates[_mediaCandidateIndex], play: shouldPlay);
+      await _mkPlayer.setSubtitleTrack(SubtitleTrack.no());
+      _statusStreamController.add(_mkPlayer.state.playing ? VideoStatus.playing : VideoStatus.paused);
+    } catch (_) {
+      _statusStreamController.add(VideoStatus.error);
+    } finally {
+      _recoveringFromStreamError = false;
+    }
   }
 
   void _initController() {
