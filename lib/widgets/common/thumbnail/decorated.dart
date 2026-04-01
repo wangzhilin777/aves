@@ -139,6 +139,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
 
   AvesVideoController? _controller;
   int _playToken = 0;
+  bool _autoPlayInFlight = false;
   String? _lastAutoPlayUri;
   String? _lastDecisionKey;
   int _lastAutoPlayAttemptMillis = 0;
@@ -183,142 +184,148 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   }
 
   Future<void> _onCurrentChanged() async {
-    final token = ++_playToken;
-    if (!mounted) return;
+    if (_autoPlayInFlight) return;
+    _autoPlayInFlight = true;
+    try {
+      final token = ++_playToken;
+      if (!mounted) return;
 
-    final settings = context.read<Settings>();
-    if (!_isAutoPlayEnabled(settings) || !isCurrent) {
-      final reason = !_isAutoPlayEnabled(settings) ? 'autoplay_disabled_by_setting' : 'not_current_focus_item';
-      final decisionKey = '$reason:${entry.uri}';
-      if (_lastDecisionKey != decisionKey) {
-        _lastDecisionKey = decisionKey;
+      final settings = context.read<Settings>();
+      if (!_isAutoPlayEnabled(settings) || !isCurrent) {
+        final reason = !_isAutoPlayEnabled(settings) ? 'autoplay_disabled_by_setting' : 'not_current_focus_item';
+        final decisionKey = '$reason:${entry.uri}';
+        if (_lastDecisionKey != decisionKey) {
+          _lastDecisionKey = decisionKey;
+          unawaited(
+            remoteMediaLogService.log(
+              'autoplay',
+              'skipped grid preview autoplay',
+              data: {
+                'uri': entry.uri,
+                'reason': reason,
+                'isRemoteCached': entry.isRemoteCachedMedia,
+                'gridAutoPlay': settings.gridVideoAutoPlay,
+              },
+            ),
+          );
+        }
+        if (_controller?.isPlaying == true) {
+          await _controller?.pause();
+          unawaited(
+            remoteMediaLogService.log(
+              'focus',
+              'paused grid preview because focus moved away',
+              data: {'uri': entry.uri},
+            ),
+          );
+        }
+        return;
+      }
+
+      final nowMillis = DateTime.now().millisecondsSinceEpoch;
+      final elapsedSinceAnyAttempt = nowMillis - _lastAutoPlayAnyAttemptMillis;
+      if (elapsedSinceAnyAttempt < 140) {
+        await Future.delayed(Duration(milliseconds: 140 - elapsedSinceAnyAttempt));
+        if (!mounted || token != _playToken || !isCurrent) return;
+      }
+      if (_lastAutoPlayUri == entry.uri && nowMillis - _lastAutoPlayAttemptMillis < 900) {
+        return;
+      }
+      _lastAutoPlayAnyAttemptMillis = nowMillis;
+      _lastAutoPlayUri = entry.uri;
+      _lastAutoPlayAttemptMillis = nowMillis;
+
+      final conductor = context.read<VideoConductor>();
+      AvesVideoController controller;
+      try {
+        controller = await conductor.getOrCreateController(entry, maxControllerCount: 2);
+      } catch (error) {
         unawaited(
           remoteMediaLogService.log(
             'autoplay',
-            'skipped grid preview autoplay',
+            'grid preview controller creation failed',
             data: {
               'uri': entry.uri,
-              'reason': reason,
+              'error': '$error',
               'isRemoteCached': entry.isRemoteCachedMedia,
-              'gridAutoPlay': settings.gridVideoAutoPlay,
+            },
+          ),
+        );
+        return;
+      }
+      if (!mounted || token != _playToken || !isCurrent) return;
+      _controller = controller;
+      _lastDecisionKey = 'play:${entry.uri}';
+      if (mounted) setState(() {});
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'grid preview controller ready',
+          data: {
+            'uri': entry.uri,
+            'status': controller.status.name,
+            'isRemoteCached': entry.isRemoteCachedMedia,
+            'isRemoteStream': entry.uri.startsWith('http://') || entry.uri.startsWith('https://'),
+          },
+        ),
+      );
+
+      try {
+        await controller.untilReady.timeout(const Duration(milliseconds: 1000));
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'grid preview stream/source became ready',
+            data: {
+              'uri': entry.uri,
+              'isRemoteCached': entry.isRemoteCachedMedia,
+            },
+          ),
+        );
+      } catch (_) {
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'grid preview video not ready before autoplay timeout',
+            data: {
+              'uri': entry.uri,
+              'status': controller.status.name,
+              'isPlaying': controller.isPlaying,
             },
           ),
         );
       }
-      if (_controller?.isPlaying == true) {
-        await _controller?.pause();
+
+      if (!mounted || token != _playToken || !isCurrent) return;
+      await conductor.pauseAll();
+      await controller.mute(_shouldMute(settings));
+      await controller.play();
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'grid preview playback requested',
+          data: {
+            'uri': entry.uri,
+            'isRemoteCached': entry.isRemoteCachedMedia,
+            'muted': controller.isMuted,
+          },
+        ),
+      );
+
+      await Future.delayed(const Duration(milliseconds: 350));
+      if (mounted && token == _playToken && isCurrent && !controller.isPlaying && controller.status != VideoStatus.error) {
+        await controller.play();
+      } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error) {
         unawaited(
           remoteMediaLogService.log(
-            'focus',
-            'paused grid preview because focus moved away',
+            'autoplay',
+            'grid preview stream failed with error status',
             data: {'uri': entry.uri},
           ),
         );
       }
-      return;
-    }
-
-    final nowMillis = DateTime.now().millisecondsSinceEpoch;
-    final elapsedSinceAnyAttempt = nowMillis - _lastAutoPlayAnyAttemptMillis;
-    if (elapsedSinceAnyAttempt < 140) {
-      await Future.delayed(Duration(milliseconds: 140 - elapsedSinceAnyAttempt));
-      if (!mounted || token != _playToken || !isCurrent) return;
-    }
-    if (_lastAutoPlayUri == entry.uri && nowMillis - _lastAutoPlayAttemptMillis < 250) {
-      return;
-    }
-    _lastAutoPlayAnyAttemptMillis = nowMillis;
-    _lastAutoPlayUri = entry.uri;
-    _lastAutoPlayAttemptMillis = nowMillis;
-
-    final conductor = context.read<VideoConductor>();
-    AvesVideoController controller;
-    try {
-      controller = await conductor.getOrCreateController(entry, maxControllerCount: 2);
-    } catch (error) {
-      unawaited(
-        remoteMediaLogService.log(
-          'autoplay',
-          'grid preview controller creation failed',
-          data: {
-            'uri': entry.uri,
-            'error': '$error',
-            'isRemoteCached': entry.isRemoteCachedMedia,
-          },
-        ),
-      );
-      return;
-    }
-    if (!mounted || token != _playToken || !isCurrent) return;
-    _controller = controller;
-    _lastDecisionKey = 'play:${entry.uri}';
-    if (mounted) setState(() {});
-    unawaited(
-      remoteMediaLogService.log(
-        'autoplay',
-        'grid preview controller ready',
-        data: {
-          'uri': entry.uri,
-          'status': controller.status.name,
-          'isRemoteCached': entry.isRemoteCachedMedia,
-          'isRemoteStream': entry.uri.startsWith('http://') || entry.uri.startsWith('https://'),
-        },
-      ),
-    );
-
-    try {
-      await controller.untilReady.timeout(const Duration(milliseconds: 1000));
-      unawaited(
-        remoteMediaLogService.log(
-          'autoplay',
-          'grid preview stream/source became ready',
-          data: {
-            'uri': entry.uri,
-            'isRemoteCached': entry.isRemoteCachedMedia,
-          },
-        ),
-      );
-    } catch (_) {
-      unawaited(
-        remoteMediaLogService.log(
-          'autoplay',
-          'grid preview video not ready before autoplay timeout',
-          data: {
-            'uri': entry.uri,
-            'status': controller.status.name,
-            'isPlaying': controller.isPlaying,
-          },
-        ),
-      );
-    }
-
-    if (!mounted || token != _playToken || !isCurrent) return;
-    await conductor.pauseAll();
-    await controller.mute(_shouldMute(settings));
-    await controller.play();
-    unawaited(
-      remoteMediaLogService.log(
-        'autoplay',
-        'grid preview playback requested',
-        data: {
-          'uri': entry.uri,
-          'isRemoteCached': entry.isRemoteCachedMedia,
-          'muted': controller.isMuted,
-        },
-      ),
-    );
-
-    await Future.delayed(const Duration(milliseconds: 350));
-    if (mounted && token == _playToken && isCurrent && !controller.isPlaying && controller.status != VideoStatus.error) {
-      await controller.play();
-    } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error) {
-      unawaited(
-        remoteMediaLogService.log(
-          'autoplay',
-          'grid preview stream failed with error status',
-          data: {'uri': entry.uri},
-        ),
-      );
+    } finally {
+      _autoPlayInFlight = false;
     }
   }
 

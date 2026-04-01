@@ -54,7 +54,7 @@ class MpvVideoMetadataFetcher extends AvesVideoMetadataFetcher {
       }
     });
 
-    await player.open(Media(entry.uri), play: false);
+    await player.open(_buildMediaForProbe(entry.uri), play: false);
 
     final timeoutMillis = entry.mimeType.startsWith('image') ? probeTimeoutImage : probeTimeoutVideo;
     await Future.any([videoDecodedCompleter.future, Future.delayed(Duration(milliseconds: timeoutMillis))]);
@@ -118,6 +118,23 @@ class MpvVideoMetadataFetcher extends AvesVideoMetadataFetcher {
 
     await player.dispose();
     return fields;
+  }
+
+  Media _buildMediaForProbe(String rawUri) {
+    final uri = Uri.tryParse(rawUri);
+    if (uri == null) {
+      return Media(rawUri);
+    }
+    if ((uri.isScheme('http') || uri.isScheme('https')) && uri.userInfo.isNotEmpty) {
+      final auth = base64Encode(utf8.encode(uri.userInfo));
+      return Media(
+        uri.replace(userInfo: '').toString(),
+        httpHeaders: {
+          'Authorization': 'Basic $auth',
+        },
+      );
+    }
+    return Media(rawUri);
   }
 
   Map<String, Object?> _normalizeStream(Map<String, Object?> stream, VideoParams videoParams) {

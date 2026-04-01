@@ -142,6 +142,10 @@ class RemoteMediaService {
         }
       }
 
+      if (resolvedUri != null) {
+        resolvedUri = _preserveAuthUserInfo(uri, resolvedUri);
+      }
+
       if (resolvedUri != null && resolvedUri != rawUri) {
         _playbackUriCache[rawUri] = (resolvedUri, now + const Duration(minutes: 10).inMilliseconds);
         final ref = _virtualRemoteRefs[rawUri];
@@ -184,6 +188,16 @@ class RemoteMediaService {
     }
 
     return rawUri;
+  }
+
+  String _preserveAuthUserInfo(Uri originalUri, String candidateUriRaw) {
+    if (originalUri.userInfo.isEmpty) return candidateUriRaw;
+    final candidateUri = Uri.tryParse(candidateUriRaw);
+    if (candidateUri == null) return candidateUriRaw;
+    if (candidateUri.userInfo.isNotEmpty) return candidateUriRaw;
+    final sameTarget = candidateUri.scheme == originalUri.scheme && candidateUri.host.toLowerCase() == originalUri.host.toLowerCase() && candidateUri.port == originalUri.port;
+    if (!sameTarget) return candidateUriRaw;
+    return candidateUri.replace(userInfo: originalUri.userInfo).toString();
   }
 
   Future<File?> ensureDownloadedForEntry(
