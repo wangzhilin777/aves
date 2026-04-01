@@ -129,24 +129,47 @@ class RemoteMediaService {
       final req = http.Request('GET', targetUri)..headers.addAll(headers);
       final resp = await client.send(req).timeout(const Duration(seconds: 8));
       await resp.stream.drain<void>();
-      final finalUri = resp.request?.url.toString() ?? rawUri;
-      if (resp.statusCode >= 200 && resp.statusCode < 400) {
-        _playbackUriCache[rawUri] = (finalUri, now + const Duration(minutes: 10).inMilliseconds);
+      String? resolvedUri;
+      if (resp.statusCode >= 300 && resp.statusCode < 400) {
+        final location = resp.headers['location'];
+        if (location != null && location.isNotEmpty) {
+          resolvedUri = targetUri.resolve(location).toString();
+        }
+      } else if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        final candidate = resp.request?.url.toString();
+        if (candidate != null && candidate.isNotEmpty && candidate != targetUri.toString()) {
+          resolvedUri = candidate;
+        }
+      }
+
+      if (resolvedUri != null && resolvedUri != rawUri) {
+        _playbackUriCache[rawUri] = (resolvedUri, now + const Duration(minutes: 10).inMilliseconds);
         final ref = _virtualRemoteRefs[rawUri];
         if (ref != null) {
-          _virtualRemoteRefs[finalUri] = ref;
+          _virtualRemoteRefs[resolvedUri] = ref;
         }
         await remoteMediaLogService.log(
           'autoplay',
           'resolved remote stream uri for playback',
           data: {
             'from': rawUri,
-            'to': finalUri,
+            'to': resolvedUri,
             'status': resp.statusCode,
+            'location': resp.headers['location'],
           },
         );
-        return finalUri;
+        return resolvedUri;
       }
+
+      await remoteMediaLogService.log(
+        'autoplay',
+        'keep original remote playback uri',
+        data: {
+          'uri': rawUri,
+          'status': resp.statusCode,
+          'location': resp.headers['location'],
+        },
+      );
     } catch (error) {
       await remoteMediaLogService.log(
         'autoplay',
