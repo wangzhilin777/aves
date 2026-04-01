@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/model/remote/remote_server.dart';
@@ -91,7 +93,18 @@ class RemoteMediaResolveResult {
   });
 }
 
+class _ChunkFileSegment {
+  final File file;
+  final RemoteByteRange range;
+
+  const _ChunkFileSegment({
+    required this.file,
+    required this.range,
+  });
+}
+
 class RemoteMediaService {
+  static const _streamChunkSizeBytes = 2 * 1024 * 1024;
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
   final Set<String> _downloadInProgressUris = {};
   final Set<String> _cacheWarmupKeys = {};
@@ -1184,47 +1197,16 @@ class RemoteMediaService {
       throw StateError('Invalid WebDAV target URI');
     }
 
-    final headers = <String, String>{};
-    final username = server.username;
-    final password = server.password;
-    if (username != null && password != null) {
-      final token = base64Encode(utf8.encode('$username:$password'));
-      headers[HttpHeaders.authorizationHeader] = 'Basic $token';
-    }
-    final rangeHeader = request.rangeHeader;
-    if (request.method != 'HEAD' && rangeHeader != null && rangeHeader.isNotEmpty) {
-      headers[HttpHeaders.rangeHeader] = rangeHeader;
-    }
-
-    final client = http.Client();
-    final upstreamRequest = http.Request(request.method, targetUri)..headers.addAll(headers);
-    final upstreamResponse = await client.send(upstreamRequest);
-
-    Future<void> closeClient() async {
-      client.close();
-    }
-
-    Stream<List<int>> stream() async* {
-      try {
-        if (request.method != 'HEAD') {
-          await for (final chunk in upstreamResponse.stream) {
-            yield chunk;
-          }
-        }
-      } finally {
-        await closeClient();
-      }
-    }
-
-    return RemoteProxyResponse(
-      statusCode: upstreamResponse.statusCode,
-      stream: request.method == 'HEAD' ? const Stream<List<int>>.empty() : stream(),
-      contentType: upstreamResponse.headers[HttpHeaders.contentTypeHeader] ?? inferMimeType(node),
-      contentLength: int.tryParse(upstreamResponse.headers[HttpHeaders.contentLengthHeader] ?? ''),
-      totalLength: _parseTotalLengthFromContentRange(upstreamResponse.headers[HttpHeaders.contentRangeHeader]) ?? int.tryParse(upstreamResponse.headers[HttpHeaders.contentLengthHeader] ?? ''),
-      contentRange: upstreamResponse.headers[HttpHeaders.contentRangeHeader],
-      lastModified: _parseHttpDate(upstreamResponse.headers[HttpHeaders.lastModifiedHeader]),
-      acceptRanges: (upstreamResponse.headers[HttpHeaders.acceptRangesHeader] ?? '').toLowerCase() == 'bytes',
+    final metadata = await _fetchWebDavFileMetadata(server: server, node: node);
+    final totalLength = (metadata['sizeBytes'] as int?) ?? node.sizeBytes ?? 0;
+    final lastModified = _millisToDateTime((metadata['modifiedMillis'] as int?) ?? node.modifiedMillis);
+    return _proxyChunkedRemote(
+      server: server,
+      node: node,
+      request: request,
+      totalLength: totalLength,
+      lastModified: lastModified,
+      fetchChunk: (chunkRange) => _fetchWebDavChunk(server: server, node: node, uri: targetUri, range: chunkRange),
     );
   }
 
@@ -1239,45 +1221,14 @@ class RemoteMediaService {
       throw StateError('Missing SFTP host or username');
     }
 
-    final socket = await SSHSocket.connect(host, server.port ?? 22, timeout: const Duration(seconds: 8));
-    final privateKeyText = server.sftpPrivateKey;
-    final passphrase = server.sftpPassphrase;
-    final identities = privateKeyText != null && privateKeyText.isNotEmpty ? SSHKeyPair.fromPem(privateKeyText, passphrase?.isNotEmpty == true ? passphrase : null) : null;
-    final client = SSHClient(
-      socket,
-      username: username,
-      identities: identities,
-      onPasswordRequest: () => server.password,
-    );
-    await client.authenticated.timeout(const Duration(seconds: 12));
-    final sftp = await client.sftp();
-    final remoteFile = await sftp.open(_resolveEffectivePath(server, node.path));
-    final fileStat = await remoteFile.stat();
-    final totalLength = fileStat.size ?? node.sizeBytes ?? 0;
-    final range = _resolveByteRange(request.rangeHeader, totalLength);
-
-    Stream<List<int>> stream() async* {
-      try {
-        if (request.method != 'HEAD' && totalLength > 0) {
-          await for (final chunk in remoteFile.read(length: range.contentLength, offset: range.start)) {
-            yield chunk;
-          }
-        }
-      } finally {
-        await remoteFile.close();
-        sftp.close();
-        client.close();
-      }
-    }
-
-    return RemoteProxyResponse(
-      statusCode: request.rangeHeader != null && request.rangeHeader!.isNotEmpty ? HttpStatus.partialContent : HttpStatus.ok,
-      stream: request.method == 'HEAD' ? const Stream<List<int>>.empty() : stream(),
-      contentType: inferMimeType(node),
-      contentLength: range.contentLength,
+    final totalLength = node.sizeBytes ?? await _fetchSftpFileSize(server: server, path: node.path);
+    return _proxyChunkedRemote(
+      server: server,
+      node: node,
+      request: request,
       totalLength: totalLength,
-      contentRange: request.rangeHeader != null && request.rangeHeader!.isNotEmpty ? range.contentRangeHeader : null,
       lastModified: _millisToDateTime(node.modifiedMillis),
+      fetchChunk: (chunkRange) => _fetchSftpChunk(server: server, path: node.path, range: chunkRange),
     );
   }
 
@@ -1291,37 +1242,14 @@ class RemoteMediaService {
       throw StateError('Missing SMB host');
     }
 
-    final smb = await SmbConnect.connectAuth(
-      host: host,
-      username: server.username ?? '',
-      password: server.password ?? '',
-      domain: server.smbDomain ?? '',
-    );
-    final remoteFile = await smb.file(_resolveEffectivePath(server, node.path));
-    final totalLength = remoteFile.size > 0 ? remoteFile.size : (node.sizeBytes ?? 0);
-    final range = _resolveByteRange(request.rangeHeader, totalLength);
-
-    Stream<List<int>> stream() async* {
-      try {
-        if (request.method != 'HEAD' && totalLength > 0) {
-          final reader = await smb.openRead(remoteFile, range.start, range.endInclusive + 1);
-          await for (final chunk in reader) {
-            yield chunk;
-          }
-        }
-      } finally {
-        await smb.close();
-      }
-    }
-
-    return RemoteProxyResponse(
-      statusCode: request.rangeHeader != null && request.rangeHeader!.isNotEmpty ? HttpStatus.partialContent : HttpStatus.ok,
-      stream: request.method == 'HEAD' ? const Stream<List<int>>.empty() : stream(),
-      contentType: inferMimeType(node),
-      contentLength: range.contentLength,
+    final totalLength = node.sizeBytes ?? await _fetchSmbFileSize(server: server, path: node.path);
+    return _proxyChunkedRemote(
+      server: server,
+      node: node,
+      request: request,
       totalLength: totalLength,
-      contentRange: request.rangeHeader != null && request.rangeHeader!.isNotEmpty ? range.contentRangeHeader : null,
       lastModified: _millisToDateTime(node.modifiedMillis),
+      fetchChunk: (chunkRange) => _fetchSmbChunk(server: server, path: node.path, range: chunkRange),
     );
   }
 
@@ -1402,23 +1330,283 @@ class RemoteMediaService {
     return RemoteByteRange(start: start, endInclusive: endInclusive, totalLength: totalLength);
   }
 
-  int? _parseTotalLengthFromContentRange(String? value) {
-    if (value == null || value.isEmpty) return null;
-    final slash = value.lastIndexOf('/');
-    if (slash == -1 || slash == value.length - 1) return null;
-    return int.tryParse(value.substring(slash + 1));
+  DateTime? _millisToDateTime(int? millis) => millis != null && millis > 0 ? DateTime.fromMillisecondsSinceEpoch(millis) : null;
+
+  Future<RemoteProxyResponse> _proxyChunkedRemote({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteProxyRequest request,
+    required int totalLength,
+    required DateTime? lastModified,
+    required Future<List<int>> Function(RemoteByteRange range) fetchChunk,
+  }) async {
+    final fullCacheFile = await _getExistingCacheFile(server, node);
+    if (fullCacheFile != null) {
+      return _serveLocalFile(
+        file: fullCacheFile,
+        mimeType: inferMimeType(node),
+        rangeHeader: request.rangeHeader,
+        method: request.method,
+      );
+    }
+
+    final range = _resolveByteRange(request.rangeHeader, totalLength);
+    if (request.method == 'HEAD') {
+      final isPartial = request.rangeHeader != null && request.rangeHeader!.isNotEmpty;
+      return RemoteProxyResponse(
+        statusCode: isPartial ? HttpStatus.partialContent : HttpStatus.ok,
+        stream: const Stream<List<int>>.empty(),
+        contentType: inferMimeType(node),
+        contentLength: range.contentLength,
+        totalLength: totalLength,
+        contentRange: isPartial ? range.contentRangeHeader : null,
+        lastModified: lastModified,
+      );
+    }
+
+    final chunkFiles = await _ensureStreamChunkFiles(
+      server: server,
+      node: node,
+      requestedRange: range,
+      totalLength: totalLength,
+      fetchChunk: fetchChunk,
+    );
+    unawaited(_tryMergeCompleteChunkCache(server: server, node: node, totalLength: totalLength));
+
+    final isPartial = request.rangeHeader != null && request.rangeHeader!.isNotEmpty;
+    return RemoteProxyResponse(
+      statusCode: isPartial ? HttpStatus.partialContent : HttpStatus.ok,
+      stream: _openChunkedRangeStream(chunkFiles: chunkFiles, requestedRange: range),
+      contentType: inferMimeType(node),
+      contentLength: range.contentLength,
+      totalLength: totalLength,
+      contentRange: isPartial ? range.contentRangeHeader : null,
+      lastModified: lastModified,
+    );
   }
 
-  DateTime? _parseHttpDate(String? raw) {
-    if (raw == null || raw.isEmpty) return null;
-    try {
-      return HttpDate.parse(raw);
-    } catch (_) {
-      return null;
+  Future<List<_ChunkFileSegment>> _ensureStreamChunkFiles({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteByteRange requestedRange,
+    required int totalLength,
+    required Future<List<int>> Function(RemoteByteRange range) fetchChunk,
+  }) async {
+    final firstChunk = requestedRange.start ~/ _streamChunkSizeBytes;
+    final lastChunk = requestedRange.endInclusive ~/ _streamChunkSizeBytes;
+    final result = <_ChunkFileSegment>[];
+    for (var chunkIndex = firstChunk; chunkIndex <= lastChunk; chunkIndex++) {
+      final chunkStart = chunkIndex * _streamChunkSizeBytes;
+      final chunkEnd = min(totalLength - 1, chunkStart + _streamChunkSizeBytes - 1);
+      final chunkRange = RemoteByteRange(start: chunkStart, endInclusive: chunkEnd, totalLength: totalLength);
+      final chunkFile = await _getOrCreateStreamChunkFile(server: server, node: node, range: chunkRange, fetchChunk: fetchChunk);
+      result.add(_ChunkFileSegment(file: chunkFile, range: chunkRange));
+    }
+    return result;
+  }
+
+  Stream<List<int>> _openChunkedRangeStream({
+    required List<_ChunkFileSegment> chunkFiles,
+    required RemoteByteRange requestedRange,
+  }) async* {
+    for (final segment in chunkFiles) {
+      final readStart = max(requestedRange.start, segment.range.start);
+      final readEndInclusive = min(requestedRange.endInclusive, segment.range.endInclusive);
+      if (readEndInclusive < readStart) continue;
+      final localStart = readStart - segment.range.start;
+      final localEndExclusive = readEndInclusive - segment.range.start + 1;
+      yield* segment.file.openRead(localStart, localEndExclusive);
     }
   }
 
-  DateTime? _millisToDateTime(int? millis) => millis != null && millis > 0 ? DateTime.fromMillisecondsSinceEpoch(millis) : null;
+  Future<File> _getOrCreateStreamChunkFile({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteByteRange range,
+    required Future<List<int>> Function(RemoteByteRange range) fetchChunk,
+  }) async {
+    final file = await _buildStreamChunkFile(server: server, node: node, range: range);
+    if (await file.exists()) {
+      final length = await file.length();
+      if (length == range.contentLength) {
+        await remoteMediaLogService.log(
+          'cache',
+          'stream chunk cache hit',
+          data: {
+            'server': server.name,
+            'path': node.path,
+            'start': range.start,
+            'end': range.endInclusive,
+            'file': file.path,
+          },
+        );
+        return file;
+      }
+      await file.delete();
+    }
+
+    final bytes = await fetchChunk(range);
+    await file.create(recursive: true);
+    await file.writeAsBytes(bytes, flush: true);
+    await remoteMediaLogService.log(
+      'cache',
+      'stored remote stream chunk',
+      data: {
+        'server': server.name,
+        'path': node.path,
+        'start': range.start,
+        'end': range.endInclusive,
+        'bytes': bytes.length,
+        'file': file.path,
+      },
+    );
+    await _enforceCacheLimit(server.id, trigger: 'stream_chunk');
+    return file;
+  }
+
+  Future<List<int>> _fetchWebDavChunk({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required Uri uri,
+    required RemoteByteRange range,
+  }) async {
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', uri);
+      request.headers[HttpHeaders.rangeHeader] = 'bytes=${range.start}-${range.endInclusive}';
+      final username = server.username;
+      final password = server.password;
+      if (username != null && password != null) {
+        final token = base64Encode(utf8.encode('$username:$password'));
+        request.headers[HttpHeaders.authorizationHeader] = 'Basic $token';
+      }
+      final response = await client.send(request);
+      if (response.statusCode != HttpStatus.partialContent && response.statusCode != HttpStatus.ok) {
+        throw StateError('WebDAV chunk request failed with ${response.statusCode}');
+      }
+      return response.stream.toBytes();
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<int> _fetchSftpFileSize({
+    required RemoteServer server,
+    required String path,
+  }) async {
+    final host = server.host;
+    final username = server.username;
+    if (host == null || host.isEmpty || username == null || username.isEmpty) {
+      return 0;
+    }
+    final socket = await SSHSocket.connect(host, server.port ?? 22, timeout: const Duration(seconds: 8));
+    final privateKeyText = server.sftpPrivateKey;
+    final passphrase = server.sftpPassphrase;
+    final identities = privateKeyText != null && privateKeyText.isNotEmpty ? SSHKeyPair.fromPem(privateKeyText, passphrase?.isNotEmpty == true ? passphrase : null) : null;
+    final client = SSHClient(
+      socket,
+      username: username,
+      identities: identities,
+      onPasswordRequest: () => server.password,
+    );
+    try {
+      await client.authenticated.timeout(const Duration(seconds: 12));
+      final sftp = await client.sftp();
+      final file = await sftp.open(_resolveEffectivePath(server, path));
+      try {
+        final stat = await file.stat();
+        return stat.size ?? 0;
+      } finally {
+        await file.close();
+        sftp.close();
+      }
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<List<int>> _fetchSftpChunk({
+    required RemoteServer server,
+    required String path,
+    required RemoteByteRange range,
+  }) async {
+    final host = server.host;
+    final username = server.username;
+    if (host == null || host.isEmpty || username == null || username.isEmpty) {
+      throw StateError('Missing SFTP host or username');
+    }
+    final socket = await SSHSocket.connect(host, server.port ?? 22, timeout: const Duration(seconds: 8));
+    final privateKeyText = server.sftpPrivateKey;
+    final passphrase = server.sftpPassphrase;
+    final identities = privateKeyText != null && privateKeyText.isNotEmpty ? SSHKeyPair.fromPem(privateKeyText, passphrase?.isNotEmpty == true ? passphrase : null) : null;
+    final client = SSHClient(
+      socket,
+      username: username,
+      identities: identities,
+      onPasswordRequest: () => server.password,
+    );
+    try {
+      await client.authenticated.timeout(const Duration(seconds: 12));
+      final sftp = await client.sftp();
+      final file = await sftp.open(_resolveEffectivePath(server, path));
+      try {
+        return await file.readBytes(length: range.contentLength, offset: range.start);
+      } finally {
+        await file.close();
+        sftp.close();
+      }
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<int> _fetchSmbFileSize({
+    required RemoteServer server,
+    required String path,
+  }) async {
+    final host = server.host;
+    if (host == null || host.isEmpty) return 0;
+    final smb = await SmbConnect.connectAuth(
+      host: host,
+      username: server.username ?? '',
+      password: server.password ?? '',
+      domain: server.smbDomain ?? '',
+    );
+    try {
+      final file = await smb.file(_resolveEffectivePath(server, path));
+      return file.size;
+    } finally {
+      await smb.close();
+    }
+  }
+
+  Future<List<int>> _fetchSmbChunk({
+    required RemoteServer server,
+    required String path,
+    required RemoteByteRange range,
+  }) async {
+    final host = server.host;
+    if (host == null || host.isEmpty) {
+      throw StateError('Missing SMB host');
+    }
+    final smb = await SmbConnect.connectAuth(
+      host: host,
+      username: server.username ?? '',
+      password: server.password ?? '',
+      domain: server.smbDomain ?? '',
+    );
+    try {
+      final file = await smb.file(_resolveEffectivePath(server, path));
+      final stream = await smb.openRead(file, range.start, range.endInclusive + 1);
+      final buffer = BytesBuilder(copy: false);
+      await for (final chunk in stream) {
+        buffer.add(chunk);
+      }
+      return buffer.takeBytes();
+    } finally {
+      await smb.close();
+    }
+  }
 
   Future<File?> _downloadWebDavFile({
     required RemoteServer server,
@@ -1828,6 +2016,51 @@ class RemoteMediaService {
     return File('${cacheDir.path}${Platform.pathSeparator}${_safeFileName(node.name)}_$cacheKey');
   }
 
+  Future<Directory> _getStreamChunkDirectory(RemoteServer server, RemoteBrowseNode node) async {
+    final cacheDir = await getConnectionCacheDirectory(server.id);
+    final chunkKey = _stableCacheKey('${server.id}|${node.path}|chunks');
+    final dir = Directory('${cacheDir.path}${Platform.pathSeparator}.chunks_$chunkKey');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  Future<File> _buildStreamChunkFile({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteByteRange range,
+  }) async {
+    final dir = await _getStreamChunkDirectory(server, node);
+    return File('${dir.path}${Platform.pathSeparator}${range.start}_${range.endInclusive}.chunk');
+  }
+
+  Future<List<File>> _listStreamChunkFiles(RemoteServer server, RemoteBrowseNode node) async {
+    final dir = await _getStreamChunkDirectory(server, node);
+    if (!await dir.exists()) return const [];
+    final files = <File>[];
+    await for (final entity in dir.list(followLinks: false)) {
+      if (entity is File && entity.path.endsWith('.chunk')) {
+        files.add(entity);
+      }
+    }
+    return files;
+  }
+
+  RemoteByteRange? _parseChunkFileRange(File file, int totalLength) {
+    final name = file.uri.pathSegments.last;
+    final match = RegExp(r'^(\d+)_(\d+)\.chunk$').firstMatch(name);
+    if (match == null) return null;
+    final start = int.tryParse(match.group(1) ?? '');
+    final endInclusive = int.tryParse(match.group(2) ?? '');
+    if (start == null || endInclusive == null || endInclusive < start) return null;
+    return RemoteByteRange(
+      start: start,
+      endInclusive: min(endInclusive, max(totalLength - 1, 0)),
+      totalLength: totalLength,
+    );
+  }
+
   Future<File?> _getExistingCacheFile(RemoteServer server, RemoteBrowseNode node) async {
     final cacheFile = await _buildCacheFile(server, node);
     if (await cacheFile.exists() && await cacheFile.length() > 0) {
@@ -1904,6 +2137,73 @@ class RemoteMediaService {
           data: {'dir': targetDir.path},
         );
       }
+    }
+  }
+
+  Future<void> _tryMergeCompleteChunkCache({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required int totalLength,
+  }) async {
+    if (totalLength <= 0) return;
+    final fullFile = await _buildCacheFile(server, node);
+    if (await fullFile.exists() && await fullFile.length() == totalLength) return;
+
+    final chunkFiles = await _listStreamChunkFiles(server, node);
+    if (chunkFiles.isEmpty) return;
+    final ranges = chunkFiles.map((file) => (file: file, range: _parseChunkFileRange(file, totalLength))).where((item) => item.range != null).map((item) => _ChunkFileSegment(file: item.file, range: item.range!)).toList()
+      ..sort((a, b) => a.range.start.compareTo(b.range.start));
+    if (ranges.isEmpty) return;
+
+    var expectedStart = 0;
+    for (final item in ranges) {
+      final actualLength = await item.file.length();
+      if (actualLength != item.range.contentLength) return;
+      if (item.range.start != expectedStart) return;
+      expectedStart = item.range.endInclusive + 1;
+    }
+    if (expectedStart < totalLength) return;
+
+    final tempFile = File('${fullFile.path}.merging');
+    if (await tempFile.exists()) {
+      await tempFile.delete();
+    }
+    await tempFile.create(recursive: true);
+    final sink = tempFile.openWrite();
+    try {
+      for (final item in ranges) {
+        await item.file.openRead().forEach(sink.add);
+      }
+      await sink.flush();
+      await sink.close();
+      final mergedLength = await tempFile.length();
+      if (mergedLength == totalLength) {
+        if (await fullFile.exists()) {
+          await fullFile.delete();
+        }
+        await tempFile.rename(fullFile.path);
+        await remoteMediaLogService.log(
+          'cache',
+          'merged complete remote stream chunks into full cache file',
+          data: {
+            'server': server.name,
+            'path': node.path,
+            'file': fullFile.path,
+            'bytes': mergedLength,
+            'chunkCount': ranges.length,
+          },
+        );
+      } else {
+        await tempFile.delete();
+      }
+    } catch (_) {
+      try {
+        await sink.close();
+      } catch (_) {}
+      if (await tempFile.exists()) {
+        await tempFile.delete();
+      }
+      rethrow;
     }
   }
 
