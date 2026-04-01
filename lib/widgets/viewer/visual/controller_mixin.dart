@@ -267,6 +267,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
   Future<void> _autoPlayVideo(AvesVideoController videoController, bool Function() isCurrent, {int? resumeTimeMillis}) async {
     final uri = videoController.entry.uri;
+    final isRemoteStreamUri = uri.startsWith('http://') || uri.startsWith('https://');
     final token = ++_autoPlayRequestToken;
     final nowMillis = DateTime.now().millisecondsSinceEpoch;
     final elapsedSinceAnyAttempt = nowMillis - _lastAutoPlayAnyAttemptMillis;
@@ -359,6 +360,22 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         },
       ),
     );
+
+    // Remote streams can fail on first autoplay with audio enabled on some decoders.
+    // Retry once with muted audio before giving up.
+    if (token == _autoPlayRequestToken && isCurrent() && isRemoteStreamUri && videoController.status == VideoStatus.error && !videoController.isMuted) {
+      try {
+        await videoController.mute(true);
+        await videoController.play();
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'remote stream autoplay retry requested with muted audio after error',
+            data: {'uri': uri},
+          ),
+        );
+      } catch (_) {}
+    }
 
     // Playback initialization can still race with focus transitions or decoder warm-up.
     // If autoplay did not effectively start, retry once while the same entry stays focused.

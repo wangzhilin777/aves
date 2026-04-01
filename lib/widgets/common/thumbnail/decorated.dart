@@ -344,7 +344,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     return StreamBuilder<VideoStatus>(
       stream: controller.statusStream,
       builder: (context, snapshot) {
-        final show = isCurrent && controller.isReady;
+        // Show video layer only when playback is effectively running, otherwise keep thumbnail visible.
+        // This avoids a short black flash between readiness and first rendered frame.
+        final show = isCurrent && controller.isPlaying;
         final tileHeight = widget.tileExtent;
         final tileWidth = widget.isMosaic
             ? tileHeight *
@@ -364,18 +366,15 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                   opacity: show ? 1 : 0,
                   duration: const Duration(milliseconds: 180),
                   curve: Curves.easeOut,
-                  child: ColoredBox(
-                    color: Colors.black,
-                    child: FittedBox(
-                      fit: widget.isMosaic ? BoxFit.cover : BoxFit.contain,
-                      clipBehavior: Clip.hardEdge,
-                      child: SizedBox(
-                        width: entry.displaySize.width,
-                        height: entry.displaySize.height,
-                        child: VideoView(
-                          entry: entry,
-                          controller: controller,
-                        ),
+                  child: FittedBox(
+                    fit: widget.isMosaic ? BoxFit.cover : BoxFit.contain,
+                    clipBehavior: Clip.hardEdge,
+                    child: SizedBox(
+                      width: entry.displaySize.width,
+                      height: entry.displaySize.height,
+                      child: VideoView(
+                        entry: entry,
+                        controller: controller,
                       ),
                     ),
                   ),
