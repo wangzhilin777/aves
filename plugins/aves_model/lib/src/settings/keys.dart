@@ -170,6 +170,7 @@ class SettingKeys {
   static const remoteGridVideoSoundOnKey = 'remote_grid_video_sound_on';
   static const remoteAutoDownloadImageMaxBytesKey = 'remote_auto_download_image_max_bytes';
   static const remoteAutoDownloadVideoMaxBytesKey = 'remote_auto_download_video_max_bytes';
+  static const remoteCacheMaxBytesKey = 'remote_cache_max_bytes';
   static const remoteStreamModeKey = 'remote_stream_mode';
 
   // bin

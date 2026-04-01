@@ -12,6 +12,7 @@ import 'package:aves/model/settings/enums/remote_stream_mode.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/ref/mime_types.dart';
 import 'package:aves/services/common/services.dart';
+import 'package:aves/services/remote_stream_proxy_service.dart';
 import 'package:collection/collection.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dartssh2/dartssh2.dart';
@@ -98,6 +99,7 @@ class RemoteMediaService {
   final Set<String> _proxyLoggedUris = {};
 
   RemoteMediaService() {
+    remoteStreamProxyService.remoteRequestHandler = _handleProxyRequest;
     unawaited(remoteStreamProxyService.ensureStarted());
   }
 
@@ -375,10 +377,21 @@ class RemoteMediaService {
 
     _cacheWarmupKeys.add(warmupKey);
     unawaited(
-      downloadMedia(server: server, node: node, trigger: trigger)
+      ensureDownloadedForEntry(entry, trigger: trigger)
           .then((file) async {
             if (file != null) {
-              _virtualRemoteRefs[Uri.file(file.path).toString()] = ref;
+              await ensureEntryMetadata(entry, trigger: '${trigger}_downloaded');
+              await remoteMediaLogService.log(
+                'auto_download',
+                'video warmup switched current entry to cached file',
+                data: {
+                  'trigger': trigger,
+                  'server': server.name,
+                  'path': node.path,
+                  'uri': entry.uri,
+                  'file': file.path,
+                },
+              );
             }
           })
           .whenComplete(() {
@@ -608,7 +621,7 @@ class RemoteMediaService {
   }) async {
     final plan = await decidePreviewPlan(server: server, node: node);
     final cachedFile = await _getExistingCacheFile(server, node);
-    if (cachedFile != null && (!node.isVideo || settings.remoteStreamMode != RemoteStreamMode.streamOnly)) {
+    if (cachedFile != null) {
       await remoteMediaLogService.log(
         'auto_download',
         'reuse cached remote media',
@@ -727,6 +740,29 @@ class RemoteMediaService {
     required RemoteServer server,
     required RemoteBrowseNode node,
   }) {
+    if (node.isVideo) {
+      final proxyUri = remoteStreamProxyService.proxyUriForRemote(serverId: server.id, path: node.path);
+      if (proxyUri != null) {
+        final key = '${server.id}|${node.path}';
+        if (_proxyLoggedUris.add(key)) {
+          unawaited(
+            remoteMediaLogService.log(
+              'remote_load',
+              'using unified local proxy uri for remote video stream',
+              data: {
+                'server': server.name,
+                'protocol': server.protocol.name,
+                'path': node.path,
+                'proxyUri': proxyUri.toString(),
+              },
+            ),
+          );
+        }
+        return proxyUri;
+      }
+      unawaited(remoteStreamProxyService.ensureStarted());
+    }
+
     switch (server.protocol) {
       case RemoteProtocol.webdav:
         final base = server.webdavUrl;
@@ -737,29 +773,6 @@ class RemoteMediaService {
         final password = server.password;
         if (uri.userInfo.isEmpty && username != null && username.isNotEmpty && password != null) {
           uri = uri.replace(userInfo: '$username:$password');
-        }
-        if (node.isVideo) {
-          // Serve remote video through local loopback proxy to avoid player-side
-          // auth/URL compatibility issues on some WebDAV streams.
-          final proxyUri = remoteStreamProxyService.proxyUriFor(uri);
-          if (proxyUri != null) {
-            final key = uri.toString();
-            if (_proxyLoggedUris.add(key)) {
-              unawaited(
-                remoteMediaLogService.log(
-                  'remote_load',
-                  'using local proxy uri for remote video stream',
-                  data: {
-                    'path': node.path,
-                    'remoteUri': key,
-                    'proxyUri': proxyUri.toString(),
-                  },
-                ),
-              );
-            }
-            return proxyUri;
-          }
-          unawaited(remoteStreamProxyService.ensureStarted());
         }
         return uri;
       case RemoteProtocol.ftp:
@@ -1099,6 +1112,314 @@ class RemoteMediaService {
     }
   }
 
+  Future<RemoteProxyResponse?> _handleProxyRequest(RemoteProxyRequest request) async {
+    final server = settings.remoteServers.byId(request.serverId);
+    if (server == null) {
+      await remoteMediaLogService.log(
+        'stream',
+        'proxy request skipped because remote server was not found',
+        data: {
+          'serverId': request.serverId,
+          'path': request.path,
+        },
+      );
+      return null;
+    }
+
+    final node = _findNodeForProxy(server, request.path);
+    try {
+      switch (server.protocol) {
+        case RemoteProtocol.webdav:
+          return await _proxyWebDav(server: server, node: node, request: request);
+        case RemoteProtocol.ftp:
+          return await _proxyCachedFile(server: server, node: node, request: request, reason: 'ftp_cache_backed_stream');
+        case RemoteProtocol.sftp:
+          return await _proxySftp(server: server, node: node, request: request);
+        case RemoteProtocol.smb:
+          return await _proxySmb(server: server, node: node, request: request);
+      }
+    } catch (error, stack) {
+      await remoteMediaLogService.log(
+        'stream',
+        'remote proxy request failed',
+        data: {
+          'server': server.name,
+          'protocol': server.protocol.name,
+          'path': request.path,
+          'method': request.method,
+          'range': request.rangeHeader,
+          'error': '$error',
+        },
+      );
+      await reportService.recordError(error, stack);
+      return null;
+    }
+  }
+
+  RemoteBrowseNode _findNodeForProxy(RemoteServer server, String path) {
+    final match = _virtualRemoteRefs.values.firstWhereOrNull((ref) => ref.$1.id == server.id && ref.$2.path == path);
+    if (match != null) return match.$2;
+    final name = path.split('/').where((segment) => segment.isNotEmpty).lastOrNull ?? path;
+    final lower = name.toLowerCase();
+    return RemoteBrowseNode(
+      path: path,
+      name: name,
+      isDirectory: false,
+      isVideo: _videoExt.any(lower.endsWith),
+      isImage: _imageExt.any(lower.endsWith),
+    );
+  }
+
+  Future<RemoteProxyResponse> _proxyWebDav({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteProxyRequest request,
+  }) async {
+    final base = server.webdavUrl;
+    if (base == null || base.isEmpty) {
+      throw StateError('Missing WebDAV URL');
+    }
+    final targetUri = _buildWebDavUri(base, _resolveEffectivePath(server, node.path));
+    if (targetUri == null) {
+      throw StateError('Invalid WebDAV target URI');
+    }
+
+    final headers = <String, String>{};
+    final username = server.username;
+    final password = server.password;
+    if (username != null && password != null) {
+      final token = base64Encode(utf8.encode('$username:$password'));
+      headers[HttpHeaders.authorizationHeader] = 'Basic $token';
+    }
+    final rangeHeader = request.rangeHeader;
+    if (request.method != 'HEAD' && rangeHeader != null && rangeHeader.isNotEmpty) {
+      headers[HttpHeaders.rangeHeader] = rangeHeader;
+    }
+
+    final client = http.Client();
+    final upstreamRequest = http.Request(request.method, targetUri)..headers.addAll(headers);
+    final upstreamResponse = await client.send(upstreamRequest);
+
+    Future<void> closeClient() async {
+      client.close();
+    }
+
+    Stream<List<int>> stream() async* {
+      try {
+        if (request.method != 'HEAD') {
+          await for (final chunk in upstreamResponse.stream) {
+            yield chunk;
+          }
+        }
+      } finally {
+        await closeClient();
+      }
+    }
+
+    return RemoteProxyResponse(
+      statusCode: upstreamResponse.statusCode,
+      stream: request.method == 'HEAD' ? const Stream<List<int>>.empty() : stream(),
+      contentType: upstreamResponse.headers[HttpHeaders.contentTypeHeader] ?? inferMimeType(node),
+      contentLength: int.tryParse(upstreamResponse.headers[HttpHeaders.contentLengthHeader] ?? ''),
+      totalLength: _parseTotalLengthFromContentRange(upstreamResponse.headers[HttpHeaders.contentRangeHeader]) ?? int.tryParse(upstreamResponse.headers[HttpHeaders.contentLengthHeader] ?? ''),
+      contentRange: upstreamResponse.headers[HttpHeaders.contentRangeHeader],
+      lastModified: _parseHttpDate(upstreamResponse.headers[HttpHeaders.lastModifiedHeader]),
+      acceptRanges: (upstreamResponse.headers[HttpHeaders.acceptRangesHeader] ?? '').toLowerCase() == 'bytes',
+    );
+  }
+
+  Future<RemoteProxyResponse> _proxySftp({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteProxyRequest request,
+  }) async {
+    final host = server.host;
+    final username = server.username;
+    if (host == null || host.isEmpty || username == null || username.isEmpty) {
+      throw StateError('Missing SFTP host or username');
+    }
+
+    final socket = await SSHSocket.connect(host, server.port ?? 22, timeout: const Duration(seconds: 8));
+    final privateKeyText = server.sftpPrivateKey;
+    final passphrase = server.sftpPassphrase;
+    final identities = privateKeyText != null && privateKeyText.isNotEmpty ? SSHKeyPair.fromPem(privateKeyText, passphrase?.isNotEmpty == true ? passphrase : null) : null;
+    final client = SSHClient(
+      socket,
+      username: username,
+      identities: identities,
+      onPasswordRequest: () => server.password,
+    );
+    await client.authenticated.timeout(const Duration(seconds: 12));
+    final sftp = await client.sftp();
+    final remoteFile = await sftp.open(_resolveEffectivePath(server, node.path));
+    final fileStat = await remoteFile.stat();
+    final totalLength = fileStat.size ?? node.sizeBytes ?? 0;
+    final range = _resolveByteRange(request.rangeHeader, totalLength);
+
+    Stream<List<int>> stream() async* {
+      try {
+        if (request.method != 'HEAD' && totalLength > 0) {
+          await for (final chunk in remoteFile.read(length: range.contentLength, offset: range.start)) {
+            yield chunk;
+          }
+        }
+      } finally {
+        await remoteFile.close();
+        sftp.close();
+        client.close();
+      }
+    }
+
+    return RemoteProxyResponse(
+      statusCode: request.rangeHeader != null && request.rangeHeader!.isNotEmpty ? HttpStatus.partialContent : HttpStatus.ok,
+      stream: request.method == 'HEAD' ? const Stream<List<int>>.empty() : stream(),
+      contentType: inferMimeType(node),
+      contentLength: range.contentLength,
+      totalLength: totalLength,
+      contentRange: request.rangeHeader != null && request.rangeHeader!.isNotEmpty ? range.contentRangeHeader : null,
+      lastModified: _millisToDateTime(node.modifiedMillis),
+    );
+  }
+
+  Future<RemoteProxyResponse> _proxySmb({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteProxyRequest request,
+  }) async {
+    final host = server.host;
+    if (host == null || host.isEmpty) {
+      throw StateError('Missing SMB host');
+    }
+
+    final smb = await SmbConnect.connectAuth(
+      host: host,
+      username: server.username ?? '',
+      password: server.password ?? '',
+      domain: server.smbDomain ?? '',
+    );
+    final remoteFile = await smb.file(_resolveEffectivePath(server, node.path));
+    final totalLength = remoteFile.size > 0 ? remoteFile.size : (node.sizeBytes ?? 0);
+    final range = _resolveByteRange(request.rangeHeader, totalLength);
+
+    Stream<List<int>> stream() async* {
+      try {
+        if (request.method != 'HEAD' && totalLength > 0) {
+          final reader = await smb.openRead(remoteFile, range.start, range.endInclusive + 1);
+          await for (final chunk in reader) {
+            yield chunk;
+          }
+        }
+      } finally {
+        await smb.close();
+      }
+    }
+
+    return RemoteProxyResponse(
+      statusCode: request.rangeHeader != null && request.rangeHeader!.isNotEmpty ? HttpStatus.partialContent : HttpStatus.ok,
+      stream: request.method == 'HEAD' ? const Stream<List<int>>.empty() : stream(),
+      contentType: inferMimeType(node),
+      contentLength: range.contentLength,
+      totalLength: totalLength,
+      contentRange: request.rangeHeader != null && request.rangeHeader!.isNotEmpty ? range.contentRangeHeader : null,
+      lastModified: _millisToDateTime(node.modifiedMillis),
+    );
+  }
+
+  Future<RemoteProxyResponse> _proxyCachedFile({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteProxyRequest request,
+    required String reason,
+  }) async {
+    final file = await _getExistingCacheFile(server, node) ?? await _autoDownload(server: server, node: node);
+    if (file == null || !await file.exists()) {
+      throw StateError('No cached file available for ${server.protocol.name}');
+    }
+    await remoteMediaLogService.log(
+      'stream',
+      'serving remote stream through local cache file',
+      data: {
+        'server': server.name,
+        'protocol': server.protocol.name,
+        'path': node.path,
+        'file': file.path,
+        'reason': reason,
+      },
+    );
+    return _serveLocalFile(file: file, mimeType: inferMimeType(node), rangeHeader: request.rangeHeader, method: request.method);
+  }
+
+  Future<RemoteProxyResponse> _serveLocalFile({
+    required File file,
+    required String mimeType,
+    required String? rangeHeader,
+    required String method,
+  }) async {
+    final totalLength = await file.length();
+    final range = _resolveByteRange(rangeHeader, totalLength);
+    final isPartial = rangeHeader != null && rangeHeader.isNotEmpty;
+    return RemoteProxyResponse(
+      statusCode: isPartial ? HttpStatus.partialContent : HttpStatus.ok,
+      stream: method == 'HEAD' ? const Stream<List<int>>.empty() : file.openRead(range.start, range.endInclusive + 1),
+      contentType: mimeType,
+      contentLength: range.contentLength,
+      totalLength: totalLength,
+      contentRange: isPartial ? range.contentRangeHeader : null,
+      lastModified: (await file.stat()).modified,
+    );
+  }
+
+  RemoteByteRange _resolveByteRange(String? rangeHeader, int totalLength) {
+    if (totalLength <= 0) {
+      return const RemoteByteRange(start: 0, endInclusive: 0, totalLength: 0);
+    }
+    if (rangeHeader == null || rangeHeader.isEmpty || !rangeHeader.startsWith('bytes=')) {
+      return RemoteByteRange(start: 0, endInclusive: totalLength - 1, totalLength: totalLength);
+    }
+
+    final spec = rangeHeader.substring('bytes='.length).split(',').first.trim();
+    if (spec.isEmpty) {
+      return RemoteByteRange(start: 0, endInclusive: totalLength - 1, totalLength: totalLength);
+    }
+
+    final parts = spec.split('-');
+    final rawStart = parts.isNotEmpty ? parts[0].trim() : '';
+    final rawEnd = parts.length > 1 ? parts[1].trim() : '';
+
+    int start;
+    int endInclusive;
+    if (rawStart.isEmpty) {
+      final suffixLength = int.tryParse(rawEnd) ?? totalLength;
+      start = totalLength - suffixLength;
+      endInclusive = totalLength - 1;
+    } else {
+      start = int.tryParse(rawStart) ?? 0;
+      endInclusive = rawEnd.isEmpty ? totalLength - 1 : (int.tryParse(rawEnd) ?? (totalLength - 1));
+    }
+
+    start = start.clamp(0, totalLength - 1);
+    endInclusive = endInclusive.clamp(start, totalLength - 1);
+    return RemoteByteRange(start: start, endInclusive: endInclusive, totalLength: totalLength);
+  }
+
+  int? _parseTotalLengthFromContentRange(String? value) {
+    if (value == null || value.isEmpty) return null;
+    final slash = value.lastIndexOf('/');
+    if (slash == -1 || slash == value.length - 1) return null;
+    return int.tryParse(value.substring(slash + 1));
+  }
+
+  DateTime? _parseHttpDate(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return HttpDate.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  DateTime? _millisToDateTime(int? millis) => millis != null && millis > 0 ? DateTime.fromMillisecondsSinceEpoch(millis) : null;
+
   Future<File?> _downloadWebDavFile({
     required RemoteServer server,
     required RemoteBrowseNode node,
@@ -1126,6 +1447,7 @@ class RemoteMediaService {
       await resp.stream.pipe(sink);
       await sink.close();
       await _scanDownloadedFileIfNeeded(server: server, node: node, cacheFile: cacheFile);
+      await _enforceCacheLimit(server.id, trigger: 'webdav_download');
       await remoteMediaLogService.log('auto_download', 'download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
       return cacheFile;
     } catch (error, stack) {
@@ -1165,6 +1487,7 @@ class RemoteMediaService {
       final ok = await ftp.downloadFile(name, cacheFile);
       if (!ok) return null;
       await _scanDownloadedFileIfNeeded(server: server, node: node, cacheFile: cacheFile);
+      await _enforceCacheLimit(server.id, trigger: 'ftp_download');
       await remoteMediaLogService.log('auto_download', 'ftp download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
       return cacheFile;
     } catch (error, stack) {
@@ -1209,6 +1532,7 @@ class RemoteMediaService {
       await remoteFile.read().forEach(sink.add);
       await sink.close();
       await _scanDownloadedFileIfNeeded(server: server, node: node, cacheFile: cacheFile);
+      await _enforceCacheLimit(server.id, trigger: 'sftp_download');
       await remoteMediaLogService.log('auto_download', 'sftp download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
       return cacheFile;
     } catch (error, stack) {
@@ -1246,6 +1570,7 @@ class RemoteMediaService {
       await sink.flush();
       await sink.close();
       await _scanDownloadedFileIfNeeded(server: server, node: node, cacheFile: cacheFile);
+      await _enforceCacheLimit(server.id, trigger: 'smb_download');
       await remoteMediaLogService.log('auto_download', 'smb download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
       return cacheFile;
     } catch (error, stack) {
@@ -1579,6 +1904,54 @@ class RemoteMediaService {
           data: {'dir': targetDir.path},
         );
       }
+    }
+  }
+
+  Future<void> _enforceCacheLimit(String serverId, {required String trigger}) async {
+    final maxBytes = settings.remoteCacheMaxBytes;
+    if (maxBytes <= 0) return;
+    final dir = await getConnectionCacheDirectory(serverId);
+    if (!await dir.exists()) return;
+
+    final files = <File>[];
+    var totalBytes = 0;
+    await for (final entity in dir.list(recursive: true, followLinks: false)) {
+      if (entity is! File) continue;
+      if (entity.path.endsWith('${Platform.pathSeparator}.nomedia')) continue;
+      try {
+        final length = await entity.length();
+        if (length <= 0) continue;
+        files.add(entity);
+        totalBytes += length;
+      } catch (_) {}
+    }
+    if (totalBytes <= maxBytes) return;
+
+    files.sort((a, b) => a.statSync().modified.compareTo(b.statSync().modified));
+
+    var deletedCount = 0;
+    for (final file in files) {
+      if (totalBytes <= maxBytes) break;
+      try {
+        final length = await file.length();
+        await file.delete();
+        totalBytes -= length;
+        deletedCount++;
+      } catch (_) {}
+    }
+
+    if (deletedCount > 0) {
+      await remoteMediaLogService.log(
+        'cache',
+        'pruned remote cache because max size was exceeded',
+        data: {
+          'serverId': serverId,
+          'trigger': trigger,
+          'maxBytes': maxBytes,
+          'remainingBytes': totalBytes,
+          'deletedCount': deletedCount,
+        },
+      );
     }
   }
 

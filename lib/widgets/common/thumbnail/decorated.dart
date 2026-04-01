@@ -352,7 +352,8 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         return StreamBuilder<VideoStatus>(
           stream: controller.statusStream,
           builder: (context, snapshot) {
-            final show = isCurrent && controller.isPlaying;
+            final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
+            final show = controller.isPlaying || keepLastFrameVisible;
             final tileHeight = widget.tileExtent;
             final decodedSize = controller.decodedVideoSizeNotifier.value;
             final displaySize = decodedSize ?? entry.displaySize;

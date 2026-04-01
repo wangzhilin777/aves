@@ -127,6 +127,7 @@ class SettingsDefaults {
   static const remoteGridVideoSoundOn = false;
   static const remoteAutoDownloadImageMaxBytes = 8 * 1024 * 1024;
   static const remoteAutoDownloadVideoMaxBytes = 30 * 1024 * 1024;
+  static const remoteCacheMaxBytes = 1024 * 1024 * 1024;
   static const remoteStreamMode = RemoteStreamMode.streamWithDownloadFallback;
 
   // bin

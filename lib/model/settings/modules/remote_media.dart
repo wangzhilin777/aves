@@ -45,6 +45,10 @@ mixin RemoteMediaSettings on SettingsAccess {
 
   set remoteAutoDownloadVideoMaxBytes(int newValue) => set(SettingKeys.remoteAutoDownloadVideoMaxBytesKey, newValue);
 
+  int get remoteCacheMaxBytes => getInt(SettingKeys.remoteCacheMaxBytesKey) ?? SettingsDefaults.remoteCacheMaxBytes;
+
+  set remoteCacheMaxBytes(int newValue) => set(SettingKeys.remoteCacheMaxBytesKey, newValue);
+
   RemoteStreamMode get remoteStreamMode {
     final modeName = getString(SettingKeys.remoteStreamModeKey);
     return RemoteStreamMode.values.firstWhereOrNull((v) => v.name == modeName) ?? SettingsDefaults.remoteStreamMode;

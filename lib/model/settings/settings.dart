@@ -376,6 +376,7 @@ class Settings
           case SettingKeys.convertQualityKey:
           case SettingKeys.remoteAutoDownloadImageMaxBytesKey:
           case SettingKeys.remoteAutoDownloadVideoMaxBytesKey:
+          case SettingKeys.remoteCacheMaxBytesKey:
           case SettingKeys.screenSaverIntervalKey:
           case SettingKeys.slideshowIntervalKey:
             if (newValue is int) {

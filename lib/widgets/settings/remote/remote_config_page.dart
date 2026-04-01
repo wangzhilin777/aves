@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/settings/enums/remote_stream_mode.dart';
@@ -59,6 +59,7 @@ class RemoteMediaConfigPage extends StatelessWidget {
             ),
             _RemoteAutoDownloadImageMaxTile(),
             _RemoteAutoDownloadVideoMaxTile(),
+            _RemoteCacheMaxTile(),
           ],
         ),
       ),
@@ -182,16 +183,39 @@ class _RemoteAutoDownloadVideoMaxTile extends StatelessWidget {
           onTap: streamOnly
               ? null
               : () => showSelectionDialog<int>(
-                    context: context,
-                    builder: (context) => AvesSingleSelectionDialog<int>(
-                      initialValue: current,
-                      options: Map.fromEntries(_values.map((v) => MapEntry(v, formatFileSize(context.locale, v, round: 0)))),
-                      title: _tr(context, 'Video auto-download max size', '视频自动下载大小上限'),
-                    ),
-                    onSelection: (v) => settings.remoteAutoDownloadVideoMaxBytes = v,
+                  context: context,
+                  builder: (context) => AvesSingleSelectionDialog<int>(
+                    initialValue: current,
+                    options: Map.fromEntries(_values.map((v) => MapEntry(v, formatFileSize(context.locale, v, round: 0)))),
+                    title: _tr(context, 'Video auto-download max size', '视频自动下载大小上限'),
                   ),
+                  onSelection: (v) => settings.remoteAutoDownloadVideoMaxBytes = v,
+                ),
         );
       },
     );
   }
+}
+
+class _RemoteCacheMaxTile extends StatelessWidget {
+  static const _values = [
+    256 * 1024 * 1024,
+    512 * 1024 * 1024,
+    1024 * 1024 * 1024,
+    2 * 1024 * 1024 * 1024,
+    4 * 1024 * 1024 * 1024,
+    8 * 1024 * 1024 * 1024,
+  ];
+
+  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+
+  @override
+  Widget build(BuildContext context) => SettingsSelectionListTile<int>(
+    values: _values,
+    getName: (context, value) => formatFileSize(context.locale, value, round: 0),
+    selector: (context, s) => s.remoteCacheMaxBytes,
+    onSelection: (v) => settings.remoteCacheMaxBytes = v,
+    tileTitle: _tr(context, 'Remote cache max size', '远程缓存最大容量'),
+    dialogTitle: _tr(context, 'Remote cache max size', '远程缓存最大容量'),
+  );
 }
