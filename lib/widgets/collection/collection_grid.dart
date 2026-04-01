@@ -535,10 +535,13 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     );
 
     for (final entry in candidates) {
-      await remoteMediaService.ensureDownloadedForEntry(
+      final file = await remoteMediaService.ensureDownloadedForEntry(
         entry,
         trigger: 'collection_focus_image_window',
       );
+      if (file != null) {
+        collection.source.onAspectRatioChanged();
+      }
     }
   }
 }

@@ -144,6 +144,9 @@ class RemoteMediaService {
     try {
       final fetched = await mediaFetchService.getEntry(fileUri, entry.sourceMimeType, allowUnsized: true);
       if (fetched != null) {
+        if (fetched.width <= 1 || fetched.height <= 1) {
+          await fetched.catalog(background: false, force: true, persist: false);
+        }
         entry.width = fetched.width;
         entry.height = fetched.height;
         entry.sourceRotationDegrees = fetched.sourceRotationDegrees;
@@ -152,6 +155,9 @@ class RemoteMediaService {
         entry.sourceDateTakenMillis = fetched.sourceDateTakenMillis ?? entry.sourceDateTakenMillis;
         entry.durationMillis = fetched.durationMillis ?? entry.durationMillis;
       } else {
+        await entry.catalog(background: false, force: true, persist: false);
+      }
+      if (entry.width <= 1 || entry.height <= 1) {
         await entry.catalog(background: false, force: true, persist: false);
       }
     } catch (error, stack) {

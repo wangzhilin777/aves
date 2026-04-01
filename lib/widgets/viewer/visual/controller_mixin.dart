@@ -136,6 +136,46 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   Future<void> _initVideoController(AvesEntry entry) async {
     final controller = await context.read<VideoConductor>().getOrCreateController(entry);
     setState(() {});
+    unawaited(
+      remoteMediaLogService.log(
+        'autoplay',
+        'viewer video controller created',
+        data: {
+          'uri': entry.uri,
+          'isVideo': entry.isVideo,
+          'status': controller.status.name,
+          'autoPlayEnabled': videoAutoPlayEnabled,
+          'isRemoteStream': entry.uri.startsWith('http://') || entry.uri.startsWith('https://'),
+        },
+      ),
+    );
+
+    if (entry.uri.startsWith('http://') || entry.uri.startsWith('https://')) {
+      unawaited(
+        controller.statusStream
+            .firstWhere((status) => status == VideoStatus.error)
+            .timeout(const Duration(seconds: 4))
+            .then((_) {
+              return remoteMediaLogService.log(
+                'autoplay',
+                'viewer remote stream entered error status',
+                data: {
+                  'uri': entry.uri,
+                },
+              );
+            })
+            .catchError((_) async {
+              await remoteMediaLogService.log(
+                'autoplay',
+                'viewer remote stream did not enter error status within probe window',
+                data: {
+                  'uri': entry.uri,
+                  'status': controller.status.name,
+                },
+              );
+            }),
+      );
+    }
 
     if (videoAutoPlayEnabled || entry.isAnimated) {
       unawaited(
