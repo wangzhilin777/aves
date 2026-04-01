@@ -366,6 +366,17 @@ class RemoteMediaService {
     String trigger = 'stream_cache_warmup',
   }) async {
     if (!entry.isVideo) return;
+    if (trigger == 'grid_preview') {
+      await remoteMediaLogService.log(
+        'auto_download',
+        'skip full video warmup during grid preview because stream chunk cache is preferred',
+        data: {
+          'trigger': trigger,
+          'uri': entry.uri,
+        },
+      );
+      return;
+    }
     final ref = _virtualRemoteRefs[entry.uri];
     if (ref == null) return;
 
