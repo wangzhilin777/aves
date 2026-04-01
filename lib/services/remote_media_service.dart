@@ -1683,6 +1683,14 @@ class RemoteMediaService {
     }
   }
 
+  String _trimStackTrace(StackTrace stack) {
+    final lines = stack.toString().trim().split('\n');
+    if (lines.length <= 8) {
+      return lines.join('\n');
+    }
+    return lines.take(8).join('\n');
+  }
+
   Future<RemoteProxyResponse> _proxyChunkedRemote({
     required RemoteServer server,
     required RemoteBrowseNode node,
@@ -1701,7 +1709,13 @@ class RemoteMediaService {
       );
     }
 
-    final range = _resolveByteRange(request.rangeHeader, totalLength);
+    final requestedRange = _resolveByteRange(request.rangeHeader, totalLength);
+    final range = _capStreamingRangeWindowIfNeeded(
+      request: request,
+      server: server,
+      node: node,
+      range: requestedRange,
+    );
     if (request.method == 'HEAD') {
       final isPartial = request.rangeHeader != null && request.rangeHeader!.isNotEmpty;
       return RemoteProxyResponse(
@@ -1733,6 +1747,53 @@ class RemoteMediaService {
       totalLength: totalLength,
       contentRange: isPartial ? range.contentRangeHeader : null,
       lastModified: lastModified,
+    );
+  }
+
+  RemoteByteRange _capStreamingRangeWindowIfNeeded({
+    required RemoteProxyRequest request,
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteByteRange range,
+  }) {
+    final header = request.rangeHeader;
+    if (request.method == 'HEAD' || header == null || header.isEmpty || !header.startsWith('bytes=')) {
+      return range;
+    }
+
+    final spec = header.substring('bytes='.length).split(',').first.trim();
+    if (spec.isEmpty) return range;
+    final parts = spec.split('-');
+    final rawStart = parts.isNotEmpty ? parts[0].trim() : '';
+    final rawEnd = parts.length > 1 ? parts[1].trim() : '';
+    if (rawStart.isEmpty || rawEnd.isNotEmpty) {
+      return range;
+    }
+
+    final cappedEndInclusive = min(range.totalLength - 1, range.start + _streamChunkSizeBytes - 1);
+    if (cappedEndInclusive >= range.endInclusive) {
+      return range;
+    }
+
+    unawaited(
+      remoteMediaLogService.log(
+        'stream',
+        'cap open-ended remote stream request to initial window',
+        data: {
+          'server': server.name,
+          'protocol': server.protocol.name,
+          'path': node.path,
+          'requestedStart': range.start,
+          'requestedEnd': range.endInclusive,
+          'servedEnd': cappedEndInclusive,
+          'sizeBytes': range.totalLength,
+        },
+      ),
+    );
+    return RemoteByteRange(
+      start: range.start,
+      endInclusive: cappedEndInclusive,
+      totalLength: range.totalLength,
     );
   }
 
@@ -1797,7 +1858,25 @@ class RemoteMediaService {
         await file.delete();
       }
 
-      final bytes = await fetchChunk(range);
+      List<int> bytes;
+      try {
+        bytes = await fetchChunk(range);
+      } catch (error, stack) {
+        await remoteMediaLogService.log(
+          'stream',
+          'failed to fetch remote stream chunk',
+          data: {
+            'server': server.name,
+            'protocol': server.protocol.name,
+            'path': node.path,
+            'start': range.start,
+            'end': range.endInclusive,
+            'error': '$error',
+            'stack': _trimStackTrace(stack),
+          },
+        );
+        rethrow;
+      }
       await file.create(recursive: true);
       await file.writeAsBytes(bytes, flush: true);
       await remoteMediaLogService.log(
@@ -2067,6 +2146,9 @@ class RemoteMediaService {
       final file = await sftp.open(_resolveEffectivePath(server, path));
       try {
         final bytes = await file.readBytes(length: range.contentLength, offset: range.start);
+        if (bytes.length != range.contentLength) {
+          throw StateError('SFTP chunk length mismatch expected=${range.contentLength} actual=${bytes.length}');
+        }
         await remoteMediaLogService.log(
           'stream',
           'received sftp stream chunk',
@@ -2141,6 +2223,9 @@ class RemoteMediaService {
         buffer.add(chunk);
       }
       final bytes = buffer.takeBytes();
+      if (bytes.length != range.contentLength) {
+        throw StateError('SMB chunk length mismatch expected=${range.contentLength} actual=${bytes.length}');
+      }
       await remoteMediaLogService.log(
         'stream',
         'received smb stream chunk',
@@ -2629,13 +2714,20 @@ class RemoteMediaService {
   Future<File?> _getExistingCacheFile(RemoteServer server, RemoteBrowseNode node) async {
     final cacheFile = await _buildCacheFile(server, node);
     final legacyCacheFile = await _buildLegacyCacheFile(server, node);
-    final candidate = await _resolveValidCacheCandidate(server: server, node: node, candidate: cacheFile) ?? await _resolveValidCacheCandidate(server: server, node: node, candidate: legacyCacheFile);
+    final primaryCandidate = await _resolveValidCacheCandidate(server: server, node: node, candidate: cacheFile);
+    final legacyCandidate = await _resolveValidCacheCandidate(server: server, node: node, candidate: legacyCacheFile);
+    final candidate = primaryCandidate ?? legacyCandidate;
     if (candidate == null) {
       return null;
     }
     if (candidate.path != cacheFile.path) {
       try {
-        if (!await cacheFile.exists()) {
+        if (primaryCandidate == null) {
+          if (await cacheFile.exists()) {
+            try {
+              await cacheFile.delete();
+            } catch (_) {}
+          }
           await candidate.rename(cacheFile.path);
           await remoteMediaLogService.log(
             'cache',
@@ -2649,6 +2741,7 @@ class RemoteMediaService {
           );
           return cacheFile;
         }
+        return primaryCandidate;
       } catch (_) {
         return candidate;
       }
@@ -2661,7 +2754,7 @@ class RemoteMediaService {
   bool shouldPreferStreamOverCachedFile(RemoteServer server, RemoteBrowseNode node) => _shouldPreferStreamOverCachedFile(server, node);
 
   bool _shouldPreferStreamOverCachedFile(RemoteServer server, RemoteBrowseNode node) {
-    return server.protocol == RemoteProtocol.smb && node.isVideo;
+    return node.isVideo;
   }
 
   Future<File?> _resolveValidCacheCandidate({
