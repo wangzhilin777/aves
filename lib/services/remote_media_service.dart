@@ -1699,7 +1699,8 @@ class RemoteMediaService {
     required DateTime? lastModified,
     required Future<List<int>> Function(RemoteByteRange range) fetchChunk,
   }) async {
-    final fullCacheFile = await _getExistingCacheFile(server, node);
+    final preferStreamOverCache = _shouldPreferStreamOverCachedFile(server, node);
+    final fullCacheFile = preferStreamOverCache ? null : await _getExistingCacheFile(server, node);
     if (fullCacheFile != null) {
       return _serveLocalFile(
         file: fullCacheFile,
@@ -1707,6 +1708,21 @@ class RemoteMediaService {
         rangeHeader: request.rangeHeader,
         method: request.method,
       );
+    }
+    if (preferStreamOverCache) {
+      final existingCache = await _getExistingCacheFile(server, node);
+      if (existingCache != null) {
+        await remoteMediaLogService.log(
+          'stream',
+          'bypass existing full cache file and keep remote streaming path',
+          data: {
+            'server': server.name,
+            'protocol': server.protocol.name,
+            'path': node.path,
+            'file': existingCache.path,
+          },
+        );
+      }
     }
 
     final requestedRange = _resolveByteRange(request.rangeHeader, totalLength);
