@@ -341,6 +341,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   String? _lastPrefetchSignature;
   DateTime _lastKeepFocusLogAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastKeepFocusLogUri;
+  double? _lastScrollOffset;
 
   CollectionLens get collection => widget.collection;
 
@@ -423,12 +424,32 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     final layout = context.read<SectionedListLayout<AvesEntry>>();
     final size = renderObject.size;
     final viewportTopY = scrollController.offset - _appBarHeightNotifier.value;
-    final probesY = [
+    final minScrollExtent = scrollController.position.minScrollExtent;
+    final maxScrollExtent = scrollController.position.maxScrollExtent;
+    final currentOffset = scrollController.offset;
+    final previousOffset = _lastScrollOffset ?? currentOffset;
+    final scrollingTowardBottom = currentOffset > previousOffset;
+    _lastScrollOffset = currentOffset;
+
+    final probesY = <double>[
       viewportTopY + size.height * .52,
       viewportTopY + size.height * .60,
       viewportTopY + size.height * .68,
       viewportTopY + size.height * .74,
     ];
+    if (currentOffset <= minScrollExtent + size.height * .18) {
+      probesY.insertAll(0, [
+        viewportTopY + size.height * .16,
+        viewportTopY + size.height * .28,
+        viewportTopY + size.height * .40,
+      ]);
+    }
+    if (currentOffset >= maxScrollExtent - size.height * .18) {
+      probesY.addAll([
+        viewportTopY + size.height * .82,
+        viewportTopY + size.height * .92,
+      ]);
+    }
     final probesX = [
       size.width * .5,
       size.width * .33,
@@ -443,10 +464,12 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
 
     AvesEntry? target;
     AvesEntry? anchor;
+    AvesEntry? lastVisibleCandidate;
     for (final y in probesY) {
       for (final x in probesX) {
         final candidate = layout.getItemAt(Offset(x, y));
         anchor ??= candidate;
+        lastVisibleCandidate = candidate ?? lastVisibleCandidate;
         if (candidate?.isVideo == true) {
           target = candidate;
           break;
@@ -454,8 +477,96 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       }
       if (target != null) break;
     }
+    target ??= _resolveEdgeFocusTarget(
+      layout: layout,
+      size: size,
+      viewportTopY: viewportTopY,
+      currentOffset: currentOffset,
+      minScrollExtent: minScrollExtent,
+      maxScrollExtent: maxScrollExtent,
+      scrollingTowardBottom: scrollingTowardBottom,
+      probesX: probesX,
+      fallbackAnchor: lastVisibleCandidate ?? anchor,
+    );
     unawaited(_prefetchRemoteWindow(anchor));
     _scheduleFocusUpdate(target);
+  }
+
+  AvesEntry? _resolveEdgeFocusTarget({
+    required SectionedListLayout<AvesEntry> layout,
+    required Size size,
+    required double viewportTopY,
+    required double currentOffset,
+    required double minScrollExtent,
+    required double maxScrollExtent,
+    required bool scrollingTowardBottom,
+    required List<double> probesX,
+    required AvesEntry? fallbackAnchor,
+  }) {
+    final nearTop = currentOffset <= minScrollExtent + size.height * .18;
+    final nearBottom = currentOffset >= maxScrollExtent - size.height * .18;
+    if (!nearTop && !nearBottom) return null;
+
+    final forceTop = nearTop && !scrollingTowardBottom;
+    final forceBottom = nearBottom && scrollingTowardBottom;
+    if (!forceTop && !forceBottom) return null;
+
+    final edgeProbeYs = forceTop
+        ? [
+            viewportTopY + size.height * .06,
+            viewportTopY + size.height * .16,
+            viewportTopY + size.height * .28,
+          ]
+        : [
+            viewportTopY + size.height * .94,
+            viewportTopY + size.height * .84,
+            viewportTopY + size.height * .72,
+          ];
+
+    AvesEntry? edgeAnchor;
+    for (final y in edgeProbeYs) {
+      for (final x in probesX) {
+        final candidate = layout.getItemAt(Offset(x, y));
+        edgeAnchor ??= candidate;
+        if (candidate?.isVideo == true) {
+          unawaited(
+            remoteMediaLogService.log(
+              'focus',
+              'forced preview focus at collection edge',
+              data: {
+                'uri': candidate?.uri,
+                'atTop': forceTop,
+                'atBottom': forceBottom,
+              },
+            ),
+          );
+          return candidate;
+        }
+      }
+    }
+
+    final anchor = edgeAnchor ?? fallbackAnchor;
+    if (anchor == null) return null;
+    return _findClosestVideoEntry(anchor, searchBackward: forceTop);
+  }
+
+  AvesEntry? _findClosestVideoEntry(AvesEntry anchor, {required bool searchBackward}) {
+    final entries = collection.sortedEntries;
+    final anchorIndex = entries.indexOf(anchor);
+    if (anchorIndex < 0) return null;
+
+    if (searchBackward) {
+      for (var i = anchorIndex; i >= 0; i--) {
+        final entry = entries[i];
+        if (entry.isVideo) return entry;
+      }
+    } else {
+      for (var i = anchorIndex; i < entries.length; i++) {
+        final entry = entries[i];
+        if (entry.isVideo) return entry;
+      }
+    }
+    return null;
   }
 
   void _scheduleFocusUpdate(AvesEntry? target) {
