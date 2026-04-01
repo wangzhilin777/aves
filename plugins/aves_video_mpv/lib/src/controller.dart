@@ -309,7 +309,15 @@ class MpvVideoController extends AvesVideoController {
 
   @override
   Future<void> play() async {
-    await untilReady;
+    if (status == VideoStatus.error) {
+      await _recoverFromRemoteStreamError();
+      if (status == VideoStatus.error) {
+        await _init(startMillis: currentPosition);
+      }
+    }
+    try {
+      await untilReady.timeout(const Duration(seconds: 2));
+    } catch (_) {}
     await _mkPlayer.play();
   }
 

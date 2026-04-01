@@ -54,9 +54,10 @@ class _VideoViewState extends State<VideoView> {
       stream: controller.statusStream,
       builder: (context, snapshot) {
         final status = snapshot.data ?? controller.status;
-        if (status == VideoStatus.error || status == VideoStatus.idle) {
+        if (status == VideoStatus.error) {
           return const ColoredBox(color: Colors.black);
         }
+        if (status == VideoStatus.idle) return const SizedBox();
         return controller.buildPlayerWidget(context);
       },
     );
