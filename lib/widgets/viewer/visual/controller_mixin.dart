@@ -83,7 +83,9 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   bool get videoAutoPlayEnabled {
-    if (!isViewingImage) return false;
+    if (settings.gridVideoAutoPlay) {
+      return true;
+    }
 
     switch (videoPlaybackOverride) {
       case .skip:
@@ -109,23 +111,30 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       return videoMutedOverride!;
     }
 
-    switch (videoPlaybackOverride) {
-      case .skip:
-      case .playWithSound:
-        return false;
-      case .playMuted:
-        return true;
-      case null:
-        break;
+    if (settings.gridVideoAutoPlay) {
+      return !settings.gridVideoSoundOn;
     }
 
-    switch (settings.videoAutoPlayMode) {
-      case .disabled:
-      case .playWithSound:
-        return false;
-      case .playMuted:
-        return true;
+    if (videoAutoPlayEnabled) {
+      switch (videoPlaybackOverride) {
+        case .skip:
+        case .playWithSound:
+          return false;
+        case .playMuted:
+          return true;
+        case null:
+          break;
+      }
+
+      switch (settings.videoAutoPlayMode) {
+        case .disabled:
+        case .playWithSound:
+          return false;
+        case .playMuted:
+          return true;
+      }
     }
+    return false;
   }
 
   bool get shouldAutoPlayMotionPhoto {

@@ -259,6 +259,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       }
       if (!mounted || token != _playToken || !isCurrent) return;
       _controller = controller;
+      if (controller.isPlaying) {
+        return;
+      }
       _lastDecisionKey = 'play:${entry.uri}';
       if (mounted) setState(() {});
       unawaited(
