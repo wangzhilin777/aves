@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:aves/model/entry/entry.dart';
 import 'package:aves_model/aves_model.dart';
 import 'package:aves_utils/aves_utils.dart';
 import 'package:aves_video/aves_video.dart';
@@ -27,6 +28,7 @@ class MpvVideoController extends AvesVideoController {
   int _mediaCandidateIndex = 0;
   bool _recoveringFromStreamError = false;
   bool _openInProgress = false;
+  bool _ignoreNextVisualRefresh = false;
 
   static final _pContext = p.Context();
 
@@ -144,7 +146,12 @@ class MpvVideoController extends AvesVideoController {
       }),
     );
     _subscriptions.add(playerStream.subtitle.listen((v) => _timedTextStreamController.add(v.isEmpty ? null : v[0])));
-    _subscriptions.add(playerStream.videoParams.listen((v) => sarNotifier.value = v.par));
+    _subscriptions.add(
+      playerStream.videoParams.listen((v) {
+        sarNotifier.value = v.par;
+        _syncEntryGeometry(v);
+      }),
+    );
     _subscriptions.add(playerStream.log.listen((v) => debugPrint('libmpv log: $v')));
     _subscriptions.add(
       playerStream.error.listen((v) {
@@ -304,8 +311,41 @@ class MpvVideoController extends AvesVideoController {
     oldController?.dispose();
   }
 
+  void _syncEntryGeometry(VideoParams params) {
+    if (entry is! AvesEntry) {
+      return;
+    }
+    final mediaEntry = entry as AvesEntry;
+    final width = params.w;
+    final height = params.h;
+    final rotate = params.rotate;
+    var changed = false;
+
+    if (width != null && height != null && width > 1 && height > 1 && (mediaEntry.width != width || mediaEntry.height != height)) {
+      mediaEntry.width = width;
+      mediaEntry.height = height;
+      changed = true;
+    }
+    if (rotate != null && rotate != mediaEntry.sourceRotationDegrees) {
+      mediaEntry.sourceRotationDegrees = rotate;
+      changed = true;
+    }
+
+    if (changed) {
+      _ignoreNextVisualRefresh = true;
+      mediaEntry.visualChangeNotifier.notify();
+      _statusStreamController.add(_status);
+    }
+  }
+
   @override
-  void onVisualChanged() => _init(startMillis: currentPosition);
+  void onVisualChanged() {
+    if (_ignoreNextVisualRefresh) {
+      _ignoreNextVisualRefresh = false;
+      return;
+    }
+    _init(startMillis: currentPosition);
+  }
 
   @override
   Future<void> play() async {
