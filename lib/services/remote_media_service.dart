@@ -1,4 +1,4 @@
-// ignore_for_file: implementation_imports
+// ignore_for_file: implementation_imports, unawaited_futures
 
 import 'dart:async';
 import 'dart:convert';
@@ -137,7 +137,7 @@ class RemoteMediaService {
   static const _ftpSftpInitialWarmupChunkCount = 24;
   static const _smbInitialWarmupChunkCount = 8;
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
-  final Set<String> _downloadInProgressUris = {};
+  final Map<String, Future<File?>> _downloadInFlight = {};
   final Set<String> _cacheWarmupKeys = {};
   final Map<String, (String uri, int expiresAtMillis)> _playbackUriCache = {};
   final Set<String> _proxyLoggedUris = {};
@@ -272,10 +272,34 @@ class RemoteMediaService {
     final sourceUri = entry.uri;
     final ref = _virtualRemoteRefs[sourceUri];
     if (ref == null) return null;
-    if (_downloadInProgressUris.contains(sourceUri)) return null;
 
-    _downloadInProgressUris.add(sourceUri);
-    try {
+    final downloadKey = '${ref.$1.id}|${ref.$2.path}';
+    final inFlight = _downloadInFlight[downloadKey];
+    if (inFlight != null) {
+      await remoteMediaLogService.log(
+        'auto_download',
+        'await existing remote download task',
+        data: {
+          'trigger': trigger,
+          'uri': sourceUri,
+          'server': ref.$1.name,
+          'protocol': ref.$1.protocol.name,
+          'path': ref.$2.path,
+        },
+      );
+      final existingFile = await inFlight;
+      if (existingFile == null) return null;
+      final fileUri = Uri.file(existingFile.path).toString();
+      entry.uri = fileUri;
+      entry.path = existingFile.path;
+      entry.sizeBytes = await existingFile.length();
+      _virtualRemoteRefs[fileUri] = ref;
+      await _refreshEntryMetadataFromLocalFile(entry, fileUri);
+      entry.visualChangeNotifier.notify();
+      return existingFile;
+    }
+
+    Future<File?> runDownload() async {
       final file = await downloadMedia(
         server: ref.$1,
         node: ref.$2,
@@ -299,8 +323,14 @@ class RemoteMediaService {
         },
       );
       return file;
+    }
+
+    final task = Future<File?>(runDownload);
+    _downloadInFlight[downloadKey] = task;
+    try {
+      return await task;
     } finally {
-      _downloadInProgressUris.remove(sourceUri);
+      _downloadInFlight.remove(downloadKey);
     }
   }
 
