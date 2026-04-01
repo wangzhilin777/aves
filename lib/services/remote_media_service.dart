@@ -132,13 +132,14 @@ class _ChunkFileSegment {
 
 class RemoteMediaService {
   static const _streamChunkSizeBytes = 2 * 1024 * 1024;
-  static const _streamChunkCacheVersion = 2;
+  static const _streamChunkCacheVersion = 3;
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
   final Set<String> _downloadInProgressUris = {};
   final Set<String> _cacheWarmupKeys = {};
   final Map<String, (String uri, int expiresAtMillis)> _playbackUriCache = {};
   final Set<String> _proxyLoggedUris = {};
   final Map<String, Future<File>> _streamChunkInFlight = {};
+  final Set<String> _loggedInitialChunkSignatures = {};
 
   RemoteMediaService() {
     remoteStreamProxyService.remoteRequestHandler = _handleProxyRequest;
@@ -1890,6 +1891,13 @@ class RemoteMediaService {
       if (await file.exists()) {
         final length = await file.length();
         if (length == range.contentLength) {
+          await _logInitialChunkSignatureFromFile(
+            server: server,
+            node: node,
+            range: range,
+            file: file,
+            source: 'cache_hit',
+          );
           await remoteMediaLogService.log(
             'cache',
             'stream chunk cache hit',
@@ -1927,6 +1935,13 @@ class RemoteMediaService {
       }
       await file.create(recursive: true);
       await file.writeAsBytes(bytes, flush: true);
+      await _logInitialChunkSignature(
+        server: server,
+        node: node,
+        range: range,
+        bytes: bytes,
+        source: 'fetched',
+      );
       await remoteMediaLogService.log(
         'cache',
         'stored remote stream chunk',
@@ -1969,6 +1984,96 @@ class RemoteMediaService {
         final _ = _streamChunkInFlight.remove(chunkKey);
       }
     }
+  }
+
+  Future<void> _logInitialChunkSignatureFromFile({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteByteRange range,
+    required File file,
+    required String source,
+  }) async {
+    if (!node.isVideo || range.start != 0) return;
+    try {
+      final bytes = await file
+          .openRead(0, min(64, range.contentLength))
+          .fold<BytesBuilder>(
+            BytesBuilder(copy: false),
+            (builder, chunk) => builder..add(chunk),
+          );
+      await _logInitialChunkSignature(
+        server: server,
+        node: node,
+        range: range,
+        bytes: bytes.takeBytes(),
+        source: source,
+      );
+    } catch (error) {
+      await remoteMediaLogService.log(
+        'stream',
+        'failed to inspect cached initial video stream chunk',
+        data: {
+          'server': server.name,
+          'protocol': server.protocol.name,
+          'path': node.path,
+          'source': source,
+          'error': '$error',
+        },
+      );
+    }
+  }
+
+  Future<void> _logInitialChunkSignature({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteByteRange range,
+    required List<int> bytes,
+    required String source,
+  }) async {
+    if (!node.isVideo || range.start != 0 || bytes.isEmpty) return;
+    final key = '${server.id}|${node.path}|${range.start}|$source';
+    if (_loggedInitialChunkSignatures.contains(key)) return;
+    _loggedInitialChunkSignatures.add(key);
+
+    final head = bytes.take(min(32, bytes.length)).toList(growable: false);
+    final hex = head.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+    final asciiHead = head.map((b) => (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.').join();
+    final ftypIndex = _indexOfPattern(bytes, asciiPattern: 'ftyp', limit: min(bytes.length, 64));
+    final jpegMagic = head.length >= 3 && head[0] == 0xFF && head[1] == 0xD8 && head[2] == 0xFF;
+    final pngMagic = head.length >= 8 && head[0] == 0x89 && head[1] == 0x50 && head[2] == 0x4E && head[3] == 0x47 && head[4] == 0x0D && head[5] == 0x0A && head[6] == 0x1A && head[7] == 0x0A;
+
+    await remoteMediaLogService.log(
+      'stream',
+      'inspected initial remote video chunk signature',
+      data: {
+        'server': server.name,
+        'protocol': server.protocol.name,
+        'path': node.path,
+        'source': source,
+        'bytesInspected': head.length,
+        'hex': hex,
+        'ascii': asciiHead,
+        'ftypIndex': ftypIndex,
+        'jpegMagic': jpegMagic,
+        'pngMagic': pngMagic,
+      },
+    );
+  }
+
+  int _indexOfPattern(List<int> bytes, {required String asciiPattern, required int limit}) {
+    final pattern = ascii.encode(asciiPattern);
+    final maxStart = min(limit, bytes.length) - pattern.length;
+    for (var i = 0; i <= maxStart; i++) {
+      var match = true;
+      for (var j = 0; j < pattern.length; j++) {
+        if (bytes[i + j] != pattern[j]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return i;
+    }
+    return -1;
   }
 
   Future<int> _fetchSftpFileSize({
