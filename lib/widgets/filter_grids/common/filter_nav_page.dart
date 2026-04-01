@@ -239,12 +239,15 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
       directoryNodes.addAll(page.children.where((node) => node.isDirectory));
       final mediaNodes = page.children.where((node) => !node.isDirectory).toList();
       for (final node in mediaNodes) {
-        final uri = remoteMediaService.buildStreamUri(server: server, node: node) ?? _buildDeferredRemoteUri(server.id, node.path);
-        remoteMediaService.registerVirtualRemoteRef(
-          uri: uri.toString(),
-          server: server,
-          node: node,
-        );
+        final cachedFile = await remoteMediaService.getExistingCacheFile(server, node);
+        final uri = cachedFile != null ? Uri.file(cachedFile.path) : (remoteMediaService.buildStreamUri(server: server, node: node) ?? _buildDeferredRemoteUri(server.id, node.path));
+        if (cachedFile == null) {
+          remoteMediaService.registerVirtualRemoteRef(
+            uri: uri.toString(),
+            server: server,
+            node: node,
+          );
+        }
         final mimeType = remoteMediaService.inferMimeType(node);
         final entry = _buildVirtualRemoteEntry(
           serverId: server.id,
@@ -261,6 +264,7 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
             'path': node.path,
             'uri': uri.toString(),
             'mimeType': mimeType,
+            'usedCachedFile': cachedFile != null,
             'isStreamingUri': uri.scheme == 'http' || uri.scheme == 'https',
           },
         );

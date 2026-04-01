@@ -55,6 +55,9 @@ class MpvVideoController extends AvesVideoController {
   @override
   final ValueNotifier<double?> sarNotifier = ValueNotifier(null);
 
+  @override
+  final ValueNotifier<Size?> decodedVideoSizeNotifier = ValueNotifier(null);
+
   MpvVideoController(
     super.entry, {
     required super.playbackStateHandler,
@@ -100,6 +103,7 @@ class MpvVideoController extends AvesVideoController {
     canSetSpeedNotifier.dispose();
     canSelectStreamNotifier.dispose();
     sarNotifier.dispose();
+    decodedVideoSizeNotifier.dispose();
 
     await super.dispose();
   }
@@ -323,6 +327,13 @@ class MpvVideoController extends AvesVideoController {
     final height = params.h;
     final rotate = params.rotate;
     var changed = false;
+    if (width != null && height != null && width > 1 && height > 1) {
+      final isRotated = rotate != null && rotate % 180 != 0;
+      final decodedSize = isRotated ? Size(height.toDouble(), width.toDouble()) : Size(width.toDouble(), height.toDouble());
+      if (decodedVideoSizeNotifier.value != decodedSize) {
+        decodedVideoSizeNotifier.value = decodedSize;
+      }
+    }
 
     if (width != null && height != null && width > 1 && height > 1 && (mediaEntry.width != width || mediaEntry.height != height)) {
       mediaEntry.width = width;
@@ -456,22 +467,26 @@ class MpvVideoController extends AvesVideoController {
     return ValueListenableBuilder<double?>(
       valueListenable: sarNotifier,
       builder: (context, sar, child) {
-        // derive DAR (Display Aspect Ratio) from SAR (Storage Aspect Ratio), if any
-        // e.g. 960x536 (~16:9) with SAR 4:3 should be displayed as ~2.39:1
-        final dar = entry.displayAspectRatio * (sar ?? 1);
-        return ValueListenableBuilder<VideoController?>(
-          valueListenable: _mkControllerNotifier,
-          builder: (context, controller, child) {
-            if (controller == null) return const SizedBox();
-            return Video(
-              controller: controller,
-              fill: Colors.transparent,
-              aspectRatio: dar,
-              controls: NoVideoControls,
-              wakelock: false,
-              subtitleViewConfiguration: const SubtitleViewConfiguration(
-                visible: false,
-              ),
+        return ValueListenableBuilder<Size?>(
+          valueListenable: decodedVideoSizeNotifier,
+          builder: (context, decodedSize, child) {
+            final baseAspectRatio = decodedSize != null && decodedSize.height > 0 ? decodedSize.width / decodedSize.height : entry.displayAspectRatio;
+            final dar = baseAspectRatio * (sar ?? 1);
+            return ValueListenableBuilder<VideoController?>(
+              valueListenable: _mkControllerNotifier,
+              builder: (context, controller, child) {
+                if (controller == null) return const SizedBox();
+                return Video(
+                  controller: controller,
+                  fill: Colors.transparent,
+                  aspectRatio: dar,
+                  controls: NoVideoControls,
+                  wakelock: false,
+                  subtitleViewConfiguration: const SubtitleViewConfiguration(
+                    visible: false,
+                  ),
+                );
+              },
             );
           },
         );

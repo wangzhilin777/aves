@@ -1330,6 +1330,8 @@ class RemoteMediaService {
     return null;
   }
 
+  Future<File?> getExistingCacheFile(RemoteServer server, RemoteBrowseNode node) => _getExistingCacheFile(server, node);
+
   Future<File> _getOrCreateCacheFile(RemoteServer server, RemoteBrowseNode node) async {
     final cacheFile = await _getExistingCacheFile(server, node) ??
         File(

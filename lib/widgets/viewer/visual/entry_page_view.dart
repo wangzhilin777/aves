@@ -204,23 +204,26 @@ class _EntryPageViewState extends State<EntryPageView> with TickerProviderStateM
     return ValueListenableBuilder<double?>(
       valueListenable: videoController.sarNotifier,
       builder: (context, sar, child) {
-        final videoDisplaySize = entry.videoDisplaySize(sar);
-        final isPureVideo = entry.isPureVideo;
+        return ValueListenableBuilder<Size?>(
+          valueListenable: videoController.decodedVideoSizeNotifier,
+          builder: (context, decodedSize, child) {
+            final videoDisplaySize = decodedSize != null ? Size(decodedSize.width * (sar ?? 1), decodedSize.height) : entry.videoDisplaySize(sar);
+            final isPureVideo = entry.isPureVideo;
 
-        return Selector<Settings, (bool, bool, bool)>(
-          selector: (context, s) => (
-            isPureVideo && s.videoGestureDoubleTapTogglePlay,
-            isPureVideo && s.videoGestureSideDoubleTapSeek,
-            isPureVideo && s.videoGestureVerticalDragBrightnessVolume,
-          ),
-          builder: (context, s, child) {
-            final (playGesture, seekGesture, useVerticalDragGesture) = s;
-            final useTapGesture = playGesture || seekGesture;
+            return Selector<Settings, (bool, bool, bool)>(
+              selector: (context, s) => (
+                isPureVideo && s.videoGestureDoubleTapTogglePlay,
+                isPureVideo && s.videoGestureSideDoubleTapSeek,
+                isPureVideo && s.videoGestureVerticalDragBrightnessVolume,
+              ),
+              builder: (context, s, child) {
+                final (playGesture, seekGesture, useVerticalDragGesture) = s;
+                final useTapGesture = playGesture || seekGesture;
 
-            MagnifierDoubleTapCallback? onDoubleTap;
-            MagnifierGestureScaleStartCallback? onScaleStart;
-            MagnifierGestureScaleUpdateCallback? onScaleUpdate;
-            MagnifierGestureScaleEndCallback? onScaleEnd;
+                MagnifierDoubleTapCallback? onDoubleTap;
+                MagnifierGestureScaleStartCallback? onScaleStart;
+                MagnifierGestureScaleUpdateCallback? onScaleUpdate;
+                MagnifierGestureScaleEndCallback? onScaleEnd;
 
             if (useTapGesture) {
               void _applyAction(EntryAction action, {IconData? Function()? icon}) {
@@ -321,63 +324,65 @@ class _EntryPageViewState extends State<EntryPageView> with TickerProviderStateM
               };
             }
 
-            Widget videoChild = Stack(
-              children: [
-                _buildMagnifier(
-                  displaySize: videoDisplaySize,
-                  onScaleStart: onScaleStart,
-                  onScaleUpdate: onScaleUpdate,
-                  onScaleEnd: onScaleEnd,
-                  onDoubleTap: onDoubleTap,
-                  child: VideoView(
-                    entry: entry,
-                    controller: videoController,
-                  ),
-                ),
-                VideoSubtitles(
-                  entry: entry,
-                  controller: videoController,
-                  viewStateNotifier: _viewStateNotifier,
-                ),
-                if (useTapGesture)
-                  ValueListenableBuilder<Widget?>(
-                    valueListenable: _actionFeedbackChildNotifier,
-                    builder: (context, feedbackChild, child) => ActionFeedback(
-                      child: feedbackChild,
+                Widget videoChild = Stack(
+                  children: [
+                    _buildMagnifier(
+                      displaySize: videoDisplaySize,
+                      onScaleStart: onScaleStart,
+                      onScaleUpdate: onScaleUpdate,
+                      onScaleEnd: onScaleEnd,
+                      onDoubleTap: onDoubleTap,
+                      child: VideoView(
+                        entry: entry,
+                        controller: videoController,
+                      ),
                     ),
-                  ),
-              ],
-            );
-            if (useVerticalDragGesture) {
-              final scope = MagnifierGestureDetectorScope.maybeOf(context);
-              if (scope != null) {
-                videoChild = scope.copyWith(
-                  acceptPointerEvent: MagnifierGestureRecognizer.isYPan,
-                  child: videoChild,
+                    VideoSubtitles(
+                      entry: entry,
+                      controller: videoController,
+                      viewStateNotifier: _viewStateNotifier,
+                    ),
+                    if (useTapGesture)
+                      ValueListenableBuilder<Widget?>(
+                        valueListenable: _actionFeedbackChildNotifier,
+                        builder: (context, feedbackChild, child) => ActionFeedback(
+                          child: feedbackChild,
+                        ),
+                      ),
+                  ],
                 );
-              }
-            }
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                videoChild,
-                VideoCover(
-                  mainEntry: mainEntry,
-                  pageEntry: entry,
-                  magnifierController: _magnifierController,
-                  videoController: videoController,
-                  videoDisplaySize: videoDisplaySize,
-                  onTap: _onTap,
-                  magnifierBuilder: (coverController, coverSize, videoCoverUriImage) => _buildMagnifier(
-                    controller: coverController,
-                    displaySize: coverSize,
-                    onDoubleTap: onDoubleTap,
-                    child: Image(
-                      image: videoCoverUriImage,
+                if (useVerticalDragGesture) {
+                  final scope = MagnifierGestureDetectorScope.maybeOf(context);
+                  if (scope != null) {
+                    videoChild = scope.copyWith(
+                      acceptPointerEvent: MagnifierGestureRecognizer.isYPan,
+                      child: videoChild,
+                    );
+                  }
+                }
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    videoChild,
+                    VideoCover(
+                      mainEntry: mainEntry,
+                      pageEntry: entry,
+                      magnifierController: _magnifierController,
+                      videoController: videoController,
+                      videoDisplaySize: videoDisplaySize,
+                      onTap: _onTap,
+                      magnifierBuilder: (coverController, coverSize, videoCoverUriImage) => _buildMagnifier(
+                        controller: coverController,
+                        displaySize: coverSize,
+                        onDoubleTap: onDoubleTap,
+                        child: Image(
+                          image: videoCoverUriImage,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ],
+                  ],
+                );
+              },
             );
           },
         );

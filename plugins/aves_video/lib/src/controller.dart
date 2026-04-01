@@ -123,6 +123,8 @@ abstract class AvesVideoController extends Disposer with ABRepeatMixin {
 
   ValueNotifier<double?> get sarNotifier;
 
+  ValueNotifier<Size?> get decodedVideoSizeNotifier;
+
   bool get isMuted;
 
   double get speed;

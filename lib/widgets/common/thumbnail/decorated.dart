@@ -345,16 +345,19 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final controller = _controller;
     if (controller == null) return const SizedBox();
     return AnimatedBuilder(
-      animation: entry.visualChangeNotifier,
+      animation: Listenable.merge([entry.visualChangeNotifier, controller.decodedVideoSizeNotifier]),
       builder: (context, child) {
         return StreamBuilder<VideoStatus>(
           stream: controller.statusStream,
           builder: (context, snapshot) {
             final show = isCurrent && controller.isPlaying;
             final tileHeight = widget.tileExtent;
+            final decodedSize = controller.decodedVideoSizeNotifier.value;
+            final displaySize = decodedSize ?? entry.displaySize;
+            final displayAspectRatio = decodedSize != null && decodedSize.height > 0 ? decodedSize.width / decodedSize.height : entry.displayAspectRatio;
             final tileWidth = widget.isMosaic
                 ? tileHeight *
-                      entry.displayAspectRatio.clamp(
+                      displayAspectRatio.clamp(
                         MosaicSectionLayoutBuilder.minThumbnailAspectRatio,
                         MosaicSectionLayoutBuilder.maxThumbnailAspectRatio,
                       )
@@ -374,8 +377,8 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                         fit: widget.isMosaic ? BoxFit.cover : BoxFit.contain,
                         clipBehavior: Clip.hardEdge,
                         child: SizedBox(
-                          width: entry.displaySize.width,
-                          height: entry.displaySize.height,
+                          width: displaySize.width,
+                          height: displaySize.height,
                           child: VideoView(
                             entry: entry,
                             controller: controller,
