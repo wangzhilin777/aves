@@ -159,23 +159,29 @@ class MpvVideoController extends AvesVideoController {
 
     final path = entry.path;
     if (path != null) {
-      final videoBasename = _pContext.basenameWithoutExtension(path);
-      // list subtitle files in the same directory
-      // some files may be visible to the app (e.g. SRT) while others may not (e.g. SUB, VTT)
-      _subscriptions.add(
-        File(path).parent.list().where((v) => v is File && _isSubtitle(v.path)).listen((v) {
-          final subtitleBasename = _pContext.basename(v.path);
-          if (subtitleBasename.startsWith(videoBasename)) {
-            _externalSubtitleTracks.add(
-              SubtitleTrack.uri(
-                v.uri.toString(),
-                title: 'File ${subtitleBasename.substring(videoBasename.length)}',
-              ),
-            );
-            _externalSubtitleTracks.sort((a, b) => a.title!.compareTo(b.title!));
-          }
-        }),
-      );
+      final sourceFile = File(path);
+      if (sourceFile.existsSync()) {
+        final videoBasename = _pContext.basenameWithoutExtension(path);
+        // list subtitle files in the same directory
+        // some files may be visible to the app (e.g. SRT) while others may not (e.g. SUB, VTT)
+        _subscriptions.add(
+          sourceFile.parent.list().where((v) => v is File && _isSubtitle(v.path)).listen(
+            (v) {
+              final subtitleBasename = _pContext.basename(v.path);
+              if (subtitleBasename.startsWith(videoBasename)) {
+                _externalSubtitleTracks.add(
+                  SubtitleTrack.uri(
+                    v.uri.toString(),
+                    title: 'File ${subtitleBasename.substring(videoBasename.length)}',
+                  ),
+                );
+                _externalSubtitleTracks.sort((a, b) => a.title!.compareTo(b.title!));
+              }
+            },
+            onError: (_) {},
+          ),
+        );
+      }
     }
   }
 

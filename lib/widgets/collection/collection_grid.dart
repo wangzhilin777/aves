@@ -50,6 +50,7 @@ import 'package:aves/widgets/common/thumbnail/notifications.dart';
 import 'package:aves/widgets/common/tile_extent_controller.dart';
 import 'package:aves/widgets/navigation/nav_bar/nav_bar.dart';
 import 'package:aves/widgets/viewer/entry_viewer_page.dart';
+import 'package:aves/widgets/viewer/video/conductor.dart';
 import 'package:aves_model/aves_model.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -259,6 +260,12 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
   Future<void> _goToViewer(CollectionLens collection, AvesEntry entry) async {
     // track viewer entry for dynamic hero placeholder
     final viewerEntryNotifier = context.read<ViewerEntryNotifier>();
+
+    // `EntryViewerPage` is pushed with a transparent route, so the collection page
+    // remains alive underneath it. Pause grid preview playback proactively to avoid
+    // remote stream competition between grid preview and viewer.
+    _previewPlayingEntryNotifier.value = null;
+    await context.read<VideoConductor>().pauseAll();
 
     // prevent navigating again to the same entry until fully back,
     // as a workaround for the hero pop/push diversion animation issue
