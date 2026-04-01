@@ -1372,52 +1372,22 @@ class RemoteMediaService {
       throw StateError('Invalid WebDAV target URI');
     }
 
-    final metadata = await _fetchWebDavFileMetadata(server: server, node: node);
-    final totalLength = (metadata['sizeBytes'] as int?) ?? node.sizeBytes ?? 0;
-    final lastModified = _millisToDateTime((metadata['modifiedMillis'] as int?) ?? node.modifiedMillis);
-    if (totalLength <= 0) {
-      await remoteMediaLogService.log(
-        'stream',
-        'fallback to passthrough webdav stream because file length is unknown',
-        data: {
-          'server': server.name,
-          'path': node.path,
-        },
-      );
-      return _proxyWebDavPassthrough(
-        server: server,
-        node: node,
-        request: request,
-        targetUri: targetUri,
-      );
-    }
-
-    try {
-      return await _proxyChunkedRemote(
-        server: server,
-        node: node,
-        request: request,
-        totalLength: totalLength,
-        lastModified: lastModified,
-        fetchChunk: (chunkRange) => _fetchWebDavChunk(server: server, node: node, uri: targetUri, range: chunkRange),
-      );
-    } catch (error) {
-      await remoteMediaLogService.log(
-        'stream',
-        'fallback to passthrough webdav stream after chunked proxy failure',
-        data: {
-          'server': server.name,
-          'path': node.path,
-          'error': '$error',
-        },
-      );
-      return _proxyWebDavPassthrough(
-        server: server,
-        node: node,
-        request: request,
-        targetUri: targetUri,
-      );
-    }
+    await remoteMediaLogService.log(
+      'stream',
+      'serve webdav stream through direct passthrough proxy',
+      data: {
+        'server': server.name,
+        'path': node.path,
+        'method': request.method,
+        'range': request.rangeHeader,
+      },
+    );
+    return _proxyWebDavPassthrough(
+      server: server,
+      node: node,
+      request: request,
+      targetUri: targetUri,
+    );
   }
 
   Future<RemoteProxyResponse> _proxyWebDavPassthrough({
@@ -1726,32 +1696,6 @@ class RemoteMediaService {
     );
     await _enforceCacheLimit(server.id, trigger: 'stream_chunk');
     return file;
-  }
-
-  Future<List<int>> _fetchWebDavChunk({
-    required RemoteServer server,
-    required RemoteBrowseNode node,
-    required Uri uri,
-    required RemoteByteRange range,
-  }) async {
-    final client = http.Client();
-    try {
-      final request = http.Request('GET', uri);
-      request.headers[HttpHeaders.rangeHeader] = 'bytes=${range.start}-${range.endInclusive}';
-      final username = server.username;
-      final password = server.password;
-      if (username != null && password != null) {
-        final token = base64Encode(utf8.encode('$username:$password'));
-        request.headers[HttpHeaders.authorizationHeader] = 'Basic $token';
-      }
-      final response = await client.send(request);
-      if (response.statusCode != HttpStatus.partialContent && response.statusCode != HttpStatus.ok) {
-        throw StateError('WebDAV chunk request failed with ${response.statusCode}');
-      }
-      return response.stream.toBytes();
-    } finally {
-      client.close();
-    }
   }
 
   Future<int> _fetchSftpFileSize({
