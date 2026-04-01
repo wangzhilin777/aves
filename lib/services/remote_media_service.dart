@@ -2578,7 +2578,7 @@ class RemoteMediaService {
   Future<File> _buildCacheFile(RemoteServer server, RemoteBrowseNode node) async {
     final cacheDir = await getConnectionCacheDirectory(server.id);
     final cacheKey = _stableCacheKey('${server.id}|${node.path}|${node.name}');
-    return File('${cacheDir.path}${Platform.pathSeparator}${_safeFileName(node.name)}_$cacheKey');
+    return File('${cacheDir.path}${Platform.pathSeparator}${_buildCacheFileName(node.name, cacheKey)}');
   }
 
   Future<Directory> _getStreamChunkDirectory(RemoteServer server, RemoteBrowseNode node) async {
@@ -2628,32 +2628,32 @@ class RemoteMediaService {
 
   Future<File?> _getExistingCacheFile(RemoteServer server, RemoteBrowseNode node) async {
     final cacheFile = await _buildCacheFile(server, node);
-    if (await cacheFile.exists()) {
-      final length = await cacheFile.length();
-      if (length <= 0) {
-        return null;
-      }
-      final expectedLength = node.sizeBytes;
-      if (expectedLength != null && expectedLength > 0 && length != expectedLength) {
-        await remoteMediaLogService.log(
-          'cache',
-          'discard remote cache file because length does not match source metadata',
-          data: {
-            'server': server.name,
-            'path': node.path,
-            'file': cacheFile.path,
-            'expectedLength': expectedLength,
-            'actualLength': length,
-          },
-        );
-        try {
-          await cacheFile.delete();
-        } catch (_) {}
-        return null;
-      }
-      return cacheFile;
+    final legacyCacheFile = await _buildLegacyCacheFile(server, node);
+    final candidate = await _resolveValidCacheCandidate(server: server, node: node, candidate: cacheFile) ?? await _resolveValidCacheCandidate(server: server, node: node, candidate: legacyCacheFile);
+    if (candidate == null) {
+      return null;
     }
-    return null;
+    if (candidate.path != cacheFile.path) {
+      try {
+        if (!await cacheFile.exists()) {
+          await candidate.rename(cacheFile.path);
+          await remoteMediaLogService.log(
+            'cache',
+            'migrated legacy remote cache file name',
+            data: {
+              'server': server.name,
+              'path': node.path,
+              'from': candidate.path,
+              'to': cacheFile.path,
+            },
+          );
+          return cacheFile;
+        }
+      } catch (_) {
+        return candidate;
+      }
+    }
+    return candidate;
   }
 
   Future<File?> getExistingCacheFile(RemoteServer server, RemoteBrowseNode node) => _getExistingCacheFile(server, node);
@@ -2662,6 +2662,54 @@ class RemoteMediaService {
 
   bool _shouldPreferStreamOverCachedFile(RemoteServer server, RemoteBrowseNode node) {
     return server.protocol == RemoteProtocol.smb && node.isVideo;
+  }
+
+  Future<File?> _resolveValidCacheCandidate({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required File candidate,
+  }) async {
+    if (!await candidate.exists()) return null;
+    final length = await candidate.length();
+    if (length <= 0) {
+      return null;
+    }
+    final expectedLength = node.sizeBytes;
+    if (expectedLength != null && expectedLength > 0 && length != expectedLength) {
+      await remoteMediaLogService.log(
+        'cache',
+        'discard remote cache file because length does not match source metadata',
+        data: {
+          'server': server.name,
+          'path': node.path,
+          'file': candidate.path,
+          'expectedLength': expectedLength,
+          'actualLength': length,
+        },
+      );
+      try {
+        await candidate.delete();
+      } catch (_) {}
+      return null;
+    }
+    return candidate;
+  }
+
+  Future<File> _buildLegacyCacheFile(RemoteServer server, RemoteBrowseNode node) async {
+    final cacheDir = await getConnectionCacheDirectory(server.id);
+    final cacheKey = _stableCacheKey('${server.id}|${node.path}|${node.name}');
+    return File('${cacheDir.path}${Platform.pathSeparator}${_safeFileName(node.name)}_$cacheKey');
+  }
+
+  String _buildCacheFileName(String rawName, int cacheKey) {
+    final safeName = _safeFileName(rawName);
+    final dotIndex = safeName.lastIndexOf('.');
+    if (dotIndex <= 0 || dotIndex == safeName.length - 1) {
+      return '${safeName}_$cacheKey';
+    }
+    final base = safeName.substring(0, dotIndex);
+    final ext = safeName.substring(dotIndex);
+    return '${base}_$cacheKey$ext';
   }
 
   Future<File> _getOrCreateCacheFile(RemoteServer server, RemoteBrowseNode node) async {
