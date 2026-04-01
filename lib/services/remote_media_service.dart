@@ -729,7 +729,8 @@ class RemoteMediaService {
   }) async {
     final plan = await decidePreviewPlan(server: server, node: node);
     final cachedFile = await _getExistingCacheFile(server, node);
-    if (cachedFile != null) {
+    final preferStreamOverCache = _shouldPreferStreamOverCachedFile(server, node);
+    if (cachedFile != null && !preferStreamOverCache) {
       await remoteMediaLogService.log(
         'auto_download',
         'reuse cached remote media',
@@ -747,6 +748,19 @@ class RemoteMediaService {
     }
 
     final streamUri = buildStreamUri(server: server, node: node);
+    if (cachedFile != null && preferStreamOverCache && streamUri != null) {
+      await remoteMediaLogService.log(
+        'stream',
+        'prefer remote stream over cached file for playback',
+        data: {
+          'server': server.name,
+          'protocol': server.protocol.name,
+          'path': node.path,
+          'cachedFile': cachedFile.path,
+          'streamUri': streamUri.toString(),
+        },
+      );
+    }
     File? downloadedFile;
     if (plan.shouldAutoDownload) {
       downloadedFile = await _autoDownload(server: server, node: node);
@@ -2614,13 +2628,41 @@ class RemoteMediaService {
 
   Future<File?> _getExistingCacheFile(RemoteServer server, RemoteBrowseNode node) async {
     final cacheFile = await _buildCacheFile(server, node);
-    if (await cacheFile.exists() && await cacheFile.length() > 0) {
+    if (await cacheFile.exists()) {
+      final length = await cacheFile.length();
+      if (length <= 0) {
+        return null;
+      }
+      final expectedLength = node.sizeBytes;
+      if (expectedLength != null && expectedLength > 0 && length != expectedLength) {
+        await remoteMediaLogService.log(
+          'cache',
+          'discard remote cache file because length does not match source metadata',
+          data: {
+            'server': server.name,
+            'path': node.path,
+            'file': cacheFile.path,
+            'expectedLength': expectedLength,
+            'actualLength': length,
+          },
+        );
+        try {
+          await cacheFile.delete();
+        } catch (_) {}
+        return null;
+      }
       return cacheFile;
     }
     return null;
   }
 
   Future<File?> getExistingCacheFile(RemoteServer server, RemoteBrowseNode node) => _getExistingCacheFile(server, node);
+
+  bool shouldPreferStreamOverCachedFile(RemoteServer server, RemoteBrowseNode node) => _shouldPreferStreamOverCachedFile(server, node);
+
+  bool _shouldPreferStreamOverCachedFile(RemoteServer server, RemoteBrowseNode node) {
+    return server.protocol == RemoteProtocol.smb && node.isVideo;
+  }
 
   Future<File> _getOrCreateCacheFile(RemoteServer server, RemoteBrowseNode node) async {
     final cacheFile = await _getExistingCacheFile(server, node) ?? await _buildCacheFile(server, node);

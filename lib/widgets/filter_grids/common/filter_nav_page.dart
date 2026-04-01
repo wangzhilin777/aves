@@ -238,11 +238,26 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
 
       final page = await remoteMediaService.loadFolder(server: server, path: filter.path);
       directoryNodes.addAll(page.children.where((node) => node.isDirectory));
-      final mediaNodes = page.children.where((node) => !node.isDirectory).toList();
+      final mediaNodes = page.children.where((node) => !node.isDirectory && (node.isImage || node.isVideo)).toList();
+      final skippedNonVisualCount = page.children.where((node) => !node.isDirectory && !node.isImage && !node.isVideo).length;
+      if (skippedNonVisualCount > 0) {
+        await remoteMediaLogService.log(
+          'remote_load',
+          'skip non-visual remote files when injecting native collection page',
+          data: {
+            'server': server.name,
+            'path': filter.path,
+            'skippedCount': skippedNonVisualCount,
+          },
+        );
+      }
       for (final node in mediaNodes) {
         final preparedNode = await remoteMediaService.ensureNodeMetadata(server, node, trigger: 'collection_inject');
         final cachedFile = await remoteMediaService.getExistingCacheFile(server, preparedNode);
-        final uri = cachedFile != null ? Uri.file(cachedFile.path) : (remoteMediaService.buildStreamUri(server: server, node: preparedNode) ?? _buildDeferredRemoteUri(server.id, preparedNode.path));
+        final shouldPreferStream = remoteMediaService.shouldPreferStreamOverCachedFile(server, preparedNode);
+        final uri = cachedFile != null && !shouldPreferStream
+            ? Uri.file(cachedFile.path)
+            : (remoteMediaService.buildStreamUri(server: server, node: preparedNode) ?? (cachedFile != null ? Uri.file(cachedFile.path) : _buildDeferredRemoteUri(server.id, preparedNode.path)));
         remoteMediaService.registerVirtualRemoteRef(
           uri: uri.toString(),
           server: server,
@@ -273,6 +288,7 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
             'entrySizeBytes': entry.sizeBytes,
             'entryDateModifiedMillis': entry.dateModifiedMillis,
             'usedCachedFile': cachedFile != null,
+            'preferredStreamOverCache': shouldPreferStream,
             'isStreamingUri': uri.scheme == 'http' || uri.scheme == 'https',
           },
         );
