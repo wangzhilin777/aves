@@ -136,6 +136,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
   Future<void> _initVideoController(AvesEntry entry) async {
     await remoteMediaService.ensureEntryMetadata(entry, trigger: 'viewer_init');
+    await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init');
     final controller = await context.read<VideoConductor>().getOrCreateController(entry);
     setState(() {});
     unawaited(

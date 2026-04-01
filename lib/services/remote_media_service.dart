@@ -132,6 +132,7 @@ class _ChunkFileSegment {
 
 class RemoteMediaService {
   static const _streamChunkSizeBytes = 2 * 1024 * 1024;
+  static const _streamChunkCacheVersion = 2;
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
   final Set<String> _downloadInProgressUris = {};
   final Set<String> _cacheWarmupKeys = {};
@@ -506,6 +507,98 @@ class RemoteMediaService {
             _cacheWarmupKeys.remove(warmupKey);
           }),
     );
+  }
+
+  Future<void> prepareInitialStreamPlaybackForEntry(
+    AvesEntry entry, {
+    String trigger = 'stream_playback_prepare',
+  }) async {
+    if (!entry.isVideo) return;
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref == null) return;
+
+    final server = ref.$1;
+    final node = ref.$2;
+    if (server.protocol == RemoteProtocol.webdav || !_shouldPreferStreamOverCachedFile(server, node)) {
+      return;
+    }
+
+    final totalLength = node.sizeBytes;
+    if (totalLength == null || totalLength <= 0) {
+      return;
+    }
+
+    final warmupKey = 'stream_prepare|${server.id}|${node.path}';
+    if (_cacheWarmupKeys.contains(warmupKey)) return;
+    _cacheWarmupKeys.add(warmupKey);
+    try {
+      await remoteMediaLogService.log(
+        'stream',
+        'prepare initial remote stream chunks for playback',
+        data: {
+          'trigger': trigger,
+          'server': server.name,
+          'protocol': server.protocol.name,
+          'path': node.path,
+          'sizeBytes': totalLength,
+        },
+      );
+
+      final ranges = <RemoteByteRange>[
+        RemoteByteRange(
+          start: 0,
+          endInclusive: min(totalLength - 1, _streamChunkSizeBytes - 1),
+          totalLength: totalLength,
+        ),
+      ];
+
+      if (totalLength > _streamChunkSizeBytes) {
+        final tailStart = max(0, totalLength - _streamChunkSizeBytes);
+        ranges.add(
+          RemoteByteRange(
+            start: tailStart,
+            endInclusive: totalLength - 1,
+            totalLength: totalLength,
+          ),
+        );
+      }
+
+      Future<List<int>> Function(RemoteByteRange range)? fetchChunk;
+      switch (server.protocol) {
+        case RemoteProtocol.webdav:
+          fetchChunk = null;
+        case RemoteProtocol.ftp:
+          fetchChunk = (range) => _fetchFtpChunk(server: server, path: node.path, range: range);
+        case RemoteProtocol.sftp:
+          fetchChunk = (range) => _fetchSftpChunk(server: server, path: node.path, range: range);
+        case RemoteProtocol.smb:
+          fetchChunk = (range) => _fetchSmbChunk(server: server, path: node.path, range: range);
+      }
+      if (fetchChunk == null) return;
+
+      for (final range in ranges) {
+        await _getOrCreateStreamChunkFile(
+          server: server,
+          node: node,
+          range: range,
+          fetchChunk: fetchChunk,
+        );
+      }
+
+      await remoteMediaLogService.log(
+        'stream',
+        'prepared initial remote stream chunks for playback',
+        data: {
+          'trigger': trigger,
+          'server': server.name,
+          'protocol': server.protocol.name,
+          'path': node.path,
+          'preparedRanges': ranges.map((range) => '${range.start}-${range.endInclusive}').toList(),
+        },
+      );
+    } finally {
+      _cacheWarmupKeys.remove(warmupKey);
+    }
   }
 
   Future<void> _refreshEntryMetadataFromLocalFile(AvesEntry entry, String fileUri) async {
@@ -1725,13 +1818,7 @@ class RemoteMediaService {
       }
     }
 
-    final requestedRange = _resolveByteRange(request.rangeHeader, totalLength);
-    final range = _capStreamingRangeWindowIfNeeded(
-      request: request,
-      server: server,
-      node: node,
-      range: requestedRange,
-    );
+    final range = _resolveByteRange(request.rangeHeader, totalLength);
     if (request.method == 'HEAD') {
       final isPartial = request.rangeHeader != null && request.rangeHeader!.isNotEmpty;
       return RemoteProxyResponse(
@@ -1745,19 +1832,16 @@ class RemoteMediaService {
       );
     }
 
-    final chunkFiles = await _ensureStreamChunkFiles(
-      server: server,
-      node: node,
-      requestedRange: range,
-      totalLength: totalLength,
-      fetchChunk: fetchChunk,
-    );
-    unawaited(_tryMergeCompleteChunkCache(server: server, node: node, totalLength: totalLength));
-
     final isPartial = request.rangeHeader != null && request.rangeHeader!.isNotEmpty;
     return RemoteProxyResponse(
       statusCode: isPartial ? HttpStatus.partialContent : HttpStatus.ok,
-      stream: _openChunkedRangeStream(chunkFiles: chunkFiles, requestedRange: range),
+      stream: _openLazyChunkedRangeStream(
+        server: server,
+        node: node,
+        requestedRange: range,
+        totalLength: totalLength,
+        fetchChunk: fetchChunk,
+      ),
       contentType: inferMimeType(node),
       contentLength: range.contentLength,
       totalLength: totalLength,
@@ -1766,85 +1850,33 @@ class RemoteMediaService {
     );
   }
 
-  RemoteByteRange _capStreamingRangeWindowIfNeeded({
-    required RemoteProxyRequest request,
-    required RemoteServer server,
-    required RemoteBrowseNode node,
-    required RemoteByteRange range,
-  }) {
-    final header = request.rangeHeader;
-    if (request.method == 'HEAD' || header == null || header.isEmpty || !header.startsWith('bytes=')) {
-      return range;
-    }
-
-    final spec = header.substring('bytes='.length).split(',').first.trim();
-    if (spec.isEmpty) return range;
-    final parts = spec.split('-');
-    final rawStart = parts.isNotEmpty ? parts[0].trim() : '';
-    final rawEnd = parts.length > 1 ? parts[1].trim() : '';
-    if (rawStart.isEmpty || rawEnd.isNotEmpty) {
-      return range;
-    }
-
-    final cappedEndInclusive = min(range.totalLength - 1, range.start + _streamChunkSizeBytes - 1);
-    if (cappedEndInclusive >= range.endInclusive) {
-      return range;
-    }
-
-    unawaited(
-      remoteMediaLogService.log(
-        'stream',
-        'cap open-ended remote stream request to initial window',
-        data: {
-          'server': server.name,
-          'protocol': server.protocol.name,
-          'path': node.path,
-          'requestedStart': range.start,
-          'requestedEnd': range.endInclusive,
-          'servedEnd': cappedEndInclusive,
-          'sizeBytes': range.totalLength,
-        },
-      ),
-    );
-    return RemoteByteRange(
-      start: range.start,
-      endInclusive: cappedEndInclusive,
-      totalLength: range.totalLength,
-    );
-  }
-
-  Future<List<_ChunkFileSegment>> _ensureStreamChunkFiles({
+  Stream<List<int>> _openLazyChunkedRangeStream({
     required RemoteServer server,
     required RemoteBrowseNode node,
     required RemoteByteRange requestedRange,
     required int totalLength,
     required Future<List<int>> Function(RemoteByteRange range) fetchChunk,
-  }) async {
+  }) async* {
     final firstChunk = requestedRange.start ~/ _streamChunkSizeBytes;
     final lastChunk = requestedRange.endInclusive ~/ _streamChunkSizeBytes;
-    final result = <_ChunkFileSegment>[];
     for (var chunkIndex = firstChunk; chunkIndex <= lastChunk; chunkIndex++) {
       final chunkStart = chunkIndex * _streamChunkSizeBytes;
       final chunkEnd = min(totalLength - 1, chunkStart + _streamChunkSizeBytes - 1);
       final chunkRange = RemoteByteRange(start: chunkStart, endInclusive: chunkEnd, totalLength: totalLength);
-      final chunkFile = await _getOrCreateStreamChunkFile(server: server, node: node, range: chunkRange, fetchChunk: fetchChunk);
-      result.add(_ChunkFileSegment(file: chunkFile, range: chunkRange));
-    }
-    return result;
-  }
-
-  Stream<List<int>> _openChunkedRangeStream({
-    required List<_ChunkFileSegment> chunkFiles,
-    required RemoteByteRange requestedRange,
-  }) async* {
-    for (final segment in chunkFiles) {
-      final readStart = max(requestedRange.start, segment.range.start);
-      final readEndInclusive = min(requestedRange.endInclusive, segment.range.endInclusive);
+      final chunkFile = await _getOrCreateStreamChunkFile(
+        server: server,
+        node: node,
+        range: chunkRange,
+        fetchChunk: fetchChunk,
+      );
+      final readStart = max(requestedRange.start, chunkRange.start);
+      final readEndInclusive = min(requestedRange.endInclusive, chunkRange.endInclusive);
       if (readEndInclusive < readStart) continue;
-      final localStart = readStart - segment.range.start;
-      final localEndExclusive = readEndInclusive - segment.range.start + 1;
-      yield* segment.file.openRead(localStart, localEndExclusive);
+      final localStart = readStart - chunkRange.start;
+      final localEndExclusive = readEndInclusive - chunkRange.start + 1;
+      yield* chunkFile.openRead(localStart, localEndExclusive);
     }
+    unawaited(_tryMergeCompleteChunkCache(server: server, node: node, totalLength: totalLength));
   }
 
   Future<File> _getOrCreateStreamChunkFile({
@@ -2684,7 +2716,7 @@ class RemoteMediaService {
 
   Future<Directory> _getStreamChunkDirectory(RemoteServer server, RemoteBrowseNode node) async {
     final cacheDir = await getConnectionCacheDirectory(server.id);
-    final chunkKey = _stableCacheKey('${server.id}|${node.path}|chunks');
+    final chunkKey = _stableCacheKey('${server.id}|${node.path}|chunks_v$_streamChunkCacheVersion');
     final dir = Directory('${cacheDir.path}${Platform.pathSeparator}.chunks_$chunkKey');
     if (!await dir.exists()) {
       await dir.create(recursive: true);

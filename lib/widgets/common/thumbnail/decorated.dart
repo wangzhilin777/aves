@@ -309,6 +309,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       if (!mounted || token != _playToken || !isCurrent) return;
       await conductor.pauseOthers(controller);
       await remoteMediaService.ensureEntryMetadata(entry, trigger: 'grid_preview');
+      await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview');
       unawaited(remoteMediaService.warmupVideoCacheForEntry(entry, trigger: 'grid_preview'));
       await controller.mute(_shouldMute(settings));
       await controller.play();
