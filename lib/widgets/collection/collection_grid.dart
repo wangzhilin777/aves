@@ -488,8 +488,43 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       probesX: probesX,
       fallbackAnchor: lastVisibleCandidate ?? anchor,
     );
+    target ??= _resolveInitialTopFocusTarget(
+      currentOffset: currentOffset,
+      minScrollExtent: minScrollExtent,
+      fallbackAnchor: lastVisibleCandidate ?? anchor,
+    );
     unawaited(_prefetchRemoteWindow(anchor));
     _scheduleFocusUpdate(target);
+  }
+
+  AvesEntry? _resolveInitialTopFocusTarget({
+    required double currentOffset,
+    required double minScrollExtent,
+    required AvesEntry? fallbackAnchor,
+  }) {
+    if (widget.previewPlayingEntryNotifier.value != null) return null;
+    final nearTop = currentOffset <= minScrollExtent + 24;
+    if (!nearTop) return null;
+
+    final entries = collection.sortedEntries;
+    if (entries.isEmpty) return null;
+
+    final anchor = fallbackAnchor ?? entries.firstOrNull;
+    if (anchor == null) return null;
+    final target = _findClosestVideoEntry(anchor, searchBackward: false);
+    if (target != null) {
+      unawaited(
+        remoteMediaLogService.log(
+          'focus',
+          'resolved initial collection preview focus near top',
+          data: {
+            'anchorUri': anchor.uri,
+            'targetUri': target.uri,
+          },
+        ),
+      );
+    }
+    return target;
   }
 
   AvesEntry? _resolveEdgeFocusTarget({
