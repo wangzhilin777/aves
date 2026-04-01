@@ -144,6 +144,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   String? _lastDecisionKey;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
+  final Map<String, int> _lastAutoPlayErrorAtMillisByUri = {};
 
   @override
   void initState() {
@@ -270,6 +271,12 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         ),
       );
 
+      final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
+      final nowAfterControllerReady = DateTime.now().millisecondsSinceEpoch;
+      if (errorCooldownStartedAt != null && nowAfterControllerReady - errorCooldownStartedAt < 4000) {
+        return;
+      }
+
       try {
         await controller.untilReady.timeout(const Duration(milliseconds: 1000));
         unawaited(
@@ -316,6 +323,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       if (mounted && token == _playToken && isCurrent && !controller.isPlaying && controller.status != VideoStatus.error) {
         await controller.play();
       } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error) {
+        _lastAutoPlayErrorAtMillisByUri[entry.uri] = DateTime.now().millisecondsSinceEpoch;
         unawaited(
           remoteMediaLogService.log(
             'autoplay',
