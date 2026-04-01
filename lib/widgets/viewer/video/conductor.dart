@@ -46,6 +46,13 @@ class VideoConductor {
   }
 
   Future<AvesVideoController> getOrCreateController(AvesEntry entry, {int? maxControllerCount}) async {
+    if (entry.isVideo && (entry.uri.startsWith('http://') || entry.uri.startsWith('https://'))) {
+      final resolvedUri = await remoteMediaService.resolveStreamUriForPlayback(entry.uri);
+      if (resolvedUri != entry.uri) {
+        entry.uri = resolvedUri;
+      }
+    }
+
     var controller = getController(entry);
     if (controller != null) {
       _controllers.remove(controller);

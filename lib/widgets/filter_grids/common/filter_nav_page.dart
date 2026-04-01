@@ -365,9 +365,6 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
     required Uri uri,
     required String mimeType,
   }) {
-    const defaultVideoWidth = 1280;
-    const defaultVideoHeight = 720;
-    final isVideo = mimeType.startsWith('video/');
     final remotePath = node.path.replaceAll('/', Platform.pathSeparator);
     final path = '${Platform.pathSeparator}remote${Platform.pathSeparator}$serverId$remotePath';
     final entryId = _stableRemoteVirtualEntryId(serverId: serverId, nodePath: node.path, uri: uri.toString());
@@ -379,8 +376,8 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
       contentId: entryId,
       pageId: null,
       sourceMimeType: MimeTypes.normalize(mimeType),
-      width: isVideo ? defaultVideoWidth : 1,
-      height: isVideo ? defaultVideoHeight : 1,
+      width: 1,
+      height: 1,
       sourceRotationDegrees: 0,
       sizeBytes: node.sizeBytes,
       sourceTitle: title,

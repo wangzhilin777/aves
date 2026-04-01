@@ -91,6 +91,7 @@ class RemoteMediaResolveResult {
 class RemoteMediaService {
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
   final Set<String> _downloadInProgressUris = {};
+  final Map<String, (String uri, int expiresAtMillis)> _playbackUriCache = {};
 
   void registerVirtualRemoteRef({
     required String uri,
@@ -101,6 +102,66 @@ class RemoteMediaService {
   }
 
   bool hasVirtualRemoteRef(String uri) => _virtualRemoteRefs.containsKey(uri);
+
+  Future<String> resolveStreamUriForPlayback(String rawUri) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cached = _playbackUriCache[rawUri];
+    if (cached != null && cached.$2 > now) {
+      return cached.$1;
+    }
+
+    final uri = Uri.tryParse(rawUri);
+    if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
+      return rawUri;
+    }
+
+    final targetUri = uri.userInfo.isNotEmpty ? uri.replace(userInfo: '') : uri;
+    final headers = <String, String>{
+      'Range': 'bytes=0-1',
+    };
+    if (uri.userInfo.isNotEmpty) {
+      final token = base64Encode(utf8.encode(uri.userInfo));
+      headers['Authorization'] = 'Basic $token';
+    }
+
+    final client = http.Client();
+    try {
+      final req = http.Request('GET', targetUri)..headers.addAll(headers);
+      final resp = await client.send(req).timeout(const Duration(seconds: 8));
+      await resp.stream.drain<void>();
+      final finalUri = resp.request?.url.toString() ?? rawUri;
+      if (resp.statusCode >= 200 && resp.statusCode < 400) {
+        _playbackUriCache[rawUri] = (finalUri, now + const Duration(minutes: 10).inMilliseconds);
+        final ref = _virtualRemoteRefs[rawUri];
+        if (ref != null) {
+          _virtualRemoteRefs[finalUri] = ref;
+        }
+        await remoteMediaLogService.log(
+          'autoplay',
+          'resolved remote stream uri for playback',
+          data: {
+            'from': rawUri,
+            'to': finalUri,
+            'status': resp.statusCode,
+          },
+        );
+        return finalUri;
+      }
+    } catch (error) {
+      await remoteMediaLogService.log(
+        'autoplay',
+        'failed to resolve remote playback uri, using original',
+        data: {
+          'uri': rawUri,
+          'error': '$error',
+        },
+      );
+    } finally {
+      client.close();
+    }
+
+    return rawUri;
+  }
 
   Future<File?> ensureDownloadedForEntry(
     AvesEntry entry, {
@@ -519,6 +580,7 @@ class RemoteMediaService {
     <d:displayname/>
     <d:resourcetype/>
     <d:getcontenttype/>
+    <d:getcontentlength/>
   </d:prop>
 </d:propfind>''';
       final response = await client.send(
@@ -556,8 +618,11 @@ class RemoteMediaService {
         final displayName = node.findElements('displayname', namespace: 'DAV:').firstOrNull?.innerText.trim();
         final resourceType = node.findAllElements('collection', namespace: 'DAV:').isNotEmpty;
         final contentType = node.findElements('getcontenttype', namespace: 'DAV:').firstOrNull?.innerText.toLowerCase() ?? '';
+        final contentLengthText = node.findElements('getcontentlength', namespace: 'DAV:').firstOrNull?.innerText.trim();
+        final contentLength = int.tryParse(contentLengthText ?? '');
 
-        final name = displayName != null && displayName.isNotEmpty ? displayName : decodedPath.split('/').where((v) => v.isNotEmpty).lastOrNull ?? decodedPath;
+        final hrefName = decodedPath.split('/').where((v) => v.isNotEmpty).lastOrNull ?? decodedPath;
+        final name = resourceType ? (displayName != null && displayName.isNotEmpty ? displayName : hrefName) : hrefName;
         final isDirectory = resourceType;
         final lowerName = name.toLowerCase();
         final isVideo = !isDirectory && (contentType.startsWith('video/') || _videoExt.any(lowerName.endsWith));
@@ -570,6 +635,7 @@ class RemoteMediaService {
             isDirectory: isDirectory,
             isVideo: isVideo,
             isImage: isImage,
+            sizeBytes: isDirectory ? null : contentLength,
           ),
         );
       }

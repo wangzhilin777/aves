@@ -15,7 +15,7 @@ import 'package:path/path.dart' as p;
 class MpvVideoController extends AvesVideoController {
   late Player _mkPlayer;
   late VideoStatus _status;
-  bool _firstFrameRendered = false, _abRepeatSeeking = false;
+  bool _abRepeatSeeking = false;
   final ValueNotifier<VideoController?> _mkControllerNotifier = ValueNotifier(null);
   final List<StreamSubscription> _subscriptions = [];
   final StreamController<VideoStatus> _statusStreamController = StreamController.broadcast();
@@ -206,7 +206,6 @@ class MpvVideoController extends AvesVideoController {
   }
 
   void _initController() {
-    _firstFrameRendered = false;
     final hardwareAcceleration = settings.videoHardwareAcceleration;
     String hwdec;
     switch (settings.videoHardwareAcceleration) {
@@ -227,7 +226,6 @@ class MpvVideoController extends AvesVideoController {
             ),
           )
           ..waitUntilFirstFrameRendered.then((v) {
-            _firstFrameRendered = true;
             _statusStreamController.add(_status);
           });
     _mkControllerNotifier.value = newController;
@@ -299,7 +297,7 @@ class MpvVideoController extends AvesVideoController {
       case .paused:
       case .playing:
       case .completed:
-        return _firstFrameRendered;
+        return true;
     }
   }
 
