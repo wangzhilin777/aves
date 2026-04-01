@@ -135,6 +135,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   Future<void> _initVideoController(AvesEntry entry) async {
+    await remoteMediaService.ensureEntryMetadata(entry, trigger: 'viewer_init');
     final controller = await context.read<VideoConductor>().getOrCreateController(entry);
     setState(() {});
     unawaited(
@@ -325,6 +326,12 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
     await context.read<VideoConductor>().pauseOthers(videoController);
 
+    final controllerEntry = videoController.entry;
+    if (controllerEntry is AvesEntry) {
+      await remoteMediaService.ensureEntryMetadata(controllerEntry, trigger: 'viewer_autoplay');
+      unawaited(remoteMediaService.warmupVideoCacheForEntry(controllerEntry, trigger: 'viewer_autoplay'));
+    }
+
     if (!videoController.isMuted && (videoController.entry.isAnimated || shouldAutoPlayVideoMuted)) {
       await videoController.mute(true);
     }
@@ -349,6 +356,9 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       await videoController.seekTo(resumeTimeMillis);
     }
     await videoController.play();
+    if (controllerEntry is AvesEntry) {
+      await remoteMediaService.ensureEntryMetadata(controllerEntry, trigger: 'viewer_playback_started');
+    }
     unawaited(
       remoteMediaLogService.log(
         'autoplay',

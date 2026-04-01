@@ -93,6 +93,7 @@ class RemoteMediaResolveResult {
 class RemoteMediaService {
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
   final Set<String> _downloadInProgressUris = {};
+  final Set<String> _cacheWarmupKeys = {};
   final Map<String, (String uri, int expiresAtMillis)> _playbackUriCache = {};
   final Set<String> _proxyLoggedUris = {};
 
@@ -237,6 +238,7 @@ class RemoteMediaService {
       entry.uri = fileUri;
       entry.path = file.path;
       entry.sizeBytes = await file.length();
+      _virtualRemoteRefs[fileUri] = ref;
       await _refreshEntryMetadataFromLocalFile(entry, fileUri);
       entry.visualChangeNotifier.notify();
       await remoteMediaLogService.log(
@@ -252,6 +254,137 @@ class RemoteMediaService {
     } finally {
       _downloadInProgressUris.remove(sourceUri);
     }
+  }
+
+  Future<void> ensureEntryMetadata(
+    AvesEntry entry, {
+    String trigger = 'remote_metadata',
+  }) async {
+    var changed = false;
+
+    final localPath = entry.path;
+    if (localPath != null) {
+      final localFile = File(localPath);
+      if (await localFile.exists()) {
+        final fileLength = await localFile.length();
+        if (fileLength > 0 && entry.sizeBytes != fileLength) {
+          entry.sizeBytes = fileLength;
+          changed = true;
+        }
+        final stat = await localFile.stat();
+        final modifiedMillis = stat.modified.millisecondsSinceEpoch;
+        if (modifiedMillis > 0) {
+          if (entry.dateModifiedMillis != modifiedMillis) {
+            entry.dateModifiedMillis = modifiedMillis;
+            changed = true;
+          }
+          if (entry.sourceDateTakenMillis == null) {
+            entry.sourceDateTakenMillis = modifiedMillis;
+            changed = true;
+          }
+        }
+      }
+    }
+
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref != null) {
+      final server = ref.$1;
+      final node = ref.$2;
+
+      if (entry.sizeBytes == null && node.sizeBytes != null) {
+        entry.sizeBytes = node.sizeBytes;
+        changed = true;
+      }
+      if (entry.dateModifiedMillis == null && node.modifiedMillis != null) {
+        entry.dateModifiedMillis = node.modifiedMillis;
+        changed = true;
+      }
+      if (entry.sourceDateTakenMillis == null && node.modifiedMillis != null) {
+        entry.sourceDateTakenMillis = node.modifiedMillis;
+        changed = true;
+      }
+      if ((entry.sourceTitle == null || entry.sourceTitle!.isEmpty) && node.name.isNotEmpty) {
+        entry.sourceTitle = node.name;
+        changed = true;
+      }
+
+      if (server.protocol == RemoteProtocol.webdav && (entry.sizeBytes == null || entry.dateModifiedMillis == null)) {
+        final metadata = await _fetchWebDavFileMetadata(server: server, node: node);
+        final sizeBytes = metadata['sizeBytes'] as int?;
+        final modifiedMillis = metadata['modifiedMillis'] as int?;
+        if (sizeBytes != null && sizeBytes > 0 && entry.sizeBytes != sizeBytes) {
+          entry.sizeBytes = sizeBytes;
+          changed = true;
+        }
+        if (modifiedMillis != null && modifiedMillis > 0) {
+          if (entry.dateModifiedMillis != modifiedMillis) {
+            entry.dateModifiedMillis = modifiedMillis;
+            changed = true;
+          }
+          if (entry.sourceDateTakenMillis == null) {
+            entry.sourceDateTakenMillis = modifiedMillis;
+            changed = true;
+          }
+        }
+      }
+    }
+
+    if (changed) {
+      entry.metadataChangeNotifier.notify();
+      await remoteMediaLogService.log(
+        'remote_load',
+        'refreshed remote entry metadata',
+        data: {
+          'trigger': trigger,
+          'uri': entry.uri,
+          'sizeBytes': entry.sizeBytes,
+          'dateModifiedMillis': entry.dateModifiedMillis,
+          'sourceDateTakenMillis': entry.sourceDateTakenMillis,
+          'durationMillis': entry.durationMillis,
+        },
+      );
+    }
+  }
+
+  Future<void> warmupVideoCacheForEntry(
+    AvesEntry entry, {
+    String trigger = 'stream_cache_warmup',
+  }) async {
+    if (!entry.isVideo) return;
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref == null) return;
+
+    final server = ref.$1;
+    final node = ref.$2;
+    final warmupKey = '${server.id}|${node.path}';
+    if (_cacheWarmupKeys.contains(warmupKey)) return;
+    final existing = await _getExistingCacheFile(server, node);
+    if (existing != null) {
+      await remoteMediaLogService.log(
+        'auto_download',
+        'skip warmup because video cache already exists',
+        data: {
+          'trigger': trigger,
+          'server': server.name,
+          'path': node.path,
+          'file': existing.path,
+        },
+      );
+      return;
+    }
+
+    _cacheWarmupKeys.add(warmupKey);
+    unawaited(
+      downloadMedia(server: server, node: node, trigger: trigger)
+          .then((file) async {
+            if (file != null) {
+              _virtualRemoteRefs[Uri.file(file.path).toString()] = ref;
+            }
+          })
+          .whenComplete(() {
+            _cacheWarmupKeys.remove(warmupKey);
+          }),
+    );
   }
 
   Future<void> _refreshEntryMetadataFromLocalFile(AvesEntry entry, String fileUri) async {
@@ -634,6 +767,41 @@ class RemoteMediaService {
       case RemoteProtocol.smb:
         return null;
     }
+  }
+
+  Future<Map<String, Object?>> _fetchWebDavFileMetadata({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+  }) async {
+    final base = server.webdavUrl;
+    if (base == null || base.isEmpty) return const {};
+    final targetUri = _buildWebDavUri(base, _resolveEffectivePath(server, node.path));
+    if (targetUri == null) return const {};
+
+    final client = http.Client();
+    try {
+      final headers = <String, String>{};
+      final username = server.username;
+      final password = server.password;
+      if (username != null && password != null) {
+        final token = base64Encode(utf8.encode('$username:$password'));
+        headers['Authorization'] = 'Basic $token';
+      }
+
+      final response = await client.send(http.Request('HEAD', targetUri)..headers.addAll(headers)).timeout(const Duration(seconds: 8));
+      await response.stream.drain<void>();
+      if (response.statusCode >= 200 && response.statusCode < 400) {
+        return {
+          'sizeBytes': int.tryParse(response.headers['content-length'] ?? ''),
+          'modifiedMillis': _parseHttpDateMillis(response.headers['last-modified']),
+        };
+      }
+    } catch (_) {
+      // ignore and fall back to list metadata
+    } finally {
+      client.close();
+    }
+    return const {};
   }
 
   String inferMimeType(RemoteBrowseNode node) {
@@ -1319,11 +1487,24 @@ class RemoteMediaService {
     return trimmed.replaceAll(RegExp(r'[\\\\/:*?\"<>|]'), '_');
   }
 
-  Future<File?> _getExistingCacheFile(RemoteServer server, RemoteBrowseNode node) async {
+  int _stableCacheKey(String value) {
+    final data = utf8.encode(value);
+    var hash = 0x811C9DC5;
+    for (final b in data) {
+      hash ^= b;
+      hash = (hash * 0x01000193) & 0x7fffffff;
+    }
+    return hash;
+  }
+
+  Future<File> _buildCacheFile(RemoteServer server, RemoteBrowseNode node) async {
     final cacheDir = await getConnectionCacheDirectory(server.id);
-    final cacheFile = File(
-      '${cacheDir.path}${Platform.pathSeparator}${_safeFileName(node.name)}_${node.path.hashCode.abs()}',
-    );
+    final cacheKey = _stableCacheKey('${server.id}|${node.path}|${node.name}');
+    return File('${cacheDir.path}${Platform.pathSeparator}${_safeFileName(node.name)}_$cacheKey');
+  }
+
+  Future<File?> _getExistingCacheFile(RemoteServer server, RemoteBrowseNode node) async {
+    final cacheFile = await _buildCacheFile(server, node);
     if (await cacheFile.exists() && await cacheFile.length() > 0) {
       return cacheFile;
     }
@@ -1333,10 +1514,7 @@ class RemoteMediaService {
   Future<File?> getExistingCacheFile(RemoteServer server, RemoteBrowseNode node) => _getExistingCacheFile(server, node);
 
   Future<File> _getOrCreateCacheFile(RemoteServer server, RemoteBrowseNode node) async {
-    final cacheFile = await _getExistingCacheFile(server, node) ??
-        File(
-          '${(await getConnectionCacheDirectory(server.id)).path}${Platform.pathSeparator}${_safeFileName(node.name)}_${node.path.hashCode.abs()}',
-        );
+    final cacheFile = await _getExistingCacheFile(server, node) ?? await _buildCacheFile(server, node);
     if (await cacheFile.exists() && await cacheFile.length() > 0) {
       await remoteMediaLogService.log('auto_download', 'cache hit', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
       return cacheFile;

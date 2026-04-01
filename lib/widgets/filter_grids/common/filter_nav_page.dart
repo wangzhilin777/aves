@@ -226,6 +226,7 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
     final entries = <AvesEntry>[];
     final directoryNodes = <RemoteBrowseNode>[];
     try {
+      await remoteStreamProxyService.ensureStarted();
       await remoteMediaLogService.log(
         'remote_load',
         'start injecting remote folder into native collection page',
@@ -241,19 +242,18 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
       for (final node in mediaNodes) {
         final cachedFile = await remoteMediaService.getExistingCacheFile(server, node);
         final uri = cachedFile != null ? Uri.file(cachedFile.path) : (remoteMediaService.buildStreamUri(server: server, node: node) ?? _buildDeferredRemoteUri(server.id, node.path));
-        if (cachedFile == null) {
-          remoteMediaService.registerVirtualRemoteRef(
-            uri: uri.toString(),
-            server: server,
-            node: node,
-          );
-        }
+        remoteMediaService.registerVirtualRemoteRef(
+          uri: uri.toString(),
+          server: server,
+          node: node,
+        );
         final mimeType = remoteMediaService.inferMimeType(node);
         final entry = _buildVirtualRemoteEntry(
           serverId: server.id,
           node: node,
           uri: uri,
           mimeType: mimeType,
+          actualPath: cachedFile?.path,
         );
         entries.add(entry);
         await remoteMediaLogService.log(
@@ -368,9 +368,10 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
     required RemoteBrowseNode node,
     required Uri uri,
     required String mimeType,
+    String? actualPath,
   }) {
     final remotePath = node.path.replaceAll('/', Platform.pathSeparator);
-    final path = '${Platform.pathSeparator}remote${Platform.pathSeparator}$serverId$remotePath';
+    final path = actualPath ?? '${Platform.pathSeparator}remote${Platform.pathSeparator}$serverId$remotePath';
     final entryId = _stableRemoteVirtualEntryId(serverId: serverId, nodePath: node.path, uri: uri.toString());
     final title = node.name.isNotEmpty ? node.name : node.path.split('/').where((v) => v.isNotEmpty).lastOrNull;
     return AvesEntry(

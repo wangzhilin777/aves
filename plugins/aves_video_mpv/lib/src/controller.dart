@@ -149,6 +149,12 @@ class MpvVideoController extends AvesVideoController {
             }
           }
         }
+        if (v.inMilliseconds > 0) {
+          final mediaEntry = entry;
+          if (mediaEntry is AvesEntry && (mediaEntry.durationMillis == null || mediaEntry.durationMillis == 0)) {
+            unawaited(_syncEntryPlaybackMetadata());
+          }
+        }
       }),
     );
     _subscriptions.add(playerStream.subtitle.listen((v) => _timedTextStreamController.add(v.isEmpty ? null : v[0])));

@@ -56,6 +56,7 @@ class CollectionPage extends StatefulWidget {
 
 class _CollectionPageState extends State<CollectionPage> {
   final Set<StreamSubscription> _subscriptions = {};
+  final Map<AvesEntry, VoidCallback> _fixedSelectionVisualListeners = {};
   late CollectionLens _collection;
   final StreamController<DraggableScrollbarEvent> _draggableScrollBarEventStreamController = StreamController.broadcast();
 
@@ -76,16 +77,45 @@ class _CollectionPageState extends State<CollectionPage> {
         }
       }),
     );
+    _attachFixedSelectionVisualListeners(widget.fixedSelection);
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkInitHighlight());
   }
 
   @override
+  void didUpdateWidget(covariant CollectionPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!const ListEquality<AvesEntry>().equals(oldWidget.fixedSelection, widget.fixedSelection)) {
+      _detachFixedSelectionVisualListeners(oldWidget.fixedSelection);
+      _attachFixedSelectionVisualListeners(widget.fixedSelection);
+    }
+  }
+
+  @override
   void dispose() {
+    _detachFixedSelectionVisualListeners(widget.fixedSelection);
     _subscriptions
       ..forEach((sub) => sub.cancel())
       ..clear();
     _collection.dispose();
     super.dispose();
+  }
+
+  void _attachFixedSelectionVisualListeners(List<AvesEntry>? entries) {
+    for (final entry in entries ?? const <AvesEntry>[]) {
+      if (_fixedSelectionVisualListeners.containsKey(entry)) continue;
+      void listener() => widget.source.onAspectRatioChanged();
+      _fixedSelectionVisualListeners[entry] = listener;
+      entry.visualChangeNotifier.addListener(listener);
+    }
+  }
+
+  void _detachFixedSelectionVisualListeners(List<AvesEntry>? entries) {
+    for (final entry in entries ?? const <AvesEntry>[]) {
+      final listener = _fixedSelectionVisualListeners.remove(entry);
+      if (listener != null) {
+        entry.visualChangeNotifier.removeListener(listener);
+      }
+    }
   }
 
   @override
