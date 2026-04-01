@@ -137,6 +137,7 @@ class RemoteMediaService {
   final Set<String> _cacheWarmupKeys = {};
   final Map<String, (String uri, int expiresAtMillis)> _playbackUriCache = {};
   final Set<String> _proxyLoggedUris = {};
+  final Map<String, Future<File>> _streamChunkInFlight = {};
 
   RemoteMediaService() {
     remoteStreamProxyService.remoteRequestHandler = _handleProxyRequest;
@@ -1179,7 +1180,7 @@ class RemoteMediaService {
           isVideo: !isDirectory && _videoExt.any(lower.endsWith),
           isImage: !isDirectory && _imageExt.any(lower.endsWith),
           sizeBytes: isDirectory ? null : v.size,
-          modifiedMillis: null,
+          modifiedMillis: _dateTimeToMillis(v.modifyTime),
         );
       }).toList()..sort(_compareNodes);
       return out;
@@ -1231,9 +1232,20 @@ class RemoteMediaService {
           isVideo: !isDirectory && _videoExt.any(lower.endsWith),
           isImage: !isDirectory && _imageExt.any(lower.endsWith),
           sizeBytes: isDirectory ? null : v.attr.size,
-          modifiedMillis: null,
+          modifiedMillis: _secondsToMillis(v.attr.modifyTime),
         );
       }).toList()..sort(_compareNodes);
+      await remoteMediaLogService.log(
+        'remote_load',
+        'loaded sftp folder metadata',
+        data: {
+          'server': server.name,
+          'path': path,
+          'children': out.length,
+          'mediaCount': out.where((v) => !v.isDirectory && (v.isImage || v.isVideo)).length,
+          'missingModifiedCount': out.where((v) => v.modifiedMillis == null).length,
+        },
+      );
       return out;
     } catch (error, stack) {
       await remoteMediaLogService.log('remote_load', 'sftp list exception', data: {'server': server.name, 'path': path, 'error': '$error'});
@@ -1276,7 +1288,7 @@ class RemoteMediaService {
           isVideo: !isDirectory && _videoExt.any(lower.endsWith),
           isImage: !isDirectory && _imageExt.any(lower.endsWith),
           sizeBytes: isDirectory ? null : v.size,
-          modifiedMillis: null,
+          modifiedMillis: _normalizeSmbMillis(v.lastModified),
         );
       }).toList()..sort(_compareNodes);
       return out;
@@ -1452,6 +1464,18 @@ class RemoteMediaService {
     }
 
     final totalLength = node.sizeBytes ?? await _fetchSftpFileSize(server: server, path: node.path);
+    await remoteMediaLogService.log(
+      'stream',
+      'proxying remote stream through chunked backend',
+      data: {
+        'server': server.name,
+        'protocol': server.protocol.name,
+        'path': node.path,
+        'method': request.method,
+        'range': request.rangeHeader,
+        'sizeBytes': totalLength,
+      },
+    );
     return _proxyChunkedRemote(
       server: server,
       node: node,
@@ -1485,6 +1509,18 @@ class RemoteMediaService {
       return _proxyCachedFile(server: server, node: node, request: request, reason: 'ftp_unknown_size_fallback');
     }
 
+    await remoteMediaLogService.log(
+      'stream',
+      'proxying remote stream through chunked backend',
+      data: {
+        'server': server.name,
+        'protocol': server.protocol.name,
+        'path': node.path,
+        'method': request.method,
+        'range': request.rangeHeader,
+        'sizeBytes': totalLength,
+      },
+    );
     return _proxyChunkedRemote(
       server: server,
       node: node,
@@ -1506,6 +1542,18 @@ class RemoteMediaService {
     }
 
     final totalLength = node.sizeBytes ?? await _fetchSmbFileSize(server: server, path: node.path);
+    await remoteMediaLogService.log(
+      'stream',
+      'proxying remote stream through chunked backend',
+      data: {
+        'server': server.name,
+        'protocol': server.protocol.name,
+        'path': node.path,
+        'method': request.method,
+        'range': request.rangeHeader,
+        'sizeBytes': totalLength,
+      },
+    );
     return _proxyChunkedRemote(
       server: server,
       node: node,
@@ -1698,42 +1746,71 @@ class RemoteMediaService {
     required Future<List<int>> Function(RemoteByteRange range) fetchChunk,
   }) async {
     final file = await _buildStreamChunkFile(server: server, node: node, range: range);
-    if (await file.exists()) {
-      final length = await file.length();
-      if (length == range.contentLength) {
-        await remoteMediaLogService.log(
-          'cache',
-          'stream chunk cache hit',
-          data: {
-            'server': server.name,
-            'path': node.path,
-            'start': range.start,
-            'end': range.endInclusive,
-            'file': file.path,
-          },
-        );
-        return file;
+    Future<File> createOrFetch() async {
+      if (await file.exists()) {
+        final length = await file.length();
+        if (length == range.contentLength) {
+          await remoteMediaLogService.log(
+            'cache',
+            'stream chunk cache hit',
+            data: {
+              'server': server.name,
+              'path': node.path,
+              'start': range.start,
+              'end': range.endInclusive,
+              'file': file.path,
+            },
+          );
+          return file;
+        }
+        await file.delete();
       }
-      await file.delete();
+
+      final bytes = await fetchChunk(range);
+      await file.create(recursive: true);
+      await file.writeAsBytes(bytes, flush: true);
+      await remoteMediaLogService.log(
+        'cache',
+        'stored remote stream chunk',
+        data: {
+          'server': server.name,
+          'path': node.path,
+          'start': range.start,
+          'end': range.endInclusive,
+          'bytes': bytes.length,
+          'file': file.path,
+        },
+      );
+      await _enforceCacheLimit(server.id, trigger: 'stream_chunk');
+      return file;
     }
 
-    final bytes = await fetchChunk(range);
-    await file.create(recursive: true);
-    await file.writeAsBytes(bytes, flush: true);
-    await remoteMediaLogService.log(
-      'cache',
-      'stored remote stream chunk',
-      data: {
-        'server': server.name,
-        'path': node.path,
-        'start': range.start,
-        'end': range.endInclusive,
-        'bytes': bytes.length,
-        'file': file.path,
-      },
-    );
-    await _enforceCacheLimit(server.id, trigger: 'stream_chunk');
-    return file;
+    final chunkKey = file.path;
+    final inFlight = _streamChunkInFlight[chunkKey];
+    if (inFlight != null) {
+      await remoteMediaLogService.log(
+        'cache',
+        'join in-flight remote stream chunk',
+        data: {
+          'server': server.name,
+          'path': node.path,
+          'start': range.start,
+          'end': range.endInclusive,
+          'file': file.path,
+        },
+      );
+      return inFlight;
+    }
+
+    final future = createOrFetch();
+    _streamChunkInFlight[chunkKey] = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_streamChunkInFlight[chunkKey], future)) {
+        final _ = _streamChunkInFlight.remove(chunkKey);
+      }
+    }
   }
 
   Future<int> _fetchSftpFileSize({
@@ -1830,6 +1907,16 @@ class RemoteMediaService {
 
     Socket? dataSocket;
     try {
+      await remoteMediaLogService.log(
+        'stream',
+        'requesting ftp stream chunk',
+        data: {
+          'server': server.name,
+          'path': path,
+          'start': range.start,
+          'end': range.endInclusive,
+        },
+      );
       await socket.connect(user, pass);
       await socket.setTransferType(TransferType.binary);
 
@@ -1891,6 +1978,17 @@ class RemoteMediaService {
       if (bytes.length != range.contentLength) {
         throw StateError('FTP chunk length mismatch expected=${range.contentLength} actual=${bytes.length}');
       }
+      await remoteMediaLogService.log(
+        'stream',
+        'received ftp stream chunk',
+        data: {
+          'server': server.name,
+          'path': path,
+          'start': range.start,
+          'end': range.endInclusive,
+          'bytes': bytes.length,
+        },
+      );
       return bytes;
     } finally {
       try {
@@ -1923,11 +2021,33 @@ class RemoteMediaService {
       onPasswordRequest: () => server.password,
     );
     try {
+      await remoteMediaLogService.log(
+        'stream',
+        'requesting sftp stream chunk',
+        data: {
+          'server': server.name,
+          'path': path,
+          'start': range.start,
+          'end': range.endInclusive,
+        },
+      );
       await client.authenticated.timeout(const Duration(seconds: 12));
       final sftp = await client.sftp();
       final file = await sftp.open(_resolveEffectivePath(server, path));
       try {
-        return await file.readBytes(length: range.contentLength, offset: range.start);
+        final bytes = await file.readBytes(length: range.contentLength, offset: range.start);
+        await remoteMediaLogService.log(
+          'stream',
+          'received sftp stream chunk',
+          data: {
+            'server': server.name,
+            'path': path,
+            'start': range.start,
+            'end': range.endInclusive,
+            'bytes': bytes.length,
+          },
+        );
+        return bytes;
       } finally {
         await file.close();
         sftp.close();
@@ -1973,17 +2093,45 @@ class RemoteMediaService {
       domain: server.smbDomain ?? '',
     );
     try {
+      await remoteMediaLogService.log(
+        'stream',
+        'requesting smb stream chunk',
+        data: {
+          'server': server.name,
+          'path': path,
+          'start': range.start,
+          'end': range.endInclusive,
+        },
+      );
       final file = await smb.file(_resolveEffectivePath(server, path));
       final stream = await smb.openRead(file, range.start, range.endInclusive + 1);
       final buffer = BytesBuilder(copy: false);
       await for (final chunk in stream) {
         buffer.add(chunk);
       }
-      return buffer.takeBytes();
+      final bytes = buffer.takeBytes();
+      await remoteMediaLogService.log(
+        'stream',
+        'received smb stream chunk',
+        data: {
+          'server': server.name,
+          'path': path,
+          'start': range.start,
+          'end': range.endInclusive,
+          'bytes': bytes.length,
+        },
+      );
+      return bytes;
     } finally {
       await smb.close();
     }
   }
+
+  int? _dateTimeToMillis(DateTime? value) => value?.millisecondsSinceEpoch;
+
+  int? _secondsToMillis(int? value) => value != null && value > 0 ? value * 1000 : null;
+
+  int? _normalizeSmbMillis(int? value) => value != null && value > 0 ? value : null;
 
   Future<File?> _downloadWebDavFile({
     required RemoteServer server,
