@@ -138,6 +138,11 @@ class SettingsTileViewerImageBackground extends SettingsTile {
 class SettingsTileViewerGridVideoAutoPlay extends SettingsTile {
   String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
 
+  void _syncGlobalAutoPlay(bool enabled) {
+    settings.gridVideoAutoPlay = enabled;
+    settings.videoAutoPlayMode = enabled ? (settings.gridVideoSoundOn ? VideoAutoPlayMode.playWithSound : VideoAutoPlayMode.playMuted) : VideoAutoPlayMode.disabled;
+  }
+
   @override
   String title(BuildContext context) => _tr(context, 'Auto-play videos in grid/mosaic preview', '网格/马赛克预览自动播放视频');
 
@@ -145,7 +150,7 @@ class SettingsTileViewerGridVideoAutoPlay extends SettingsTile {
   Widget build(BuildContext context) => SettingsSwitchListTile(
     selector: (context, s) => s.gridVideoAutoPlay,
     onChanged: (v) {
-      settings.gridVideoAutoPlay = v;
+      _syncGlobalAutoPlay(v);
       unawaited(
         remoteMediaLogService.log(
           'autoplay',
@@ -161,6 +166,13 @@ class SettingsTileViewerGridVideoAutoPlay extends SettingsTile {
 class SettingsTileViewerGridVideoSoundOn extends SettingsTile {
   String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
 
+  void _syncGlobalSound(bool enabled) {
+    settings.gridVideoSoundOn = enabled;
+    if (settings.gridVideoAutoPlay) {
+      settings.videoAutoPlayMode = enabled ? VideoAutoPlayMode.playWithSound : VideoAutoPlayMode.playMuted;
+    }
+  }
+
   @override
   String title(BuildContext context) => _tr(context, 'Play grid/mosaic preview videos with sound by default', '网格/马赛克预览视频默认有声播放');
 
@@ -168,7 +180,7 @@ class SettingsTileViewerGridVideoSoundOn extends SettingsTile {
   Widget build(BuildContext context) => SettingsSwitchListTile(
     selector: (context, s) => s.gridVideoSoundOn,
     onChanged: (v) {
-      settings.gridVideoSoundOn = v;
+      _syncGlobalSound(v);
       unawaited(
         remoteMediaLogService.log(
           'autoplay',

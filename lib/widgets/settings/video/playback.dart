@@ -1,4 +1,4 @@
-﻿import 'package:aves/model/device.dart';
+import 'package:aves/model/device.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/view/view.dart';
 import 'package:aves/widgets/common/basic/scaffold.dart';
@@ -11,6 +11,14 @@ class VideoPlaybackPage extends StatelessWidget {
   static const routeName = '/settings/video/playback';
 
   const VideoPlaybackPage({super.key});
+
+  void _syncPreviewAutoPlay(VideoAutoPlayMode value) {
+    settings.videoAutoPlayMode = value;
+    settings.gridVideoAutoPlay = value != VideoAutoPlayMode.disabled;
+    if (value != VideoAutoPlayMode.disabled) {
+      settings.gridVideoSoundOn = value == VideoAutoPlayMode.playWithSound;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +40,7 @@ class VideoPlaybackPage extends StatelessWidget {
               values: VideoAutoPlayMode.values,
               getName: (context, v) => v.getName(context),
               selector: (context, s) => s.videoAutoPlayMode,
-              onSelection: (v) => settings.videoAutoPlayMode = v,
+              onSelection: _syncPreviewAutoPlay,
               tileTitle: context.l10n.settingsVideoAutoPlay,
             ),
             SettingsSelectionListTile<VideoLoopMode>(

@@ -145,7 +145,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
   Future<void> _initVideoController(AvesEntry entry) async {
     await remoteMediaService.ensureEntryMetadata(entry, trigger: 'viewer_init');
-    await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init');
+    unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init'));
     final controller = await context.read<VideoConductor>().getOrCreateController(entry);
     setState(() {});
     unawaited(
@@ -424,6 +424,29 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
           data: {'uri': uri, 'seekMillis': resumeTimeMillis ?? 0},
         ),
       );
+    }
+    if (token == _autoPlayRequestToken && isCurrent() && videoController.status == VideoStatus.error && controllerEntry is AvesEntry) {
+      final fallbackFile = await remoteMediaService.ensureDownloadedForEntry(controllerEntry, trigger: 'viewer_error_fallback');
+      if (fallbackFile != null && token == _autoPlayRequestToken && isCurrent()) {
+        final fallbackController = await context.read<VideoConductor>().getOrCreateController(controllerEntry);
+        await context.read<VideoConductor>().pauseOthers(fallbackController);
+        await fallbackController.mute(shouldAutoPlayVideoMuted);
+        try {
+          await fallbackController.untilReady.timeout(const Duration(milliseconds: 1200));
+        } catch (_) {}
+        await fallbackController.play();
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'viewer autoplay switched to downloaded fallback after remote stream error',
+            data: {
+              'uri': controllerEntry.uri,
+              'file': fallbackFile.path,
+            },
+          ),
+        );
+        return;
+      }
     }
     if (token == _autoPlayRequestToken && isCurrent() && videoController.status == VideoStatus.error) {
       unawaited(

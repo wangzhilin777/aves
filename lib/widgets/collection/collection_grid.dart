@@ -358,6 +358,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       _onScrollOrLayoutChanged();
       Future.delayed(const Duration(milliseconds: 140), _onScrollOrLayoutChanged);
       Future.delayed(const Duration(milliseconds: 320), _onScrollOrLayoutChanged);
+      Future.delayed(const Duration(milliseconds: 680), _onScrollOrLayoutChanged);
+      Future.delayed(const Duration(milliseconds: 1100), _onScrollOrLayoutChanged);
     });
   }
 
