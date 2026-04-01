@@ -92,6 +92,11 @@ class RemoteMediaService {
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
   final Set<String> _downloadInProgressUris = {};
   final Map<String, (String uri, int expiresAtMillis)> _playbackUriCache = {};
+  final Set<String> _proxyLoggedUris = {};
+
+  RemoteMediaService() {
+    unawaited(remoteStreamProxyService.ensureStarted());
+  }
 
   void registerVirtualRemoteRef({
     required String uri,
@@ -570,6 +575,29 @@ class RemoteMediaService {
         final password = server.password;
         if (uri.userInfo.isEmpty && username != null && username.isNotEmpty && password != null) {
           uri = uri.replace(userInfo: '$username:$password');
+        }
+        if (node.isVideo) {
+          // Serve remote video through local loopback proxy to avoid player-side
+          // auth/URL compatibility issues on some WebDAV streams.
+          final proxyUri = remoteStreamProxyService.proxyUriFor(uri);
+          if (proxyUri != null) {
+            final key = uri.toString();
+            if (_proxyLoggedUris.add(key)) {
+              unawaited(
+                remoteMediaLogService.log(
+                  'remote_load',
+                  'using local proxy uri for remote video stream',
+                  data: {
+                    'path': node.path,
+                    'remoteUri': key,
+                    'proxyUri': proxyUri.toString(),
+                  },
+                ),
+              );
+            }
+            return proxyUri;
+          }
+          unawaited(remoteStreamProxyService.ensureStarted());
         }
         return uri;
       case RemoteProtocol.ftp:
