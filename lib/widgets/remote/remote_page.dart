@@ -236,6 +236,8 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
         title: Text(_leafName(folder.path)),
         subtitle: Text('${folder.path}\n${_tr(context, 'Cache', '缓存')}: $cacheText'),
         isThreeLine: true,
+        onTap: () => _onPinnedFolderAction(server, folder, 'open'),
+        onLongPress: () => _showPinnedFolderActionSheet(server, folder),
         trailing: PopupMenuButton<String>(
           onSelected: (action) => _onPinnedFolderAction(server, folder, action),
           itemBuilder: (context) => [
@@ -247,6 +249,42 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
         ),
       ),
     );
+  }
+
+  Future<void> _showPinnedFolderActionSheet(RemoteServer server, RemotePinnedFolder folder) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(AIcons.folder),
+              title: Text(_tr(context, 'Open folder', '打开目录')),
+              onTap: () => Navigator.maybeOf(sheetContext)?.pop('open'),
+            ),
+            ListTile(
+              leading: const Icon(AIcons.refresh),
+              title: Text(_tr(context, 'Refresh cache size', '刷新缓存大小')),
+              onTap: () => Navigator.maybeOf(sheetContext)?.pop('refresh_cache'),
+            ),
+            ListTile(
+              leading: const Icon(AIcons.clear),
+              title: Text(_tr(context, 'Clear folder cache', '清理目录缓存')),
+              onTap: () => Navigator.maybeOf(sheetContext)?.pop('clear_cache'),
+            ),
+            ListTile(
+              leading: const Icon(AIcons.unpin),
+              title: Text(_tr(context, 'Remove from albums', '从相册移除')),
+              subtitle: Text(_tr(context, 'Auto clear folder cache', '自动清理目录缓存')),
+              onTap: () => Navigator.maybeOf(sheetContext)?.pop('remove'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action == null) return;
+    await _onPinnedFolderAction(server, folder, action);
   }
 
   Future<void> _onPinnedFolderAction(RemoteServer server, RemotePinnedFolder folder, String action) async {
