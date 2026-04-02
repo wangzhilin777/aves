@@ -67,14 +67,15 @@ class _VideoViewState extends State<VideoView> {
         final status = snapshot.data ?? controller.status;
         final decodedSize = controller.decodedVideoSizeNotifier.value;
         final hasDecodedFrame = decodedSize != null && decodedSize.width > 1 && decodedSize.height > 1;
-        final canRenderDespiteError = controller.isPlaying || controller.isReady || hasDecodedFrame;
         final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
         final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
         final isChunkedRemoteProtocol =
             remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
+        final canRenderDespiteError =
+            controller.isPlaying || controller.isReady || (hasDecodedFrame && !isChunkedRemoteProtocol);
         final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
         final shouldKeepPlayerHiddenDuringChunkedInit =
-            isRemoteStream && isChunkedRemoteProtocol && !controller.isPlaying && !hasDecodedFrame;
+            isRemoteStream && isChunkedRemoteProtocol && !controller.isPlaying && !controller.isReady;
         if (shouldKeepPlayerHiddenDuringChunkedInit) {
           return const ColoredBox(color: Colors.transparent);
         }
@@ -104,6 +105,9 @@ class _VideoViewState extends State<VideoView> {
         }
         _loggedSoftErrorRender = false;
         if (status == VideoStatus.idle) return const SizedBox();
+        if (isChunkedRemoteProtocol && !controller.isPlaying && !controller.isReady) {
+          return const ColoredBox(color: Colors.transparent);
+        }
         return controller.buildPlayerWidget(context);
       },
     );
