@@ -144,6 +144,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   AvesVideoController? _controller;
   int _playToken = 0;
   bool _autoPlayInFlight = false;
+  bool _videoSurfaceVisible = false;
   String? _lastAutoPlayUri;
   String? _lastDecisionKey;
   String? _lastSmbFallbackAttemptUri;
@@ -151,6 +152,8 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
   final Map<String, int> _lastAutoPlayErrorAtMillisByUri = {};
+  StreamSubscription<VideoStatus>? _statusSubscription;
+  Timer? _videoSurfaceRevealTimer;
 
   @override
   void initState() {
@@ -167,7 +170,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       widget.isCurrentNotifier.addListener(_onCurrentChanged);
     }
     if (oldWidget.entry != widget.entry) {
+      _unbindController(_controller);
       _controller = null;
+      _videoSurfaceVisible = false;
     }
     _onCurrentChanged();
   }
@@ -176,10 +181,62 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   void dispose() {
     widget.isCurrentNotifier.removeListener(_onCurrentChanged);
     _playToken++;
+    _videoSurfaceRevealTimer?.cancel();
+    _statusSubscription?.cancel();
     if (_controller?.isPlaying == true) {
       _controller?.pause();
     }
     super.dispose();
+  }
+
+  void _bindController(AvesVideoController? controller) {
+    if (controller == null) return;
+    controller.decodedVideoSizeNotifier.addListener(_onControllerVisualStateChanged);
+    _statusSubscription = controller.statusStream.listen((_) => _onControllerVisualStateChanged());
+    _onControllerVisualStateChanged();
+  }
+
+  void _unbindController(AvesVideoController? controller) {
+    _statusSubscription?.cancel();
+    _statusSubscription = null;
+    _videoSurfaceRevealTimer?.cancel();
+    _videoSurfaceRevealTimer = null;
+    controller?.decodedVideoSizeNotifier.removeListener(_onControllerVisualStateChanged);
+  }
+
+  void _setController(AvesVideoController controller) {
+    if (identical(_controller, controller)) return;
+    _unbindController(_controller);
+    _controller = controller;
+    _videoSurfaceVisible = false;
+    _bindController(controller);
+  }
+
+  void _onControllerVisualStateChanged() {
+    final controller = _controller;
+    if (!mounted || controller == null) return;
+    final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
+    final hasDecodedFrame = controller.decodedVideoSizeNotifier.value != null;
+    final canReveal = isCurrent && (keepLastFrameVisible || (controller.isPlaying && hasDecodedFrame));
+    if (!canReveal) {
+      _videoSurfaceRevealTimer?.cancel();
+      _videoSurfaceRevealTimer = null;
+      if (_videoSurfaceVisible) {
+        setState(() => _videoSurfaceVisible = false);
+      }
+      return;
+    }
+    if (_videoSurfaceVisible || _videoSurfaceRevealTimer != null) return;
+    _videoSurfaceRevealTimer = Timer(const Duration(milliseconds: 220), () {
+      _videoSurfaceRevealTimer = null;
+      final activeController = _controller;
+      if (!mounted || activeController == null) return;
+      final activeKeepLastFrameVisible = activeController.status == VideoStatus.paused || activeController.status == VideoStatus.completed;
+      final activeHasDecodedFrame = activeController.decodedVideoSizeNotifier.value != null;
+      final shouldReveal = isCurrent && (activeKeepLastFrameVisible || (activeController.isPlaying && activeHasDecodedFrame));
+      if (!shouldReveal || _videoSurfaceVisible) return;
+      setState(() => _videoSurfaceVisible = true);
+    });
   }
 
   bool _isAutoPlayEnabled(Settings settings) {
@@ -209,7 +266,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       try {
         final fallbackController = await conductor.getOrCreateController(entry, maxControllerCount: 2);
         if (!mounted || token != _playToken || !isCurrent) return;
-        _controller = fallbackController;
+        _setController(fallbackController);
         if (mounted) setState(() {});
         try {
           await fallbackController.untilReady.timeout(const Duration(milliseconds: 1500));
@@ -319,6 +376,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       }
       if (!mounted || token != _playToken || !isCurrent) return;
       _controller = controller;
+      _setController(controller);
       if (controller.isPlaying) {
         return;
       }
@@ -413,7 +471,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             try {
               final fallbackController = await conductor.getOrCreateController(entry, maxControllerCount: 2);
               if (mounted && token == _playToken && isCurrent) {
-                _controller = fallbackController;
+                _setController(fallbackController);
                 if (mounted) setState(() {});
                 try {
                   await fallbackController.untilReady.timeout(const Duration(milliseconds: 1500));
@@ -474,7 +532,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           stream: controller.statusStream,
           builder: (context, snapshot) {
             final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
-            final show = controller.isPlaying || keepLastFrameVisible;
+            final show = _videoSurfaceVisible || keepLastFrameVisible;
             final tileHeight = widget.tileExtent;
             final decodedSize = controller.decodedVideoSizeNotifier.value;
             final displaySize = decodedSize ?? entry.displaySize;
