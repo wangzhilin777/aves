@@ -73,7 +73,7 @@ class _VideoViewState extends State<VideoView> {
         final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
         final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
         final isChunkedRemoteProtocol = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
-        final hasStableDetailFrame = hasFirstFrameRendered && controller.isPlaying;
+        final hasStableDetailFrame = controller.isPlaying && (hasFirstFrameRendered || hasDecodedFrame);
         final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
         final canRenderDespiteError = isChunkedRemoteProtocol
             ? widget.preferStableRemoteInit

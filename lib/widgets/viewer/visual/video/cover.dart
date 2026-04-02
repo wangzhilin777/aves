@@ -147,16 +147,18 @@ class _VideoCoverState extends State<VideoCover> {
                 child: ValueListenableBuilder<ImageInfo?>(
                   valueListenable: _videoCoverInfoNotifier,
                   builder: (context, videoCoverInfo, child) {
+                    final extent = entry.cachedThumbnails.firstOrNull?.key.extent;
+                    final hasCoverVisual = videoCoverInfo != null || (extent != null && extent > 0);
+                    final effectiveShowCover = hasCoverVisual && showCover && (!isChunkedRemoteProtocol || !videoController.isPlaying || !isRemoteStream || !hasFirstFrameRendered);
                     if (videoCoverInfo != null) {
                       final coverSize = Size(
                         videoCoverInfo.image.width.toDouble(),
                         videoCoverInfo.image.height.toDouble(),
                       );
-                      final coverController = showCover || coverSize == videoDisplaySize ? magnifierController : dismissedCoverMagnifierController;
+                      final coverController = effectiveShowCover || coverSize == videoDisplaySize ? magnifierController : dismissedCoverMagnifierController;
                       return widget.magnifierBuilder(coverController, coverSize, videoCoverUriImage);
                     }
 
-                    final extent = entry.cachedThumbnails.firstOrNull?.key.extent;
                     if (extent != null && extent > 0) {
                       return GestureDetector(
                         onTap: widget.onTap,
@@ -170,7 +172,7 @@ class _VideoCoverState extends State<VideoCover> {
                       );
                     }
 
-                    return const SizedBox();
+                    return const ColoredBox(color: Colors.transparent);
                   },
                 ),
               ),
