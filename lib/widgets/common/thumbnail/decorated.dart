@@ -152,6 +152,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
   final Map<String, int> _lastAutoPlayErrorAtMillisByUri = {};
+  final Map<String, int> _lastDecodedFrameAtMillisByUri = {};
   StreamSubscription<VideoStatus>? _statusSubscription;
   Timer? _videoSurfaceRevealTimer;
 
@@ -222,6 +223,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final controller = _controller;
     if (!mounted || controller == null) return;
     final hasDecodedFrame = _hasDecodedFrame(controller);
+    if (hasDecodedFrame) {
+      _lastDecodedFrameAtMillisByUri[entry.uri] = DateTime.now().millisecondsSinceEpoch;
+    }
     final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
     final canReveal = isCurrent && (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame);
     if (!canReveal) {
@@ -307,6 +311,26 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _lastAutoPlayUri = entry.uri;
       _lastAutoPlayAttemptMillis = nowMillis;
 
+      final existingController = _controller;
+      final decodedFrameAt = _lastDecodedFrameAtMillisByUri[entry.uri];
+      final hasRecentDecodedFrame = decodedFrameAt != null && nowMillis - decodedFrameAt < 4000;
+      if (existingController != null && hasRecentDecodedFrame) {
+        _playRequestedForCurrentFocus = true;
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'grid preview skipped replay loop because decoded frame is still fresh',
+            data: {
+              'uri': entry.uri,
+              'status': existingController.status.name,
+              'isPlaying': existingController.isPlaying,
+            },
+          ),
+        );
+        if (mounted) setState(() {});
+        return;
+      }
+
       final conductor = context.read<VideoConductor>();
       final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
       if (entry.isVideo && remoteProtocol != null) {
@@ -386,17 +410,32 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           ),
         );
       } catch (_) {
-        unawaited(
-          remoteMediaLogService.log(
-            'autoplay',
-            'grid preview video not ready before autoplay timeout',
-            data: {
-              'uri': entry.uri,
-              'status': controller.status.name,
-              'isPlaying': controller.isPlaying,
-            },
-          ),
-        );
+        if (_hasDecodedFrame(controller)) {
+          _lastDecodedFrameAtMillisByUri[entry.uri] = DateTime.now().millisecondsSinceEpoch;
+          unawaited(
+            remoteMediaLogService.log(
+              'autoplay',
+              'grid preview timeout ignored because decoded frame is already available',
+              data: {
+                'uri': entry.uri,
+                'status': controller.status.name,
+                'isPlaying': controller.isPlaying,
+              },
+            ),
+          );
+        } else {
+          unawaited(
+            remoteMediaLogService.log(
+              'autoplay',
+              'grid preview video not ready before autoplay timeout',
+              data: {
+                'uri': entry.uri,
+                'status': controller.status.name,
+                'isPlaying': controller.isPlaying,
+              },
+            ),
+          );
+        }
       }
 
       if (!mounted || token != _playToken || !isCurrent) return;
@@ -426,6 +465,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
 
       await Future.delayed(const Duration(milliseconds: 350));
       final hasDecodedFrameAfterPlay = _hasDecodedFrame(controller);
+      if (hasDecodedFrameAfterPlay) {
+        _lastDecodedFrameAtMillisByUri[entry.uri] = DateTime.now().millisecondsSinceEpoch;
+      }
       if (mounted && token == _playToken && isCurrent && !controller.isPlaying && controller.status != VideoStatus.error) {
         await controller.play();
       } else if (mounted &&
