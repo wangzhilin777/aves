@@ -155,6 +155,11 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   StreamSubscription<VideoStatus>? _statusSubscription;
   Timer? _videoSurfaceRevealTimer;
 
+  bool _hasDecodedFrame(AvesVideoController? controller) {
+    final decodedSize = controller?.decodedVideoSizeNotifier.value;
+    return decodedSize != null && decodedSize.width > 1 && decodedSize.height > 1;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -216,8 +221,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   void _onControllerVisualStateChanged() {
     final controller = _controller;
     if (!mounted || controller == null) return;
+    final hasDecodedFrame = _hasDecodedFrame(controller);
     final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
-    final canReveal = isCurrent && (keepLastFrameVisible || controller.isPlaying);
+    final canReveal = isCurrent && (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame);
     if (!canReveal) {
       _videoSurfaceRevealTimer?.cancel();
       _videoSurfaceRevealTimer = null;
@@ -231,8 +237,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _videoSurfaceRevealTimer = null;
       final activeController = _controller;
       if (!mounted || activeController == null) return;
+      final activeHasDecodedFrame = _hasDecodedFrame(activeController);
       final activeKeepLastFrameVisible = activeController.status == VideoStatus.paused || activeController.status == VideoStatus.completed;
-      final shouldReveal = isCurrent && (activeKeepLastFrameVisible || activeController.isPlaying);
+      final shouldReveal = isCurrent && (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame);
       if (!shouldReveal || _videoSurfaceVisible) return;
       setState(() => _videoSurfaceVisible = true);
     });
@@ -418,9 +425,14 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       );
 
       await Future.delayed(const Duration(milliseconds: 350));
+      final hasDecodedFrameAfterPlay = _hasDecodedFrame(controller);
       if (mounted && token == _playToken && isCurrent && !controller.isPlaying && controller.status != VideoStatus.error) {
         await controller.play();
-      } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error) {
+      } else if (mounted &&
+          token == _playToken &&
+          isCurrent &&
+          controller.status == VideoStatus.error &&
+          !hasDecodedFrameAfterPlay) {
         final failedUri = entry.uri;
         var recovered = false;
         try {
@@ -510,6 +522,18 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             ),
           );
         }
+      } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error && hasDecodedFrameAfterPlay) {
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'grid preview keeps current controller despite soft error',
+            data: {
+              'uri': entry.uri,
+              'hasDecodedFrame': true,
+              'isPlaying': controller.isPlaying,
+            },
+          ),
+        );
       }
     } finally {
       _autoPlayInFlight = false;
@@ -527,9 +551,11 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           stream: controller.statusStream,
           builder: (context, snapshot) {
             final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
+            final hasDecodedFrame = _hasDecodedFrame(controller);
             final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
-            final remoteForceVisible = remoteProtocol != null && isCurrent && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
-            final show = _videoSurfaceVisible || keepLastFrameVisible || remoteForceVisible;
+            final remoteForceVisible =
+                remoteProtocol != null && isCurrent && _playRequestedForCurrentFocus && (controller.status != VideoStatus.error || hasDecodedFrame);
+            final show = _videoSurfaceVisible || keepLastFrameVisible || remoteForceVisible || hasDecodedFrame;
             final tileHeight = widget.tileExtent;
             final decodedSize = controller.decodedVideoSizeNotifier.value;
             final displaySize = decodedSize ?? entry.displaySize;
