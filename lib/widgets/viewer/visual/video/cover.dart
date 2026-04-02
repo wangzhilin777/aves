@@ -7,6 +7,7 @@ import 'package:aves_magnifier/aves_magnifier.dart';
 import 'package:aves_video/aves_video.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 class VideoCover extends StatefulWidget {
   final AvesEntry mainEntry, pageEntry;
@@ -40,8 +41,10 @@ class _VideoCoverState extends State<VideoCover> {
   ImageStream? _videoCoverStream;
   late ImageStreamListener _videoCoverStreamListener;
   final ValueNotifier<ImageInfo?> _videoCoverInfoNotifier = ValueNotifier(null);
+  static const _remoteCoverGrace = Duration(milliseconds: 1400);
 
   AvesMagnifierController? _dismissedCoverMagnifierController;
+  DateTime _coverGraceDeadline = DateTime.now().add(_remoteCoverGrace);
 
   AvesMagnifierController get dismissedCoverMagnifierController {
     _dismissedCoverMagnifierController ??= AvesMagnifierController();
@@ -86,6 +89,7 @@ class _VideoCoverState extends State<VideoCover> {
   }
 
   void _registerWidget(VideoCover widget) {
+    _coverGraceDeadline = DateTime.now().add(_remoteCoverGrace);
     _videoCoverStreamListener = ImageStreamListener((image, _) => _videoCoverInfoNotifier.value = image);
     _videoCoverStream = videoCoverUriImage.resolve(ImageConfiguration.empty);
     _videoCoverStream!.addListener(_videoCoverStreamListener);
@@ -106,8 +110,20 @@ class _VideoCoverState extends State<VideoCover> {
         return StreamBuilder<VideoStatus>(
           stream: videoController.statusStream,
           builder: (context, snapshot) {
+            final status = snapshot.data ?? videoController.status;
             final hasDecodedFrame = decodedVideoSize != null && decodedVideoSize.width > 1 && decodedVideoSize.height > 1;
-            final showCover = !videoController.isReady || (videoController.isPlaying && !hasDecodedFrame);
+            final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
+            final withinRemoteCoverGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_coverGraceDeadline);
+            final showCover =
+                !videoController.isReady ||
+                !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) ||
+                status == VideoStatus.error && isRemoteStream ||
+                withinRemoteCoverGrace;
+            if (withinRemoteCoverGrace) {
+              SchedulerBinding.instance.addPostFrameCallback((_) {
+                if (mounted) setState(() {});
+              });
+            }
             return IgnorePointer(
               ignoring: !showCover,
               child: AnimatedOpacity(

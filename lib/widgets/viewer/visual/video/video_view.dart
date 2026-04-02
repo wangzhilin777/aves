@@ -20,20 +20,26 @@ class VideoView extends StatefulWidget {
 }
 
 class _VideoViewState extends State<VideoView> {
+  static const _remoteInitialErrorGrace = Duration(milliseconds: 1400);
   AvesEntry get entry => widget.entry;
 
   AvesVideoController get controller => widget.controller;
   bool _loggedSoftErrorRender = false;
+  late DateTime _initialErrorGraceDeadline;
 
   @override
   void initState() {
     super.initState();
+    _initialErrorGraceDeadline = DateTime.now().add(_remoteInitialErrorGrace);
     _registerWidget(widget);
   }
 
   @override
   void didUpdateWidget(covariant VideoView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.entry != widget.entry) {
+      _initialErrorGraceDeadline = DateTime.now().add(_remoteInitialErrorGrace);
+    }
     _unregisterWidget(oldWidget);
     _registerWidget(widget);
   }
@@ -61,6 +67,8 @@ class _VideoViewState extends State<VideoView> {
         final decodedSize = controller.decodedVideoSizeNotifier.value;
         final hasDecodedFrame = decodedSize != null && decodedSize.width > 1 && decodedSize.height > 1;
         final canRenderDespiteError = controller.isPlaying || controller.isReady || hasDecodedFrame;
+        final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
+        final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
         if (status == VideoStatus.error) {
           if (canRenderDespiteError) {
             if (!_loggedSoftErrorRender) {
@@ -79,6 +87,9 @@ class _VideoViewState extends State<VideoView> {
               );
             }
             return controller.buildPlayerWidget(context);
+          }
+          if (withinRemoteInitialErrorGrace) {
+            return const ColoredBox(color: Colors.transparent);
           }
           return const ColoredBox(color: Colors.black);
         }
