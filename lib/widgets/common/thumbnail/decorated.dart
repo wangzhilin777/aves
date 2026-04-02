@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/props.dart';
@@ -150,9 +149,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   String? _lastAutoPlayUri;
   String? _lastDecisionKey;
   String? _lastSmbFallbackAttemptUri;
-  String? _lastSmbPromotionUri;
-  int? _lastSmbPromotionToken;
-  String? _lastSmbVisualRecoveryUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
   final Map<String, int> _lastAutoPlayErrorAtMillisByUri = {};
@@ -250,113 +246,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     return !settings.gridVideoSoundOn;
   }
 
-  void _scheduleSmbCachedPromotion({
-    required Settings settings,
-    required VideoConductor conductor,
-    required int token,
-  }) {
-    if (_lastSmbPromotionUri == entry.uri && _lastSmbPromotionToken == token) return;
-    _lastSmbPromotionUri = entry.uri;
-    _lastSmbPromotionToken = token;
-    unawaited(() async {
-      final cachedFile = await remoteMediaService.prepareEntryForPlayback(
-        entry,
-        trigger: 'grid_preview_async_promote',
-        allowDownload: true,
-      );
-      if (cachedFile == null || !mounted || token != _playToken || !isCurrent) {
-        if (_lastSmbPromotionUri == entry.uri && _lastSmbPromotionToken == token) {
-          _lastSmbPromotionUri = null;
-          _lastSmbPromotionToken = null;
-        }
-        return;
-      }
-      try {
-        final fallbackController = await conductor.getOrCreateController(entry, maxControllerCount: 2);
-        if (!mounted || token != _playToken || !isCurrent) {
-          if (_lastSmbPromotionUri == entry.uri && _lastSmbPromotionToken == token) {
-            _lastSmbPromotionUri = null;
-            _lastSmbPromotionToken = null;
-          }
-          return;
-        }
-        _setController(fallbackController);
-        if (mounted) setState(() {});
-        try {
-          await fallbackController.untilReady.timeout(const Duration(milliseconds: 1500));
-        } catch (_) {}
-        await conductor.pauseOthers(fallbackController);
-        await fallbackController.mute(_shouldMute(settings));
-        await fallbackController.play();
-        await remoteMediaLogService.log(
-          'autoplay',
-          'grid preview promoted smb entry to cached file playback',
-          data: {
-            'uri': entry.uri,
-            'file': cachedFile.path,
-          },
-        );
-      } catch (error) {
-        if (_lastSmbPromotionUri == entry.uri && _lastSmbPromotionToken == token) {
-          _lastSmbPromotionUri = null;
-          _lastSmbPromotionToken = null;
-        }
-        await remoteMediaLogService.log(
-          'autoplay',
-          'grid preview smb cached promotion failed',
-          data: {
-            'uri': entry.uri,
-            'error': '$error',
-          },
-        );
-      }
-    }());
-  }
-
-  void _scheduleSmbVisualRecovery({
-    required Settings settings,
-    required VideoConductor conductor,
-    required AvesVideoController controller,
-    required int token,
-  }) {
-    if (_lastSmbVisualRecoveryUri == entry.uri) return;
-    _lastSmbVisualRecoveryUri = entry.uri;
-    unawaited(() async {
-      await Future.delayed(const Duration(milliseconds: 900));
-      if (!mounted || token != _playToken || !isCurrent) return;
-      if (_videoSurfaceVisible) return;
-      if (!controller.isPlaying || controller.status == VideoStatus.error) return;
-      try {
-        final recoveredController = await conductor.recreateController(entry, maxControllerCount: 2);
-        if (!mounted || token != _playToken || !isCurrent) return;
-        _setController(recoveredController);
-        if (mounted) setState(() {});
-        try {
-          await recoveredController.untilReady.timeout(const Duration(milliseconds: 1200));
-        } catch (_) {}
-        await conductor.pauseOthers(recoveredController);
-        await recoveredController.mute(_shouldMute(settings));
-        await recoveredController.play();
-        await remoteMediaLogService.log(
-          'autoplay',
-          'grid preview recovered smb visual by recreating controller',
-          data: {
-            'uri': entry.uri,
-          },
-        );
-      } catch (error) {
-        await remoteMediaLogService.log(
-          'autoplay',
-          'grid preview smb visual recovery failed',
-          data: {
-            'uri': entry.uri,
-            'error': '$error',
-          },
-        );
-      }
-    }());
-  }
-
   Future<void> _onCurrentChanged() async {
     if (_autoPlayInFlight) return;
     _autoPlayInFlight = true;
@@ -393,9 +282,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             ),
           );
         }
-        _lastSmbPromotionUri = null;
-        _lastSmbPromotionToken = null;
-        _lastSmbVisualRecoveryUri = null;
         _lastSmbFallbackAttemptUri = null;
         _playRequestedForCurrentFocus = false;
         return;
@@ -423,45 +309,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           allowDownload: false,
         );
         if (remoteProtocol == RemoteProtocol.smb && existingCacheFile == null) {
-          File? quickCacheFile;
-          try {
-            quickCacheFile = await remoteMediaService
-                .prepareEntryForPlayback(
-                  entry,
-                  trigger: 'grid_preview_quick_cache',
-                  allowDownload: true,
-                )
-                .timeout(const Duration(milliseconds: 1200));
-          } on TimeoutException {
-            unawaited(
-              remoteMediaLogService.log(
-                'autoplay',
-                'smb quick cache wait timed out, fallback to stream autoplay',
-                data: {
-                  'uri': entry.uri,
-                },
-              ),
-            );
-          }
-          if (quickCacheFile != null) {
-            unawaited(
-              remoteMediaLogService.log(
-                'autoplay',
-                'smb quick cache ready before stream autoplay',
-                data: {
-                  'uri': entry.uri,
-                  'file': quickCacheFile.path,
-                },
-              ),
-            );
-          }
           unawaited(
             remoteMediaLogService.log(
               'autoplay',
-              'smb non-blocking stream autoplay path active',
+              'smb grid preview forced stable stream path',
               data: {
                 'uri': entry.uri,
-                'quickCacheReady': quickCacheFile != null,
+                'skipQuickCacheDownload': true,
               },
             ),
           );
@@ -546,19 +400,8 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview');
         unawaited(remoteMediaService.warmupVideoCacheForEntry(entry, trigger: 'grid_preview'));
       }
-      if (remoteProtocol == RemoteProtocol.smb) {
-        _scheduleSmbCachedPromotion(
-          settings: settings,
-          conductor: conductor,
-          token: token,
-        );
-        _scheduleSmbVisualRecovery(
-          settings: settings,
-          conductor: conductor,
-          controller: controller,
-          token: token,
-        );
-      }
+      // SMB preview is more stable when we keep a single controller/source path.
+      // We avoid automatic stream->cache promotion and controller recreation in grid preview.
       await controller.mute(_shouldMute(settings));
       await controller.play();
       _playRequestedForCurrentFocus = true;
