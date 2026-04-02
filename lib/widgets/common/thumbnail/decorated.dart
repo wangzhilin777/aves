@@ -145,6 +145,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   int _playToken = 0;
   bool _autoPlayInFlight = false;
   bool _videoSurfaceVisible = false;
+  bool _playRequestedForCurrentFocus = false;
   String? _lastAutoPlayUri;
   String? _lastDecisionKey;
   String? _lastSmbFallbackAttemptUri;
@@ -174,6 +175,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _unbindController(_controller);
       _controller = null;
       _videoSurfaceVisible = false;
+      _playRequestedForCurrentFocus = false;
     }
     _onCurrentChanged();
   }
@@ -374,6 +376,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             ),
           );
         }
+        _playRequestedForCurrentFocus = false;
         return;
       }
 
@@ -490,6 +493,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       }
       await controller.mute(_shouldMute(settings));
       await controller.play();
+      _playRequestedForCurrentFocus = true;
       unawaited(
         remoteMediaLogService.log(
           'autoplay',
@@ -555,6 +559,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           }
         }
         if (!recovered) {
+          _playRequestedForCurrentFocus = false;
           _lastAutoPlayErrorAtMillisByUri[failedUri] = DateTime.now().millisecondsSinceEpoch;
           unawaited(
             remoteMediaLogService.log(
@@ -581,7 +586,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           stream: controller.statusStream,
           builder: (context, snapshot) {
             final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
-            final show = _videoSurfaceVisible || keepLastFrameVisible;
+            final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+            final smbForceVisible = remoteProtocol == RemoteProtocol.smb && isCurrent && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
+            final show = _videoSurfaceVisible || keepLastFrameVisible || smbForceVisible;
             final tileHeight = widget.tileExtent;
             final decodedSize = controller.decodedVideoSizeNotifier.value;
             final displaySize = decodedSize ?? entry.displaySize;
