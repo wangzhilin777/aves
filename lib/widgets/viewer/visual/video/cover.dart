@@ -44,9 +44,12 @@ class _VideoCoverState extends State<VideoCover> {
   late ImageStreamListener _videoCoverStreamListener;
   final ValueNotifier<ImageInfo?> _videoCoverInfoNotifier = ValueNotifier(null);
   static const _remoteCoverGrace = Duration(milliseconds: 1400);
+  static const _chunkedRemotePlaybackCoverGrace = Duration(milliseconds: 180);
 
   AvesMagnifierController? _dismissedCoverMagnifierController;
   DateTime _coverGraceDeadline = DateTime.now().add(_remoteCoverGrace);
+  DateTime? _chunkedPlaybackCoverDeadline;
+  bool _wasPlaying = false;
 
   AvesMagnifierController get dismissedCoverMagnifierController {
     _dismissedCoverMagnifierController ??= AvesMagnifierController();
@@ -92,6 +95,8 @@ class _VideoCoverState extends State<VideoCover> {
 
   void _registerWidget(VideoCover widget) {
     _coverGraceDeadline = DateTime.now().add(_remoteCoverGrace);
+    _chunkedPlaybackCoverDeadline = null;
+    _wasPlaying = false;
     _videoCoverStreamListener = ImageStreamListener((image, _) => _videoCoverInfoNotifier.value = image);
     _videoCoverStream = videoCoverUriImage.resolve(ImageConfiguration.empty);
     _videoCoverStream!.addListener(_videoCoverStreamListener);
@@ -121,9 +126,15 @@ class _VideoCoverState extends State<VideoCover> {
             final isChunkedRemoteProtocol = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
             final hasStableDetailFrame = hasFirstFrameRendered && videoController.isPlaying;
             final withinRemoteCoverGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_coverGraceDeadline);
-            final keepRemoteCoverUntilPlaying = isRemoteStream && (isChunkedRemoteProtocol ? !hasStableDetailFrame : !videoController.isPlaying);
+            final startedPlayingNow = videoController.isPlaying && !_wasPlaying;
+            if (startedPlayingNow && isRemoteStream && isChunkedRemoteProtocol) {
+              _chunkedPlaybackCoverDeadline = DateTime.now().add(_chunkedRemotePlaybackCoverGrace);
+            }
+            _wasPlaying = videoController.isPlaying;
+            final withinChunkedPlaybackCoverGrace = isRemoteStream && isChunkedRemoteProtocol && _chunkedPlaybackCoverDeadline != null && DateTime.now().isBefore(_chunkedPlaybackCoverDeadline!);
+            final keepRemoteCoverUntilPlaying = isRemoteStream && (isChunkedRemoteProtocol ? (!hasStableDetailFrame || withinChunkedPlaybackCoverGrace) : !videoController.isPlaying);
             final showCover = !videoController.isReady || !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) || keepRemoteCoverUntilPlaying || status == VideoStatus.error && isRemoteStream || withinRemoteCoverGrace;
-            if (withinRemoteCoverGrace) {
+            if (withinRemoteCoverGrace || withinChunkedPlaybackCoverGrace) {
               SchedulerBinding.instance.addPostFrameCallback((_) {
                 if (mounted) setState(() {});
               });
