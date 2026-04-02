@@ -164,8 +164,20 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       trigger: 'viewer_init',
       allowDownload: false,
     );
+    final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
     if (entry.uri.startsWith('http://') || entry.uri.startsWith('https://')) {
-      unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init'));
+      if (remoteProtocol == RemoteProtocol.smb) {
+        await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init');
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'viewer awaited initial smb stream warmup before controller init',
+            data: {'uri': entry.uri},
+          ),
+        );
+      } else {
+        unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init'));
+      }
     }
     final controller = await context.read<VideoConductor>().getOrCreateController(entry);
     setState(() {});
@@ -363,7 +375,19 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       final hasRemoteRef = remoteMediaService.getVirtualRemoteRef(controllerEntry.uri) != null;
       if (hasRemoteRef) {
         if (isRemoteStreamUri) {
-          unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(controllerEntry, trigger: 'viewer_autoplay'));
+          final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(controllerEntry);
+          if (remoteProtocol == RemoteProtocol.smb) {
+            await remoteMediaService.prepareInitialStreamPlaybackForEntry(controllerEntry, trigger: 'viewer_autoplay');
+            unawaited(
+              remoteMediaLogService.log(
+                'autoplay',
+                'viewer awaited smb stream warmup before autoplay',
+                data: {'uri': controllerEntry.uri},
+              ),
+            );
+          } else {
+            unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(controllerEntry, trigger: 'viewer_autoplay'));
+          }
         } else {
           unawaited(
             remoteMediaLogService.log(
