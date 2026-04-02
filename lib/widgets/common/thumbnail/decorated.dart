@@ -376,6 +376,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             ),
           );
         }
+        _lastSmbPromotionUri = null;
+        _lastSmbVisualRecoveryUri = null;
+        _lastSmbFallbackAttemptUri = null;
         _playRequestedForCurrentFocus = false;
         return;
       }
@@ -393,16 +396,34 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _lastAutoPlayUri = entry.uri;
       _lastAutoPlayAttemptMillis = nowMillis;
 
+      final conductor = context.read<VideoConductor>();
       final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
       if (entry.isVideo && remoteProtocol != null) {
-        await remoteMediaService.prepareEntryForPlayback(
+        final existingCacheFile = await remoteMediaService.prepareEntryForPlayback(
           entry,
           trigger: 'grid_preview',
           allowDownload: false,
         );
+        if (remoteProtocol == RemoteProtocol.smb && existingCacheFile == null) {
+          _playRequestedForCurrentFocus = false;
+          _scheduleSmbCachedPromotion(
+            settings: settings,
+            conductor: conductor,
+            token: token,
+          );
+          unawaited(
+            remoteMediaLogService.log(
+              'autoplay',
+              'defer smb grid preview autoplay until cached media is ready',
+              data: {
+                'uri': entry.uri,
+              },
+            ),
+          );
+          return;
+        }
       }
 
-      final conductor = context.read<VideoConductor>();
       AvesVideoController controller;
       try {
         controller = await conductor.getOrCreateController(entry, maxControllerCount: 2);
@@ -476,8 +497,11 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       if (!mounted || token != _playToken || !isCurrent) return;
       await conductor.pauseOthers(controller);
       await remoteMediaService.ensureEntryMetadata(entry, trigger: 'grid_preview');
-      await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview');
-      unawaited(remoteMediaService.warmupVideoCacheForEntry(entry, trigger: 'grid_preview'));
+      final isStreamingEntry = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
+      if (isStreamingEntry) {
+        await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview');
+        unawaited(remoteMediaService.warmupVideoCacheForEntry(entry, trigger: 'grid_preview'));
+      }
       if (remoteProtocol == RemoteProtocol.smb) {
         _scheduleSmbCachedPromotion(
           settings: settings,
