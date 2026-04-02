@@ -376,13 +376,16 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       if (hasRemoteRef) {
         if (isRemoteStreamUri) {
           final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(controllerEntry);
-          if (remoteProtocol == RemoteProtocol.smb) {
+          if (remoteProtocol == RemoteProtocol.smb || remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp) {
             await remoteMediaService.prepareInitialStreamPlaybackForEntry(controllerEntry, trigger: 'viewer_autoplay');
             unawaited(
               remoteMediaLogService.log(
                 'autoplay',
-                'viewer awaited smb stream warmup before autoplay',
-                data: {'uri': controllerEntry.uri},
+                'viewer awaited remote stream warmup before autoplay',
+                data: {
+                  'uri': controllerEntry.uri,
+                  'protocol': remoteProtocol?.name,
+                },
               ),
             );
           } else {

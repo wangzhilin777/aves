@@ -114,9 +114,11 @@ class _VideoCoverState extends State<VideoCover> {
             final hasDecodedFrame = decodedVideoSize != null && decodedVideoSize.width > 1 && decodedVideoSize.height > 1;
             final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
             final withinRemoteCoverGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_coverGraceDeadline);
+            final keepRemoteCoverUntilPlaying = isRemoteStream && !videoController.isPlaying;
             final showCover =
                 !videoController.isReady ||
                 !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) ||
+                keepRemoteCoverUntilPlaying ||
                 status == VideoStatus.error && isRemoteStream ||
                 withinRemoteCoverGrace;
             if (withinRemoteCoverGrace) {
