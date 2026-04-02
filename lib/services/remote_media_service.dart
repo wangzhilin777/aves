@@ -132,6 +132,7 @@ class _ChunkFileSegment {
 
 class RemoteMediaService {
   static const _streamChunkSizeBytes = 2 * 1024 * 1024;
+  static const _smbStreamChunkSizeBytes = 8 * 1024 * 1024;
   static const _streamChunkCacheVersion = 4;
   static const _streamChunkPrefetchCount = 8;
   static const _ftpSftpInitialWarmupChunkCount = 24;
@@ -158,6 +159,17 @@ class RemoteMediaService {
   }
 
   bool hasVirtualRemoteRef(String uri) => _virtualRemoteRefs.containsKey(uri);
+
+  int _chunkSizeForProtocol(RemoteProtocol protocol) {
+    switch (protocol) {
+      case RemoteProtocol.smb:
+        return _smbStreamChunkSizeBytes;
+      case RemoteProtocol.webdav:
+      case RemoteProtocol.ftp:
+      case RemoteProtocol.sftp:
+        return _streamChunkSizeBytes;
+    }
+  }
 
   Future<String> resolveStreamUriForPlayback(String rawUri) async {
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -646,18 +658,19 @@ class RemoteMediaService {
         RemoteProtocol.smb => _smbInitialWarmupChunkCount,
         RemoteProtocol.webdav => 1,
       };
+      final chunkSize = _chunkSizeForProtocol(server.protocol);
       final ranges = <RemoteByteRange>[
         for (var chunkIndex = 0; chunkIndex < initialChunkCount; chunkIndex++)
-          if (chunkIndex * _streamChunkSizeBytes < totalLength)
+          if (chunkIndex * chunkSize < totalLength)
             RemoteByteRange(
-              start: chunkIndex * _streamChunkSizeBytes,
-              endInclusive: min(totalLength - 1, ((chunkIndex + 1) * _streamChunkSizeBytes) - 1),
+              start: chunkIndex * chunkSize,
+              endInclusive: min(totalLength - 1, ((chunkIndex + 1) * chunkSize) - 1),
               totalLength: totalLength,
             ),
       ];
 
-      if (totalLength > _streamChunkSizeBytes) {
-        final tailStart = max(0, totalLength - _streamChunkSizeBytes);
+      if (totalLength > chunkSize) {
+        final tailStart = max(0, totalLength - chunkSize);
         if (!ranges.any((range) => range.start == tailStart && range.endInclusive == totalLength - 1)) {
           ranges.add(
             RemoteByteRange(
@@ -1963,8 +1976,9 @@ class RemoteMediaService {
     required int totalLength,
     required Future<List<int>> Function(RemoteByteRange range) fetchChunk,
   }) async* {
-    final firstChunk = requestedRange.start ~/ _streamChunkSizeBytes;
-    final lastChunk = requestedRange.endInclusive ~/ _streamChunkSizeBytes;
+    final chunkSize = _chunkSizeForProtocol(server.protocol);
+    final firstChunk = requestedRange.start ~/ chunkSize;
+    final lastChunk = requestedRange.endInclusive ~/ chunkSize;
     final prefetchCount = min(_streamChunkPrefetchCount, lastChunk - firstChunk + 1);
     if (prefetchCount > 1) {
       unawaited(
@@ -1979,8 +1993,8 @@ class RemoteMediaService {
       );
     }
     for (var chunkIndex = firstChunk; chunkIndex <= lastChunk; chunkIndex++) {
-      final chunkStart = chunkIndex * _streamChunkSizeBytes;
-      final chunkEnd = min(totalLength - 1, chunkStart + _streamChunkSizeBytes - 1);
+      final chunkStart = chunkIndex * chunkSize;
+      final chunkEnd = min(totalLength - 1, chunkStart + chunkSize - 1);
       final chunkRange = RemoteByteRange(start: chunkStart, endInclusive: chunkEnd, totalLength: totalLength);
       final chunkFile = await _getOrCreateStreamChunkFile(
         server: server,
@@ -2007,11 +2021,12 @@ class RemoteMediaService {
     required Future<List<int>> Function(RemoteByteRange range) fetchChunk,
   }) async {
     if (count <= 0) return;
+    final chunkSize = _chunkSizeForProtocol(server.protocol);
     final futures = <Future<void>>[];
     for (var chunkIndex = startChunkIndex; chunkIndex < startChunkIndex + count; chunkIndex++) {
-      final chunkStart = chunkIndex * _streamChunkSizeBytes;
+      final chunkStart = chunkIndex * chunkSize;
       if (chunkStart >= totalLength) break;
-      final chunkEnd = min(totalLength - 1, chunkStart + _streamChunkSizeBytes - 1);
+      final chunkEnd = min(totalLength - 1, chunkStart + chunkSize - 1);
       final chunkRange = RemoteByteRange(start: chunkStart, endInclusive: chunkEnd, totalLength: totalLength);
       futures.add(
         _getOrCreateStreamChunkFile(
