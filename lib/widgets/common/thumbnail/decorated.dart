@@ -147,6 +147,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   String? _lastAutoPlayUri;
   String? _lastDecisionKey;
   String? _lastSmbFallbackAttemptUri;
+  String? _lastSmbPromotionUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
   final Map<String, int> _lastAutoPlayErrorAtMillisByUri = {};
@@ -187,6 +188,54 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
 
   bool _shouldMute(Settings settings) {
     return !settings.gridVideoSoundOn;
+  }
+
+  void _scheduleSmbCachedPromotion({
+    required Settings settings,
+    required VideoConductor conductor,
+    required int token,
+  }) {
+    if (_lastSmbPromotionUri == entry.uri) return;
+    _lastSmbPromotionUri = entry.uri;
+    unawaited(() async {
+      final cachedFile = await remoteMediaService.prepareEntryForPlayback(
+        entry,
+        trigger: 'grid_preview_async_promote',
+        allowDownload: true,
+      );
+      if (cachedFile == null || !mounted || token != _playToken || !isCurrent) {
+        return;
+      }
+      try {
+        final fallbackController = await conductor.getOrCreateController(entry, maxControllerCount: 2);
+        if (!mounted || token != _playToken || !isCurrent) return;
+        _controller = fallbackController;
+        if (mounted) setState(() {});
+        try {
+          await fallbackController.untilReady.timeout(const Duration(milliseconds: 1500));
+        } catch (_) {}
+        await conductor.pauseOthers(fallbackController);
+        await fallbackController.mute(_shouldMute(settings));
+        await fallbackController.play();
+        await remoteMediaLogService.log(
+          'autoplay',
+          'grid preview promoted smb entry to cached file playback',
+          data: {
+            'uri': entry.uri,
+            'file': cachedFile.path,
+          },
+        );
+      } catch (error) {
+        await remoteMediaLogService.log(
+          'autoplay',
+          'grid preview smb cached promotion failed',
+          data: {
+            'uri': entry.uri,
+            'error': '$error',
+          },
+        );
+      }
+    }());
   }
 
   Future<void> _onCurrentChanged() async {
@@ -325,6 +374,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       await remoteMediaService.ensureEntryMetadata(entry, trigger: 'grid_preview');
       await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview');
       unawaited(remoteMediaService.warmupVideoCacheForEntry(entry, trigger: 'grid_preview'));
+      if (remoteProtocol == RemoteProtocol.smb) {
+        _scheduleSmbCachedPromotion(
+          settings: settings,
+          conductor: conductor,
+          token: token,
+        );
+      }
       await controller.mute(_shouldMute(settings));
       await controller.play();
       unawaited(
