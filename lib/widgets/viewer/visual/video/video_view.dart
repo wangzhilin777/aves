@@ -102,7 +102,7 @@ class _VideoViewState extends State<VideoView> {
             }
             return controller.buildPlayerWidget(context);
           }
-          if (withinRemoteInitialErrorGrace) {
+          if (withinRemoteInitialErrorGrace || (isRemoteStream && isChunkedRemoteProtocol)) {
             return const ColoredBox(color: Colors.transparent);
           }
           return const ColoredBox(color: Colors.black);
