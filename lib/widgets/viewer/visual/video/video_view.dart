@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:aves/model/entry/entry.dart';
+import 'package:aves/services/common/services.dart';
 import 'package:aves_video/aves_video.dart';
 import 'package:flutter/material.dart';
 
@@ -20,6 +23,7 @@ class _VideoViewState extends State<VideoView> {
   AvesEntry get entry => widget.entry;
 
   AvesVideoController get controller => widget.controller;
+  bool _loggedSoftErrorRender = false;
 
   @override
   void initState() {
@@ -54,9 +58,31 @@ class _VideoViewState extends State<VideoView> {
       stream: controller.statusStream,
       builder: (context, snapshot) {
         final status = snapshot.data ?? controller.status;
+        final decodedSize = controller.decodedVideoSizeNotifier.value;
+        final hasDecodedFrame = decodedSize != null && decodedSize.width > 1 && decodedSize.height > 1;
+        final canRenderDespiteError = controller.isPlaying || controller.isReady || hasDecodedFrame;
         if (status == VideoStatus.error) {
+          if (canRenderDespiteError) {
+            if (!_loggedSoftErrorRender) {
+              _loggedSoftErrorRender = true;
+              unawaited(
+                remoteMediaLogService.log(
+                  'autoplay',
+                  'video view keeps rendering despite controller error status',
+                  data: {
+                    'uri': entry.uri,
+                    'isPlaying': controller.isPlaying,
+                    'isReady': controller.isReady,
+                    'hasDecodedFrame': hasDecodedFrame,
+                  },
+                ),
+              );
+            }
+            return controller.buildPlayerWidget(context);
+          }
           return const ColoredBox(color: Colors.black);
         }
+        _loggedSoftErrorRender = false;
         if (status == VideoStatus.idle) return const SizedBox();
         return controller.buildPlayerWidget(context);
       },
