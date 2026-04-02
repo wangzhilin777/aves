@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/props.dart';
+import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/theme/icons.dart';
@@ -150,7 +151,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   int _previewCoverHoldUntilMillis = 0;
   final Map<String, int> _lastAutoPlayErrorAtMillisByUri = {};
 
-  void _holdPreviewCover([int durationMillis = 260]) {
+  void _holdPreviewCover([int durationMillis = 520]) {
     final holdUntil = DateTime.now().millisecondsSinceEpoch + durationMillis;
     if (holdUntil > _previewCoverHoldUntilMillis) {
       _previewCoverHoldUntilMillis = holdUntil;
@@ -259,7 +260,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         await remoteMediaService.prepareEntryForPlayback(
           entry,
           trigger: 'grid_preview',
-          allowDownload: false,
+          allowDownload: remoteProtocol == RemoteProtocol.smb,
         );
       }
 
@@ -380,7 +381,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           try {
             await fallbackController.untilReady.timeout(const Duration(milliseconds: 1200));
           } catch (_) {}
-          _holdPreviewCover(320);
+          _holdPreviewCover(640);
           await fallbackController.play();
           unawaited(
             remoteMediaLogService.log(
