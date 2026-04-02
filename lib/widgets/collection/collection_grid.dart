@@ -342,6 +342,9 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   DateTime _lastKeepFocusLogAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastKeepFocusLogUri;
   double? _lastScrollOffset;
+  DateTime? _initialFocusLockUntil;
+  String? _initialFocusLockedUri;
+  double? _initialFocusLockOffset;
 
   CollectionLens get collection => widget.collection;
 
@@ -432,6 +435,11 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     final previousOffset = _lastScrollOffset ?? currentOffset;
     final scrollingTowardBottom = currentOffset > previousOffset;
     _lastScrollOffset = currentOffset;
+    if (_initialFocusLockOffset != null && (currentOffset - _initialFocusLockOffset!).abs() > 24) {
+      _initialFocusLockUntil = null;
+      _initialFocusLockedUri = null;
+      _initialFocusLockOffset = null;
+    }
 
     final probesY = <double>[
       viewportTopY + size.height * .52,
@@ -515,6 +523,9 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     if (anchor == null) return null;
     final target = _findClosestVideoEntry(anchor, searchBackward: false);
     if (target != null) {
+      _initialFocusLockUntil = DateTime.now().add(const Duration(milliseconds: 1200));
+      _initialFocusLockedUri = target.uri;
+      _initialFocusLockOffset = currentOffset;
       unawaited(
         remoteMediaLogService.log(
           'focus',
@@ -610,6 +621,17 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     final isScrolling = widget.isScrollingNotifier.value;
     final current = widget.previewPlayingEntryNotifier.value;
     if (current == target) return;
+    final initialFocusLocked =
+        _initialFocusLockUntil != null &&
+        DateTime.now().isBefore(_initialFocusLockUntil!) &&
+        current != null &&
+        target != null &&
+        current.uri == _initialFocusLockedUri &&
+        target.uri != current.uri &&
+        (scrollController.offset - (_initialFocusLockOffset ?? scrollController.offset)).abs() <= 24;
+    if (initialFocusLocked) {
+      return;
+    }
 
     if (target == null && isScrolling && current != null) {
       final now = DateTime.now();
