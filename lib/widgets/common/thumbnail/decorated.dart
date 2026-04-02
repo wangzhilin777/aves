@@ -397,6 +397,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         return;
       }
 
+      var shouldSkipActivePlaybackRequest = false;
       try {
         await controller.untilReady.timeout(const Duration(milliseconds: 1000));
         unawaited(
@@ -412,6 +413,8 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       } catch (_) {
         if (_hasDecodedFrame(controller)) {
           _lastDecodedFrameAtMillisByUri[entry.uri] = DateTime.now().millisecondsSinceEpoch;
+          shouldSkipActivePlaybackRequest = true;
+          _playRequestedForCurrentFocus = true;
           unawaited(
             remoteMediaLogService.log(
               'autoplay',
@@ -442,26 +445,39 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       await conductor.pauseOthers(controller);
       await remoteMediaService.ensureEntryMetadata(entry, trigger: 'grid_preview');
       final isStreamingEntry = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
-      if (isStreamingEntry) {
+      if (isStreamingEntry && !shouldSkipActivePlaybackRequest) {
         await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview');
         unawaited(remoteMediaService.warmupVideoCacheForEntry(entry, trigger: 'grid_preview'));
       }
       // SMB preview is more stable when we keep a single controller/source path.
       // We avoid automatic stream->cache promotion and controller recreation in grid preview.
       await controller.mute(_shouldMute(settings));
-      await controller.play();
-      _playRequestedForCurrentFocus = true;
-      unawaited(
-        remoteMediaLogService.log(
-          'autoplay',
-          'grid preview playback requested',
-          data: {
-            'uri': entry.uri,
-            'isRemoteCached': entry.isRemoteCachedMedia,
-            'muted': controller.isMuted,
-          },
-        ),
-      );
+      if (!shouldSkipActivePlaybackRequest) {
+        await controller.play();
+        _playRequestedForCurrentFocus = true;
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'grid preview playback requested',
+            data: {
+              'uri': entry.uri,
+              'isRemoteCached': entry.isRemoteCachedMedia,
+              'muted': controller.isMuted,
+            },
+          ),
+        );
+      } else {
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'grid preview keeps decoded frame without replay request',
+            data: {
+              'uri': entry.uri,
+              'status': controller.status.name,
+            },
+          ),
+        );
+      }
 
       await Future.delayed(const Duration(milliseconds: 350));
       final hasDecodedFrameAfterPlay = _hasDecodedFrame(controller);
