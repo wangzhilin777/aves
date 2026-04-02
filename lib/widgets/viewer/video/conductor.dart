@@ -66,6 +66,15 @@ class VideoConductor {
     return controller;
   }
 
+  Future<AvesVideoController> recreateController(AvesEntry entry, {int? maxControllerCount}) async {
+    final existing = getController(entry);
+    if (existing != null) {
+      _controllers.remove(existing);
+      await _disposeController(existing);
+    }
+    return getOrCreateController(entry, maxControllerCount: maxControllerCount);
+  }
+
   AvesVideoController? getPlayingController() => _controllers.firstWhereOrNull((c) => c.isPlaying);
 
   AvesVideoController? getController(AvesEntry entry) {

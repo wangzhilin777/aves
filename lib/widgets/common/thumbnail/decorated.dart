@@ -149,6 +149,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   String? _lastDecisionKey;
   String? _lastSmbFallbackAttemptUri;
   String? _lastSmbPromotionUri;
+  String? _lastSmbVisualRecoveryUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
   final Map<String, int> _lastAutoPlayErrorAtMillisByUri = {};
@@ -284,6 +285,50 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         await remoteMediaLogService.log(
           'autoplay',
           'grid preview smb cached promotion failed',
+          data: {
+            'uri': entry.uri,
+            'error': '$error',
+          },
+        );
+      }
+    }());
+  }
+
+  void _scheduleSmbVisualRecovery({
+    required Settings settings,
+    required VideoConductor conductor,
+    required AvesVideoController controller,
+    required int token,
+  }) {
+    if (_lastSmbVisualRecoveryUri == entry.uri) return;
+    _lastSmbVisualRecoveryUri = entry.uri;
+    unawaited(() async {
+      await Future.delayed(const Duration(milliseconds: 900));
+      if (!mounted || token != _playToken || !isCurrent) return;
+      if (_videoSurfaceVisible) return;
+      if (!controller.isPlaying || controller.status == VideoStatus.error) return;
+      try {
+        final recoveredController = await conductor.recreateController(entry, maxControllerCount: 2);
+        if (!mounted || token != _playToken || !isCurrent) return;
+        _setController(recoveredController);
+        if (mounted) setState(() {});
+        try {
+          await recoveredController.untilReady.timeout(const Duration(milliseconds: 1200));
+        } catch (_) {}
+        await conductor.pauseOthers(recoveredController);
+        await recoveredController.mute(_shouldMute(settings));
+        await recoveredController.play();
+        await remoteMediaLogService.log(
+          'autoplay',
+          'grid preview recovered smb visual by recreating controller',
+          data: {
+            'uri': entry.uri,
+          },
+        );
+      } catch (error) {
+        await remoteMediaLogService.log(
+          'autoplay',
+          'grid preview smb visual recovery failed',
           data: {
             'uri': entry.uri,
             'error': '$error',
@@ -434,6 +479,12 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         _scheduleSmbCachedPromotion(
           settings: settings,
           conductor: conductor,
+          token: token,
+        );
+        _scheduleSmbVisualRecovery(
+          settings: settings,
+          conductor: conductor,
+          controller: controller,
           token: token,
         );
       }
