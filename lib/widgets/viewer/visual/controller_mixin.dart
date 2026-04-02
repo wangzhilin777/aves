@@ -312,6 +312,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   Future<void> _autoPlayVideo(AvesVideoController videoController, bool Function() isCurrent, {int? resumeTimeMillis}) async {
     final uri = videoController.entry.uri;
     final isRemoteStreamUri = uri.startsWith('http://') || uri.startsWith('https://');
+    RemoteProtocol? remoteProtocol;
     final token = ++_autoPlayRequestToken;
     final nowMillis = DateTime.now().millisecondsSinceEpoch;
     final elapsedSinceAnyAttempt = nowMillis - _lastAutoPlayAnyAttemptMillis;
@@ -375,7 +376,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       final hasRemoteRef = remoteMediaService.getVirtualRemoteRef(controllerEntry.uri) != null;
       if (hasRemoteRef) {
         if (isRemoteStreamUri) {
-          final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(controllerEntry);
+          remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(controllerEntry);
           if (remoteProtocol == RemoteProtocol.smb || remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp) {
             await remoteMediaService.prepareInitialStreamPlaybackForEntry(controllerEntry, trigger: 'viewer_autoplay');
             unawaited(
@@ -405,6 +406,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       } else if (!isRemoteStreamUri) {
         unawaited(remoteMediaService.warmupVideoCacheForEntry(controllerEntry, trigger: 'viewer_autoplay'));
       } else {
+        remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(controllerEntry);
         unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(controllerEntry, trigger: 'viewer_autoplay'));
       }
     }
@@ -413,20 +415,35 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       await videoController.mute(true);
     }
 
-    try {
-      await videoController.untilReady.timeout(const Duration(milliseconds: 1200));
-    } catch (_) {
+    final prefersImmediatePlayback =
+        isRemoteStreamUri && (remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb);
+    if (prefersImmediatePlayback) {
       unawaited(
         remoteMediaLogService.log(
           'autoplay',
-          'video not ready before autoplay timeout',
+          'skip strict ready wait for remote chunked viewer autoplay',
           data: {
             'uri': uri,
-            'status': videoController.status.name,
-            'isPlaying': videoController.isPlaying,
+            'protocol': remoteProtocol?.name,
           },
         ),
       );
+    } else {
+      try {
+        await videoController.untilReady.timeout(const Duration(milliseconds: 1200));
+      } catch (_) {
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'video not ready before autoplay timeout',
+            data: {
+              'uri': uri,
+              'status': videoController.status.name,
+              'isPlaying': videoController.isPlaying,
+            },
+          ),
+        );
+      }
     }
 
     if (resumeTimeMillis != null) {
