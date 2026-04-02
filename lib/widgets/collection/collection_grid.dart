@@ -337,6 +337,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   final ValueNotifier<double> _appBarHeightNotifier = ValueNotifier(0);
   final GlobalKey _scrollableKey = GlobalKey(debugLabel: 'thumbnail-collection-scrollable');
   Timer? _focusDebounceTimer;
+  Timer? _deferredPrefetchTimer;
   AvesEntry? _pendingFocusTarget;
   DateTime _lastPrefetchAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastPrefetchSignature;
@@ -361,6 +362,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     super.initState();
     _appBarHeightNotifier.addListener(_onAppBarHeightChanged);
     scrollController.addListener(_onScrollOrLayoutChanged);
+    widget.isScrollingNotifier.addListener(_onScrollingStateChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _onScrollOrLayoutChanged();
       Future.delayed(const Duration(milliseconds: 140), _onScrollOrLayoutChanged);
@@ -373,7 +375,9 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   @override
   void dispose() {
     scrollController.removeListener(_onScrollOrLayoutChanged);
+    widget.isScrollingNotifier.removeListener(_onScrollingStateChanged);
     _focusDebounceTimer?.cancel();
+    _deferredPrefetchTimer?.cancel();
     widget.previewPlayingEntryNotifier.value = null;
     _appBarHeightNotifier.dispose();
     super.dispose();
@@ -422,6 +426,18 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   }
 
   void _onAppBarHeightChanged() => setState(() {});
+
+  void _onScrollingStateChanged() {
+    if (!widget.isScrollingNotifier.value) {
+      _lastSlowScrollAt = DateTime.now();
+      _deferredPrefetchTimer?.cancel();
+      _deferredPrefetchTimer = Timer(const Duration(milliseconds: 80), () {
+        if (!mounted) return;
+        _onScrollOrLayoutChanged();
+        unawaited(_prefetchRemoteWindow(widget.previewPlayingEntryNotifier.value));
+      });
+    }
+  }
 
   void _onScrollOrLayoutChanged() {
     final scrollableContext = _scrollableKey.currentContext;
@@ -708,8 +724,25 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     final now = DateTime.now();
     final fastScrollRecently = widget.isScrollingNotifier.value && _lastScrollSpeedPxPerSecond >= 1400 && now.difference(_lastSlowScrollAt).inMilliseconds < 420;
     if (fastScrollRecently) {
+      _deferredPrefetchTimer?.cancel();
+      _deferredPrefetchTimer = Timer(const Duration(milliseconds: 480), () {
+        if (!mounted || widget.isScrollingNotifier.value) return;
+        final target = widget.previewPlayingEntryNotifier.value ?? anchor;
+        unawaited(_prefetchRemoteWindow(target));
+      });
+      unawaited(
+        remoteMediaLogService.log(
+          'lazy_load',
+          'skip remote preview prefetch during fast scrolling and defer until settled',
+          data: {
+            'focusUri': anchor.uri,
+            'speedPxPerSecond': _lastScrollSpeedPxPerSecond,
+          },
+        ),
+      );
       return;
     }
+    _deferredPrefetchTimer?.cancel();
     final entries = collection.sortedEntries;
     if (entries.isEmpty) return;
 
