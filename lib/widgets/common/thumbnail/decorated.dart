@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/props.dart';
@@ -422,22 +423,48 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           allowDownload: false,
         );
         if (remoteProtocol == RemoteProtocol.smb && existingCacheFile == null) {
-          _playRequestedForCurrentFocus = false;
-          _scheduleSmbCachedPromotion(
-            settings: settings,
-            conductor: conductor,
-            token: token,
-          );
+          File? quickCacheFile;
+          try {
+            quickCacheFile = await remoteMediaService
+                .prepareEntryForPlayback(
+                  entry,
+                  trigger: 'grid_preview_quick_cache',
+                  allowDownload: true,
+                )
+                .timeout(const Duration(milliseconds: 1200));
+          } on TimeoutException {
+            unawaited(
+              remoteMediaLogService.log(
+                'autoplay',
+                'smb quick cache wait timed out, fallback to stream autoplay',
+                data: {
+                  'uri': entry.uri,
+                },
+              ),
+            );
+          }
+          if (quickCacheFile != null) {
+            unawaited(
+              remoteMediaLogService.log(
+                'autoplay',
+                'smb quick cache ready before stream autoplay',
+                data: {
+                  'uri': entry.uri,
+                  'file': quickCacheFile.path,
+                },
+              ),
+            );
+          }
           unawaited(
             remoteMediaLogService.log(
               'autoplay',
-              'defer smb grid preview autoplay until cached media is ready',
+              'smb non-blocking stream autoplay path active',
               data: {
                 'uri': entry.uri,
+                'quickCacheReady': quickCacheFile != null,
               },
             ),
           );
-          return;
         }
       }
 
