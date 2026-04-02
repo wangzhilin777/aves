@@ -44,7 +44,7 @@ class _VideoCoverState extends State<VideoCover> {
   late ImageStreamListener _videoCoverStreamListener;
   final ValueNotifier<ImageInfo?> _videoCoverInfoNotifier = ValueNotifier(null);
   static const _remoteCoverGrace = Duration(milliseconds: 1400);
-  static const _remoteChunkedCoverDismissDelay = Duration(milliseconds: 220);
+  static const _remoteChunkedCoverDismissDelay = Duration(milliseconds: 420);
 
   AvesMagnifierController? _dismissedCoverMagnifierController;
   DateTime _coverGraceDeadline = DateTime.now().add(_remoteCoverGrace);
