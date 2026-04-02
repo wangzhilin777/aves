@@ -44,11 +44,9 @@ class _VideoCoverState extends State<VideoCover> {
   late ImageStreamListener _videoCoverStreamListener;
   final ValueNotifier<ImageInfo?> _videoCoverInfoNotifier = ValueNotifier(null);
   static const _remoteCoverGrace = Duration(milliseconds: 1400);
-  static const _remoteChunkedCoverRevealDelay = Duration(milliseconds: 260);
 
   AvesMagnifierController? _dismissedCoverMagnifierController;
   DateTime _coverGraceDeadline = DateTime.now().add(_remoteCoverGrace);
-  DateTime? _remoteChunkedCoverRevealDeadline;
 
   AvesMagnifierController get dismissedCoverMagnifierController {
     _dismissedCoverMagnifierController ??= AvesMagnifierController();
@@ -121,22 +119,7 @@ class _VideoCoverState extends State<VideoCover> {
             final isChunkedRemoteProtocol =
                 remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
             final withinRemoteCoverGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_coverGraceDeadline);
-            final shouldDelayChunkedCoverDismiss = isRemoteStream && isChunkedRemoteProtocol && videoController.isPlaying;
-            if (shouldDelayChunkedCoverDismiss) {
-              final now = DateTime.now();
-              final deadline = _remoteChunkedCoverRevealDeadline;
-              if (deadline == null || now.isAfter(deadline)) {
-                _remoteChunkedCoverRevealDeadline = now.add(_remoteChunkedCoverRevealDelay);
-                SchedulerBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) setState(() {});
-                });
-              }
-            } else {
-              _remoteChunkedCoverRevealDeadline = null;
-            }
-            final withinRemoteChunkedCoverRevealDelay =
-                _remoteChunkedCoverRevealDeadline != null && DateTime.now().isBefore(_remoteChunkedCoverRevealDeadline!);
-            final keepRemoteCoverUntilPlaying = isRemoteStream && (!videoController.isPlaying || withinRemoteChunkedCoverRevealDelay);
+            final keepRemoteCoverUntilPlaying = isRemoteStream && (isChunkedRemoteProtocol ? !hasDecodedFrame : !videoController.isPlaying);
             final showCover =
                 !videoController.isReady ||
                 !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) ||
