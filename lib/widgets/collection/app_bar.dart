@@ -5,6 +5,7 @@ import 'package:aves/app_mode.dart';
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/filters/container/dynamic_album.dart';
 import 'package:aves/model/filters/container/set_and.dart';
+import 'package:aves/model/filters/covered/remote_album.dart';
 import 'package:aves/model/filters/filters.dart';
 import 'package:aves/model/filters/query.dart';
 import 'package:aves/model/filters/trash.dart';
@@ -327,12 +328,35 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
       );
     } else {
       final appMode = context.watch<ValueNotifier<AppMode>>().value;
+      final remoteFilter = collection.filters.whereType<RemoteAlbumFilter>().firstOrNull;
+      final remoteLeaf = remoteFilter == null
+          ? null
+          : (() {
+              final parts = remoteFilter.path.split('/').where((v) => v.isNotEmpty).toList();
+              return parts.isEmpty ? '/' : parts.last;
+            })();
       Widget title = Text(
         appMode.isPickingMedia ? l10n.collectionPickPageTitle : (isTrash ? l10n.binPageTitle : l10n.collectionPageTitle),
         softWrap: false,
         overflow: TextOverflow.fade,
         maxLines: 1,
       );
+      if (remoteFilter != null) {
+        title = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            title,
+            Text(
+              '$remoteLeaf  ${remoteFilter.path}',
+              softWrap: false,
+              overflow: TextOverflow.fade,
+              maxLines: 1,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        );
+      }
       if (appMode == AppMode.main) {
         title = SourceStateAwareAppBarTitle(
           title: title,

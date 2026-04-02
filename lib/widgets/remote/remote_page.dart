@@ -27,7 +27,9 @@ class RemotePage extends StatefulWidget {
 class _RemotePageState extends State<RemotePage> with FeedbackMixin {
   bool _busy = false;
   final Map<String, int> _cacheBytesByServer = {};
+  final Map<String, int> _cacheBytesByPinnedFolder = {};
   final Set<String> _loadingCacheBytes = {};
+  final Set<String> _loadingPinnedFolderCacheBytes = {};
 
   String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
 
@@ -68,29 +70,57 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
                 _ensureCacheBytes(server.id);
                 final bytes = _cacheBytesByServer[server.id] ?? 0;
                 final cacheText = formatFileSize(context.locale, bytes, round: 1);
-                return ListTile(
+                final pinnedFolders = settings.remotePinnedFolders.where((v) => v.serverId == server.id).toList()
+                  ..sort((a, b) => a.path.compareTo(b.path));
+                return ExpansionTile(
                   leading: const Icon(AIcons.storageMain),
                   title: Text(server.name),
                   subtitle: Text('${_subtitle(context, server)}\n${_tr(context, 'Cache', '缓存')}: $cacheText'),
-                  isThreeLine: true,
-                  onTap: () {
-                    Navigator.maybeOf(context)?.push(
-                      MaterialPageRoute(
-                        settings: const RouteSettings(name: RemoteBrowserPage.routeName),
-                        builder: (_) => RemoteBrowserPage(server: server),
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  children: [
+                    ListTile(
+                      leading: const Icon(AIcons.folder),
+                      title: Text(_tr(context, 'Browse / Manage', '浏览与管理')),
+                      onTap: () {
+                        Navigator.maybeOf(context)?.push(
+                          MaterialPageRoute(
+                            settings: const RouteSettings(name: RemoteBrowserPage.routeName),
+                            builder: (_) => RemoteBrowserPage(server: server),
+                          ),
+                        );
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(AIcons.pin),
+                      title: Text(_tr(context, 'Select folder for albums', '选择文件夹加入相册')),
+                      onTap: () => _onServerAction(server, 'select_folder'),
+                    ),
+                    ListTile(
+                      leading: const Icon(AIcons.image),
+                      title: Text(_tr(context, 'Remote album list (${0})', '远程相册列表（${0}）').replaceFirst('{0}', '${pinnedFolders.length}')),
+                      subtitle: Text(_tr(context, 'Connection -> Folder -> Actions', '连接 -> 目录 -> 操作')),
+                    ),
+                    if (pinnedFolders.isEmpty)
+                      ListTile(
+                        dense: true,
+                        leading: const SizedBox(width: 20),
+                        title: Text(_tr(context, 'No pinned folder', '暂无已加入目录')),
                       ),
-                    );
-                  },
-                  trailing: PopupMenuButton<String>(
-                    onSelected: (action) => _onServerAction(server, action),
-                    itemBuilder: (context) => [
-                      PopupMenuItem(value: 'edit', child: Text(_tr(context, 'Edit', '编辑'))),
-                      PopupMenuItem(value: 'select_folder', child: Text(_tr(context, 'Select folder for albums', '选择文件夹加入相册'))),
-                      PopupMenuItem(value: 'test', child: Text(_tr(context, 'Test Connection', '测试连接'))),
-                      PopupMenuItem(value: 'clear_cache', child: Text(_tr(context, 'Clear Cache', '清理缓存'))),
-                      PopupMenuItem(value: 'delete', child: Text(_tr(context, 'Delete', '删除'))),
-                    ],
-                  ),
+                    ...pinnedFolders.map((folder) => _buildPinnedFolderTile(server, folder)),
+                    ListTile(
+                      leading: const Icon(AIcons.more),
+                      title: Text(_tr(context, 'More connection actions', '连接更多操作')),
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (action) => _onServerAction(server, action),
+                        itemBuilder: (context) => [
+                          PopupMenuItem(value: 'edit', child: Text(_tr(context, 'Edit', '编辑'))),
+                          PopupMenuItem(value: 'test', child: Text(_tr(context, 'Test Connection', '测试连接'))),
+                          PopupMenuItem(value: 'clear_cache', child: Text(_tr(context, 'Clear Cache', '清理缓存'))),
+                          PopupMenuItem(value: 'delete', child: Text(_tr(context, 'Delete', '删除'))),
+                        ],
+                      ),
+                    ),
+                  ],
                 );
               },
             );
@@ -150,6 +180,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
           settings.remoteServers = settings.remoteServers.where((v) => v.id != server.id).toList();
           settings.remotePinnedFolders = settings.remotePinnedFolders.where((v) => v.serverId != server.id).toList();
           _cacheBytesByServer.remove(server.id);
+          _cacheBytesByPinnedFolder.removeWhere((k, _) => k.startsWith('${server.id}|'));
           await remoteMediaLogService.log('remote_load', 'deleted server', data: {'server': server.name});
           if (mounted) {
             setState(() {});
@@ -190,6 +221,105 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
     for (final server in settings.remoteServers) {
       _ensureCacheBytes(server.id, force: true);
     }
+  }
+
+  Widget _buildPinnedFolderTile(RemoteServer server, RemotePinnedFolder folder) {
+    final key = '${server.id}|${folder.path}';
+    final cacheBytes = _cacheBytesByPinnedFolder[key];
+    final cacheText = cacheBytes == null
+        ? _tr(context, 'Tap menu to load cache size', '点菜单加载缓存大小')
+        : formatFileSize(context.locale, cacheBytes, round: 1);
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: 20),
+      child: ListTile(
+        dense: true,
+        leading: const Icon(AIcons.folder),
+        title: Text(_leafName(folder.path)),
+        subtitle: Text('${folder.path}\n${_tr(context, 'Cache', '缓存')}: $cacheText'),
+        isThreeLine: true,
+        trailing: PopupMenuButton<String>(
+          onSelected: (action) => _onPinnedFolderAction(server, folder, action),
+          itemBuilder: (context) => [
+            PopupMenuItem(value: 'open', child: Text(_tr(context, 'Open folder', '打开目录'))),
+            PopupMenuItem(value: 'refresh_cache', child: Text(_tr(context, 'Refresh cache size', '刷新缓存大小'))),
+            PopupMenuItem(value: 'clear_cache', child: Text(_tr(context, 'Clear folder cache', '清理目录缓存'))),
+            PopupMenuItem(value: 'remove', child: Text(_tr(context, 'Remove from albums', '从相册移除'))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _onPinnedFolderAction(RemoteServer server, RemotePinnedFolder folder, String action) async {
+    switch (action) {
+      case 'open':
+        await Navigator.maybeOf(context)?.push(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: RemoteBrowserPage.routeName),
+            builder: (_) => RemoteBrowserPage(
+              server: server,
+              initialPath: folder.path,
+              albumSelectionMode: true,
+            ),
+          ),
+        );
+      case 'refresh_cache':
+        await _refreshPinnedFolderCacheBytes(server: server, folderPath: folder.path, force: true);
+        if (mounted) setState(() {});
+      case 'clear_cache':
+        final cleared = await remoteMediaService.clearPinnedFolderCache(server: server, folderPath: folder.path);
+        if (cleared) {
+          _cacheBytesByPinnedFolder['${server.id}|${folder.path}'] = 0;
+          _ensureCacheBytes(server.id, force: true);
+        }
+        if (mounted) {
+          showFeedback(
+            context,
+            cleared ? FeedbackType.info : FeedbackType.warn,
+            cleared ? _tr(context, 'Folder cache cleared', '目录缓存已清理') : _tr(context, 'Failed to clear folder cache', '目录缓存清理失败'),
+          );
+          setState(() {});
+        }
+      case 'remove':
+        final cleared = await remoteMediaService.clearPinnedFolderCache(server: server, folderPath: folder.path);
+        settings.remotePinnedFolders = settings.remotePinnedFolders.where((v) => !(v.serverId == server.id && v.path == folder.path)).toList();
+        _cacheBytesByPinnedFolder.remove('${server.id}|${folder.path}');
+        _ensureCacheBytes(server.id, force: true);
+        if (mounted) {
+          showFeedback(
+            context,
+            FeedbackType.info,
+            cleared ? _tr(context, 'Removed and cache cleared', '已移除并清理缓存') : _tr(context, 'Removed from albums', '已从相册移除'),
+          );
+          setState(() {});
+        }
+    }
+  }
+
+  Future<void> _refreshPinnedFolderCacheBytes({
+    required RemoteServer server,
+    required String folderPath,
+    bool force = false,
+  }) async {
+    final key = '${server.id}|$folderPath';
+    if (!force && _cacheBytesByPinnedFolder.containsKey(key)) return;
+    if (_loadingPinnedFolderCacheBytes.contains(key)) return;
+    _loadingPinnedFolderCacheBytes.add(key);
+    try {
+      final bytes = await remoteMediaService.getPinnedFolderCacheBytes(
+        server: server,
+        folderPath: folderPath,
+      );
+      if (!mounted) return;
+      _cacheBytesByPinnedFolder[key] = bytes;
+    } finally {
+      _loadingPinnedFolderCacheBytes.remove(key);
+    }
+  }
+
+  String _leafName(String path) {
+    final parts = path.split('/').where((v) => v.isNotEmpty).toList();
+    return parts.isEmpty ? '/' : parts.last;
   }
 
   void _ensureCacheBytes(String serverId, {bool force = false}) {

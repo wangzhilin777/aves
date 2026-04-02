@@ -54,6 +54,7 @@ import 'package:aves/widgets/viewer/video/conductor.dart';
 import 'package:aves_model/aves_model.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:intl/intl.dart';
@@ -342,6 +343,9 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   DateTime _lastKeepFocusLogAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastKeepFocusLogUri;
   double? _lastScrollOffset;
+  DateTime? _lastScrollSampleAt;
+  double _lastScrollSpeedPxPerSecond = 0;
+  DateTime _lastSlowScrollAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime? _initialFocusLockUntil;
   String? _initialFocusLockedUri;
   double? _initialFocusLockOffset;
@@ -433,8 +437,23 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     final maxScrollExtent = scrollController.position.maxScrollExtent;
     final currentOffset = scrollController.offset;
     final previousOffset = _lastScrollOffset ?? currentOffset;
-    final scrollingTowardBottom = currentOffset > previousOffset;
+    final userDirection = scrollController.hasClients ? scrollController.position.userScrollDirection : ScrollDirection.idle;
+    final scrollingTowardBottom = userDirection == ScrollDirection.reverse || (userDirection == ScrollDirection.idle && currentOffset > previousOffset);
     _lastScrollOffset = currentOffset;
+    final now = DateTime.now();
+    final sampleAt = _lastScrollSampleAt;
+    if (sampleAt != null) {
+      final dtMs = now.difference(sampleAt).inMilliseconds;
+      if (dtMs > 0) {
+        _lastScrollSpeedPxPerSecond = ((currentOffset - previousOffset).abs() * 1000) / dtMs;
+      }
+      if (_lastScrollSpeedPxPerSecond < 900 || !widget.isScrollingNotifier.value) {
+        _lastSlowScrollAt = now;
+      }
+    } else {
+      _lastSlowScrollAt = now;
+    }
+    _lastScrollSampleAt = now;
     if (_initialFocusLockOffset != null && (currentOffset - _initialFocusLockOffset!).abs() > 24) {
       _initialFocusLockUntil = null;
       _initialFocusLockedUri = null;
@@ -686,6 +705,11 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
 
   Future<void> _prefetchRemoteWindow(AvesEntry? anchor) async {
     if (anchor == null || !mounted) return;
+    final now = DateTime.now();
+    final fastScrollRecently = widget.isScrollingNotifier.value && _lastScrollSpeedPxPerSecond >= 1400 && now.difference(_lastSlowScrollAt).inMilliseconds < 420;
+    if (fastScrollRecently) {
+      return;
+    }
     final entries = collection.sortedEntries;
     if (entries.isEmpty) return;
 
@@ -705,7 +729,6 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     }
     if (candidates.isEmpty) return;
     final signature = '$focusIndex:${candidates.map((e) => e.uri).join('|')}';
-    final now = DateTime.now();
     final duplicated = signature == _lastPrefetchSignature && now.difference(_lastPrefetchAt).inMilliseconds < 1500;
     if (duplicated) return;
     _lastPrefetchSignature = signature;
@@ -730,6 +753,21 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       if (file != null) {
         collection.source.onAspectRatioChanged();
       }
+    }
+
+    AvesEntry? nextVideo;
+    for (var i = focusIndex + 1; i < entries.length; i++) {
+      final candidate = entries[i];
+      if (!candidate.isVideo) continue;
+      if (!remoteMediaService.hasVirtualRemoteRef(candidate.uri)) continue;
+      nextVideo = candidate;
+      break;
+    }
+    if (nextVideo != null) {
+      await remoteMediaService.prepareInitialStreamPlaybackForEntry(
+        nextVideo,
+        trigger: 'collection_focus_next_video_warmup',
+      );
     }
   }
 }

@@ -644,6 +644,7 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
     final pinned = _isPathPinned(path);
     if (pinned) {
       settings.remotePinnedFolders = all.where((v) => !(v.serverId == widget.server.id && v.path == path)).toList();
+      await _service.clearPinnedFolderCache(server: widget.server, folderPath: path);
       await remoteMediaLogService.log('remote_load', 'unpinned folder', data: {'server': widget.server.name, 'path': path});
     } else {
       final parts = path.split('/').where((v) => v.isNotEmpty).toList();

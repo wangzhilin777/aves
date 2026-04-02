@@ -94,6 +94,7 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver {
   bool _profileSwitchPermissionRequested = false;
 
   CollectionLens? get currentCollection => widget.currentCollection;
+  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
 
   @override
   void initState() {
@@ -471,20 +472,43 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver {
       );
     }
 
+    final grouped = <RemoteServer, List<RemotePinnedFolder>>{};
+    for (final folder in items) {
+      final server = servers.byId(folder.serverId);
+      if (server == null) continue;
+      grouped.putIfAbsent(server, () => []).add(folder);
+    }
+    for (final list in grouped.values) {
+      list.sort((a, b) => a.path.compareTo(b.path));
+    }
+
     return [
       const Divider(),
-      ...items.map((folder) {
-        final server = servers.byId(folder.serverId);
-        final pathParts = folder.path.split('/').where((v) => v.isNotEmpty).toList();
-        final leafName = pathParts.isEmpty ? '/' : pathParts.last;
-        final title = server == null ? leafName : '${server.name}:$leafName';
-        return ListTile(
-          leading: const Icon(AIcons.storageMain),
-          title: Text(title),
-          subtitle: Text(folder.path),
-          onTap: () => goToPinned(folder),
-        );
-      }),
+      ExpansionTile(
+        leading: const Icon(AIcons.storageMain),
+        title: Text(_tr(context, 'Remote Albums', '远程相册列表')),
+        subtitle: Text(_tr(context, 'Connection -> Folder', '连接 -> 文件夹')),
+        children: grouped.entries.map((entry) {
+          final server = entry.key;
+          final folders = entry.value;
+          return ExpansionTile(
+            leading: const Icon(AIcons.storageMain),
+            title: Text(server.name),
+            subtitle: Text(_tr(context, '${folders.length} folders', '${folders.length} 个目录')),
+            children: folders.map((folder) {
+              final pathParts = folder.path.split('/').where((v) => v.isNotEmpty).toList();
+              final leafName = pathParts.isEmpty ? '/' : pathParts.last;
+              return ListTile(
+                dense: true,
+                leading: const Icon(AIcons.folder),
+                title: Text(leafName),
+                subtitle: Text(folder.path),
+                onTap: () => goToPinned(folder),
+              );
+            }).toList(),
+          );
+        }).toList(),
+      ),
     ];
   }
 

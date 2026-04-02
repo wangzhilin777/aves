@@ -824,6 +824,60 @@ class RemoteMediaService {
     }
   }
 
+  Future<int> getPinnedFolderCacheBytes({
+    required RemoteServer server,
+    required String folderPath,
+  }) async {
+    final files = await _collectCacheFilesForPinnedFolder(server: server, folderPath: folderPath);
+    var bytes = 0;
+    for (final file in files) {
+      try {
+        bytes += await file.length();
+      } catch (_) {}
+    }
+    return bytes;
+  }
+
+  Future<bool> clearPinnedFolderCache({
+    required RemoteServer server,
+    required String folderPath,
+  }) async {
+    try {
+      final files = await _collectCacheFilesForPinnedFolder(server: server, folderPath: folderPath);
+      var deleted = 0;
+      for (final file in files) {
+        try {
+          if (await file.exists()) {
+            await file.delete();
+            deleted++;
+          }
+        } catch (_) {}
+      }
+      await remoteMediaLogService.log(
+        'cache',
+        'cleared pinned folder cache',
+        data: {
+          'server': server.name,
+          'path': folderPath,
+          'deletedCount': deleted,
+        },
+      );
+      return true;
+    } catch (error, stack) {
+      await remoteMediaLogService.log(
+        'cache',
+        'failed to clear pinned folder cache',
+        data: {
+          'server': server.name,
+          'path': folderPath,
+          'error': '$error',
+        },
+      );
+      await reportService.recordError(error, stack);
+      return false;
+    }
+  }
+
   Future<RemoteConnectionTestResult> testConnection(RemoteServer server) async {
     switch (server.protocol) {
       case RemoteProtocol.webdav:
@@ -3019,11 +3073,11 @@ class RemoteMediaService {
     return File('${cacheDir.path}${Platform.pathSeparator}${_buildCacheFileName(node.name, cacheKey)}');
   }
 
-  Future<Directory> _getStreamChunkDirectory(RemoteServer server, RemoteBrowseNode node) async {
+  Future<Directory> _getStreamChunkDirectory(RemoteServer server, RemoteBrowseNode node, {bool createIfMissing = true}) async {
     final cacheDir = await getConnectionCacheDirectory(server.id);
     final chunkKey = _stableCacheKey('${server.id}|${node.path}|chunks_v$_streamChunkCacheVersion');
     final dir = Directory('${cacheDir.path}${Platform.pathSeparator}.chunks_$chunkKey');
-    if (!await dir.exists()) {
+    if (createIfMissing && !await dir.exists()) {
       await dir.create(recursive: true);
     }
     return dir;
@@ -3039,7 +3093,7 @@ class RemoteMediaService {
   }
 
   Future<List<File>> _listStreamChunkFiles(RemoteServer server, RemoteBrowseNode node) async {
-    final dir = await _getStreamChunkDirectory(server, node);
+    final dir = await _getStreamChunkDirectory(server, node, createIfMissing: false);
     if (!await dir.exists()) return const [];
     final files = <File>[];
     await for (final entity in dir.list(followLinks: false)) {
@@ -3273,9 +3327,15 @@ class RemoteMediaService {
           await fullFile.delete();
         }
         await tempFile.rename(fullFile.path);
+        final chunkDir = await _getStreamChunkDirectory(server, node, createIfMissing: false);
+        if (await chunkDir.exists()) {
+          try {
+            await chunkDir.delete(recursive: true);
+          } catch (_) {}
+        }
         await remoteMediaLogService.log(
           'cache',
-          'merged complete remote stream chunks into full cache file',
+          'merged complete remote stream chunks into full cache file and pruned chunk cache',
           data: {
             'server': server.name,
             'path': node.path,
@@ -3367,4 +3427,61 @@ class RemoteMediaService {
     '.m4v': MimeTypes.mp4,
     '.ts': MimeTypes.mp2t,
   };
+
+  Future<Set<File>> _collectCacheFilesForPinnedFolder({
+    required RemoteServer server,
+    required String folderPath,
+  }) async {
+    final mediaNodes = await _collectMediaNodesRecursively(server: server, folderPath: folderPath);
+    final files = <File>{};
+    for (final node in mediaNodes) {
+      final cacheFile = await _buildCacheFile(server, node);
+      if (await cacheFile.exists()) files.add(cacheFile);
+
+      final legacy = await _buildLegacyCacheFile(server, node);
+      if (await legacy.exists()) files.add(legacy);
+
+      final chunkDir = await _getStreamChunkDirectory(server, node, createIfMissing: false);
+      if (await chunkDir.exists()) {
+        await for (final entity in chunkDir.list(recursive: true, followLinks: false)) {
+          if (entity is File) files.add(entity);
+        }
+      }
+    }
+    return files;
+  }
+
+  Future<List<RemoteBrowseNode>> _collectMediaNodesRecursively({
+    required RemoteServer server,
+    required String folderPath,
+  }) async {
+    final mediaNodes = <RemoteBrowseNode>[];
+    final queue = <String>[_normalizePath(folderPath)];
+    final visited = <String>{};
+    while (queue.isNotEmpty) {
+      final currentPath = queue.removeLast();
+      if (!visited.add(currentPath)) continue;
+      final page = await loadFolder(server: server, path: currentPath, force: true);
+      for (final node in page.children) {
+        if (node.isDirectory) {
+          queue.add(node.path);
+        } else {
+          mediaNodes.add(node);
+        }
+      }
+      if (mediaNodes.length > 20000) {
+        await remoteMediaLogService.log(
+          'cache',
+          'stop recursive cache scan because node count limit reached',
+          data: {
+            'server': server.name,
+            'path': folderPath,
+            'count': mediaNodes.length,
+          },
+        );
+        break;
+      }
+    }
+    return mediaNodes;
+  }
 }
