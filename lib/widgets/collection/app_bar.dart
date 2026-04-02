@@ -15,6 +15,7 @@ import 'package:aves/model/settings/enums/accessibility_animations.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/model/source/collection_lens.dart';
 import 'package:aves/model/source/collection_source.dart';
+import 'package:aves/services/common/services.dart';
 import 'package:aves/theme/durations.dart';
 import 'package:aves/theme/icons.dart';
 import 'package:aves/theme/themes.dart';
@@ -329,10 +330,19 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
     } else {
       final appMode = context.watch<ValueNotifier<AppMode>>().value;
       final remoteFilter = collection.filters.whereType<RemoteAlbumFilter>().firstOrNull;
-      final remoteLeaf = remoteFilter == null
+      String? remotePath;
+      if (remoteFilter != null) {
+        remotePath = remoteFilter.path;
+      } else {
+        final fixedFirst = collection.fixedSelection?.firstOrNull;
+        if (fixedFirst != null) {
+          remotePath = remoteMediaService.getVirtualRemoteRef(fixedFirst.uri)?.$2.path;
+        }
+      }
+      final remoteLeaf = remotePath == null
           ? null
           : (() {
-              final parts = remoteFilter.path.split('/').where((v) => v.isNotEmpty).toList();
+              final parts = remotePath!.split('/').where((v) => v.isNotEmpty).toList();
               return parts.isEmpty ? '/' : parts.last;
             })();
       Widget title = Text(
@@ -341,14 +351,14 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
         overflow: TextOverflow.fade,
         maxLines: 1,
       );
-      if (remoteFilter != null) {
+      if (remotePath != null) {
         title = Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             title,
             Text(
-              '$remoteLeaf  ${remoteFilter.path}',
+              '$remoteLeaf  $remotePath',
               softWrap: false,
               overflow: TextOverflow.fade,
               maxLines: 1,
