@@ -9,11 +9,13 @@ import 'package:flutter/material.dart';
 class VideoView extends StatefulWidget {
   final AvesEntry entry;
   final AvesVideoController controller;
+  final bool preferStableRemoteInit;
 
   const VideoView({
     super.key,
     required this.entry,
     required this.controller,
+    this.preferStableRemoteInit = false,
   });
 
   @override
@@ -75,7 +77,7 @@ class _VideoViewState extends State<VideoView> {
             controller.isPlaying || controller.isReady || (hasDecodedFrame && !isChunkedRemoteProtocol);
         final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
         final shouldKeepPlayerHiddenDuringChunkedInit =
-            isRemoteStream && isChunkedRemoteProtocol && !controller.isPlaying && !controller.isReady;
+            widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && !controller.isPlaying && !controller.isReady;
         if (shouldKeepPlayerHiddenDuringChunkedInit) {
           return const ColoredBox(color: Colors.transparent);
         }
@@ -105,7 +107,7 @@ class _VideoViewState extends State<VideoView> {
         }
         _loggedSoftErrorRender = false;
         if (status == VideoStatus.idle) return const SizedBox();
-        if (isChunkedRemoteProtocol && !controller.isPlaying && !controller.isReady) {
+        if (widget.preferStableRemoteInit && isChunkedRemoteProtocol && !controller.isPlaying && !controller.isReady) {
           return const ColoredBox(color: Colors.transparent);
         }
         return controller.buildPlayerWidget(context);

@@ -335,6 +335,7 @@ class _EntryPageViewState extends State<EntryPageView> with TickerProviderStateM
                       child: VideoView(
                         entry: entry,
                         controller: videoController,
+                        preferStableRemoteInit: true,
                       ),
                     ),
                     VideoSubtitles(
