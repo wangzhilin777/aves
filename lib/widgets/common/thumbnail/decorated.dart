@@ -150,6 +150,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   String? _lastDecisionKey;
   String? _lastSmbFallbackAttemptUri;
   String? _lastSmbPromotionUri;
+  int? _lastSmbPromotionToken;
   String? _lastSmbVisualRecoveryUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
@@ -253,8 +254,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     required VideoConductor conductor,
     required int token,
   }) {
-    if (_lastSmbPromotionUri == entry.uri) return;
+    if (_lastSmbPromotionUri == entry.uri && _lastSmbPromotionToken == token) return;
     _lastSmbPromotionUri = entry.uri;
+    _lastSmbPromotionToken = token;
     unawaited(() async {
       final cachedFile = await remoteMediaService.prepareEntryForPlayback(
         entry,
@@ -262,11 +264,21 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         allowDownload: true,
       );
       if (cachedFile == null || !mounted || token != _playToken || !isCurrent) {
+        if (_lastSmbPromotionUri == entry.uri && _lastSmbPromotionToken == token) {
+          _lastSmbPromotionUri = null;
+          _lastSmbPromotionToken = null;
+        }
         return;
       }
       try {
         final fallbackController = await conductor.getOrCreateController(entry, maxControllerCount: 2);
-        if (!mounted || token != _playToken || !isCurrent) return;
+        if (!mounted || token != _playToken || !isCurrent) {
+          if (_lastSmbPromotionUri == entry.uri && _lastSmbPromotionToken == token) {
+            _lastSmbPromotionUri = null;
+            _lastSmbPromotionToken = null;
+          }
+          return;
+        }
         _setController(fallbackController);
         if (mounted) setState(() {});
         try {
@@ -284,6 +296,10 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           },
         );
       } catch (error) {
+        if (_lastSmbPromotionUri == entry.uri && _lastSmbPromotionToken == token) {
+          _lastSmbPromotionUri = null;
+          _lastSmbPromotionToken = null;
+        }
         await remoteMediaLogService.log(
           'autoplay',
           'grid preview smb cached promotion failed',
@@ -377,6 +393,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           );
         }
         _lastSmbPromotionUri = null;
+        _lastSmbPromotionToken = null;
         _lastSmbVisualRecoveryUri = null;
         _lastSmbFallbackAttemptUri = null;
         _playRequestedForCurrentFocus = false;
