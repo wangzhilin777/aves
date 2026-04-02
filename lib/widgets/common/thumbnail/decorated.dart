@@ -216,8 +216,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final controller = _controller;
     if (!mounted || controller == null) return;
     final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
-    final hasDecodedFrame = controller.decodedVideoSizeNotifier.value != null;
-    final canReveal = isCurrent && (keepLastFrameVisible || (controller.isPlaying && hasDecodedFrame));
+    final canReveal = isCurrent && (keepLastFrameVisible || controller.isPlaying);
     if (!canReveal) {
       _videoSurfaceRevealTimer?.cancel();
       _videoSurfaceRevealTimer = null;
@@ -232,8 +231,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final activeController = _controller;
       if (!mounted || activeController == null) return;
       final activeKeepLastFrameVisible = activeController.status == VideoStatus.paused || activeController.status == VideoStatus.completed;
-      final activeHasDecodedFrame = activeController.decodedVideoSizeNotifier.value != null;
-      final shouldReveal = isCurrent && (activeKeepLastFrameVisible || (activeController.isPlaying && activeHasDecodedFrame));
+      final shouldReveal = isCurrent && (activeKeepLastFrameVisible || activeController.isPlaying);
       if (!shouldReveal || _videoSurfaceVisible) return;
       setState(() => _videoSurfaceVisible = true);
     });
