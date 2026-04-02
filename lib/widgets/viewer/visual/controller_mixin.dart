@@ -6,6 +6,7 @@ import 'package:aves/model/device.dart';
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/multipage.dart';
 import 'package:aves/model/entry/extensions/props.dart';
+import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/theme/durations.dart';
@@ -145,10 +146,11 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
   Future<void> _initVideoController(AvesEntry entry) async {
     await remoteMediaService.ensureEntryMetadata(entry, trigger: 'viewer_init');
+    final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
     await remoteMediaService.prepareEntryForPlayback(
       entry,
       trigger: 'viewer_init',
-      allowDownload: true,
+      allowDownload: remoteProtocol != RemoteProtocol.smb,
     );
     if (entry.uri.startsWith('http://') || entry.uri.startsWith('https://')) {
       unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init'));
