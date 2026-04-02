@@ -80,9 +80,11 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
 
   CollectionSource get source => collection.source;
 
-  Set<CollectionFilter> get visibleFilters => collection.filters.where((v) => !(v is QueryFilter && v.live) && v is! TrashFilter).toSet();
+  Set<CollectionFilter> get visibleFilters => collection.filters.where((v) => !(v is QueryFilter && v.live) && v is! TrashFilter && v is! RemoteAlbumFilter).toSet();
 
   bool get showFilterBar => visibleFilters.isNotEmpty;
+
+  static const double _remoteContextLineHeight = 20;
 
   static const _sortOptions = [
     EntrySortFactor.date,
@@ -219,6 +221,20 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
                     actions: (context, maxWidth) => useTvLayout ? [] : _buildActions(context, selection, maxWidth),
                     bottom: Column(
                       children: [
+                        if (_remoteContextLabel != null)
+                          Padding(
+                            padding: const EdgeInsetsDirectional.only(start: 56, end: 16, top: 2, bottom: 4),
+                            child: Align(
+                              alignment: AlignmentDirectional.centerStart,
+                              child: Text(
+                                _remoteContextLabel!,
+                                softWrap: false,
+                                overflow: TextOverflow.fade,
+                                maxLines: 1,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ),
+                          ),
                         if (useTvLayout)
                           SizedBox(
                             height: CaptionedButton.getTelevisionButtonHeight(context),
@@ -273,6 +289,9 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
   double get appBarContentHeight {
     final textScaler = MediaQuery.textScalerOf(context);
     double height = textScaler.scale(kToolbarHeight);
+    if (_remoteContextLabel != null) {
+      height += _remoteContextLineHeight;
+    }
     if (settings.useTvLayout) {
       height += CaptionedButton.getTelevisionButtonHeight(context);
     }
@@ -329,58 +348,12 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
       );
     } else {
       final appMode = context.watch<ValueNotifier<AppMode>>().value;
-      final remoteFilter = collection.filters.whereType<RemoteAlbumFilter>().firstOrNull;
-      var remotePath = collection.remotePathHint ?? '';
-      if (remoteFilter != null) {
-        remotePath = remoteFilter.path;
-      }
-      if (remotePath.isEmpty) {
-        final routeArgs = ModalRoute.of(context)?.settings.arguments;
-        if (routeArgs is Map && routeArgs['remotePath'] is String) {
-          final routePath = routeArgs['remotePath'] as String;
-          if (routePath.isNotEmpty) {
-            remotePath = routePath;
-          }
-        }
-      }
-      if (remotePath.isEmpty) {
-        final fixedFirst = collection.fixedSelection?.firstOrNull;
-        if (fixedFirst != null) {
-          final path = remoteMediaService.getVirtualRemoteRef(fixedFirst.uri)?.$2.path;
-          if (path != null && path.isNotEmpty) {
-            remotePath = path;
-          }
-        }
-      }
-      final hasRemotePath = remotePath.isNotEmpty;
-      final remoteLeaf = hasRemotePath
-          ? (() {
-              final parts = remotePath.split('/').where((v) => v.isNotEmpty).toList();
-              return parts.isEmpty ? '/' : parts.last;
-            })()
-          : null;
       Widget title = Text(
         appMode.isPickingMedia ? l10n.collectionPickPageTitle : (isTrash ? l10n.binPageTitle : l10n.collectionPageTitle),
         softWrap: false,
         overflow: TextOverflow.fade,
         maxLines: 1,
       );
-      if (hasRemotePath) {
-        title = Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            title,
-            Text(
-              '$remoteLeaf  $remotePath',
-              softWrap: false,
-              overflow: TextOverflow.fade,
-              maxLines: 1,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        );
-      }
       if (appMode == AppMode.main) {
         title = SourceStateAwareAppBarTitle(
           title: title,
@@ -392,6 +365,35 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
         child: title,
       );
     }
+  }
+
+  String? get _remoteContextLabel {
+    final remoteFilter = collection.filters.whereType<RemoteAlbumFilter>().firstOrNull;
+    final routeArgs = ModalRoute.of(context)?.settings.arguments;
+    final routeMap = routeArgs is Map ? routeArgs : null;
+
+    var remotePath = collection.remotePathHint ?? remoteFilter?.path ?? '';
+    if (remotePath.isEmpty && routeMap?['remotePath'] is String) {
+      remotePath = routeMap!['remotePath'] as String;
+    }
+    if (remotePath.isEmpty) {
+      final fixedFirst = collection.fixedSelection?.firstOrNull;
+      if (fixedFirst != null) {
+        final path = remoteMediaService.getVirtualRemoteRef(fixedFirst.uri)?.$2.path;
+        if (path != null && path.isNotEmpty) {
+          remotePath = path;
+        }
+      }
+    }
+    if (remotePath.isEmpty) return null;
+
+    final parts = remotePath.split('/').where((v) => v.isNotEmpty).toList();
+    final leaf = parts.isEmpty ? '/' : parts.last;
+    final routeTitle = routeMap?['remoteTitle'];
+    final rawLabel = routeTitle is String && routeTitle.isNotEmpty ? routeTitle : (remoteFilter?.title ?? leaf);
+    final numericOnly = RegExp(r'^-?\d+$').hasMatch(rawLabel.trim());
+    final label = numericOnly ? leaf : rawLabel;
+    return '$label  $remotePath';
   }
 
   List<Widget> _buildActions(BuildContext context, Selection<AvesEntry> selection, double maxWidth) {

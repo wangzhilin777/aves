@@ -1,4 +1,6 @@
 import 'package:aves/model/entry/entry.dart';
+import 'package:aves/model/entry/extensions/props.dart';
+import 'package:aves/model/entry/origins.dart';
 import 'package:aves/model/source/collection_source.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/utils/android_file_utils.dart';
@@ -29,7 +31,8 @@ class Favourites with ChangeNotifier {
   FavouriteRow _entryToRow(AvesEntry entry) => FavouriteRow(entryId: entry.id);
 
   Future<void> add(Set<AvesEntry> entries) async {
-    final newRows = entries.map(_entryToRow).toSet();
+    final expandedEntries = await _expandEntriesWithRemoteCacheAliases(entries);
+    final newRows = expandedEntries.map(_entryToRow).toSet();
 
     await localMediaDb.addFavourites(newRows);
     _rows.addAll(newRows);
@@ -37,7 +40,10 @@ class Favourites with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> removeEntries(Set<AvesEntry> entries) => removeIds(entries.map((entry) => entry.id).toSet());
+  Future<void> removeEntries(Set<AvesEntry> entries) async {
+    final expandedEntries = await _expandEntriesWithRemoteCacheAliases(entries);
+    await removeIds(expandedEntries.map((entry) => entry.id).toSet());
+  }
 
   Future<void> removeIds(Set<int> entryIds) async {
     final removedRows = _rows.where((row) => entryIds.contains(row.entryId)).toSet();
@@ -53,6 +59,20 @@ class Favourites with ChangeNotifier {
     _rows.clear();
 
     notifyListeners();
+  }
+
+  Future<Set<AvesEntry>> _expandEntriesWithRemoteCacheAliases(Set<AvesEntry> entries) async {
+    if (entries.isEmpty) return entries;
+
+    final remoteCachedPaths = entries.where((entry) => entry.isRemoteCachedMedia).map((entry) => entry.path).nonNulls.toSet();
+    if (remoteCachedPaths.isEmpty) return entries;
+
+    final scannedEntries = await localMediaDb.loadEntries(origin: EntryOrigins.mediaStoreContent);
+    final aliases = scannedEntries.where((entry) => entry.path != null && remoteCachedPaths.contains(entry.path)).toSet();
+    return {
+      ...entries,
+      ...aliases,
+    };
   }
 
   // import/export
