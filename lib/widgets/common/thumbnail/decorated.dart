@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/props.dart';
+import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/theme/icons.dart';
@@ -145,6 +146,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   bool _autoPlayInFlight = false;
   String? _lastAutoPlayUri;
   String? _lastDecisionKey;
+  String? _lastSmbFallbackAttemptUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
   final Map<String, int> _lastAutoPlayErrorAtMillisByUri = {};
@@ -341,14 +343,64 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       if (mounted && token == _playToken && isCurrent && !controller.isPlaying && controller.status != VideoStatus.error) {
         await controller.play();
       } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error) {
-        _lastAutoPlayErrorAtMillisByUri[entry.uri] = DateTime.now().millisecondsSinceEpoch;
-        unawaited(
-          remoteMediaLogService.log(
-            'autoplay',
-            'grid preview stream failed with error status',
-            data: {'uri': entry.uri},
-          ),
-        );
+        final failedUri = entry.uri;
+        final canTrySmbFallback = remoteProtocol == RemoteProtocol.smb && _lastSmbFallbackAttemptUri != failedUri;
+        var recovered = false;
+        if (canTrySmbFallback) {
+          _lastSmbFallbackAttemptUri = failedUri;
+          final cachedFile = await remoteMediaService.prepareEntryForPlayback(
+            entry,
+            trigger: 'grid_preview_error_fallback',
+            allowDownload: true,
+          );
+          if (cachedFile != null && mounted && token == _playToken && isCurrent) {
+            try {
+              final fallbackController = await conductor.getOrCreateController(entry, maxControllerCount: 2);
+              if (mounted && token == _playToken && isCurrent) {
+                _controller = fallbackController;
+                if (mounted) setState(() {});
+                try {
+                  await fallbackController.untilReady.timeout(const Duration(milliseconds: 1500));
+                } catch (_) {}
+                await conductor.pauseOthers(fallbackController);
+                await fallbackController.mute(_shouldMute(settings));
+                await fallbackController.play();
+                recovered = true;
+                unawaited(
+                  remoteMediaLogService.log(
+                    'autoplay',
+                    'grid preview recovered with smb cached file fallback',
+                    data: {
+                      'uri': entry.uri,
+                      'file': cachedFile.path,
+                    },
+                  ),
+                );
+              }
+            } catch (error) {
+              unawaited(
+                remoteMediaLogService.log(
+                  'autoplay',
+                  'grid preview smb cached file fallback failed',
+                  data: {
+                    'uri': entry.uri,
+                    'error': '$error',
+                  },
+                ),
+              );
+            }
+          }
+        }
+        if (!recovered) {
+          _lastAutoPlayErrorAtMillisByUri[failedUri] = DateTime.now().millisecondsSinceEpoch;
+          unawaited(
+            remoteMediaLogService.log(
+              'autoplay',
+              'grid preview stream failed with error status',
+              data: {'uri': failedUri},
+            ),
+          );
+        }
       }
     } finally {
       _autoPlayInFlight = false;
