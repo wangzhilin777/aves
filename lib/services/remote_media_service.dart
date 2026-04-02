@@ -136,7 +136,7 @@ class RemoteMediaService {
   static const _streamChunkCacheVersion = 4;
   static const _streamChunkPrefetchCount = 8;
   static const _ftpSftpInitialWarmupChunkCount = 24;
-  static const _smbInitialWarmupChunkCount = 8;
+  static const _smbInitialWarmupChunkCount = 16;
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
   final Map<String, Future<File?>> _downloadInFlight = {};
   final Set<String> _cacheWarmupKeys = {};
