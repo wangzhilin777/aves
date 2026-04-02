@@ -103,10 +103,7 @@ class _VideoCoverState extends State<VideoCover> {
     return StreamBuilder<VideoStatus>(
       stream: videoController.statusStream,
       builder: (context, snapshot) {
-        final status = snapshot.data ?? videoController.status;
-        final hasDecodedVideo = videoController.decodedVideoSizeNotifier.value != null;
-        final isVisuallyReady = hasDecodedVideo && (videoController.isPlaying || status == VideoStatus.paused || status == VideoStatus.completed);
-        final showCover = !isVisuallyReady;
+        final showCover = !videoController.isReady;
         return IgnorePointer(
           ignoring: !showCover,
           child: AnimatedOpacity(
