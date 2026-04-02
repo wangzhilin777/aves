@@ -3107,15 +3107,7 @@ class RemoteMediaService {
   bool shouldPreferStreamOverCachedFile(RemoteServer server, RemoteBrowseNode node) => _shouldPreferStreamOverCachedFile(server, node);
 
   bool _shouldPreferStreamOverCachedFile(RemoteServer server, RemoteBrowseNode node) {
-    if (!node.isVideo) return false;
-    switch (server.protocol) {
-      case RemoteProtocol.smb:
-        return false;
-      case RemoteProtocol.webdav:
-      case RemoteProtocol.ftp:
-      case RemoteProtocol.sftp:
-        return true;
-    }
+    return node.isVideo;
   }
 
   Future<File?> _resolveValidCacheCandidate({
