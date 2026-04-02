@@ -422,9 +422,46 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         await controller.play();
       } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error) {
         final failedUri = entry.uri;
-        final canTrySmbFallback = remoteProtocol == RemoteProtocol.smb && _lastSmbFallbackAttemptUri != failedUri;
         var recovered = false;
-        if (canTrySmbFallback) {
+        try {
+          final fallbackController = await conductor.getOrCreateController(entry, maxControllerCount: 2);
+          if (mounted && token == _playToken && isCurrent) {
+            _setController(fallbackController);
+            setState(() {});
+            try {
+              await fallbackController.untilReady.timeout(const Duration(milliseconds: 1500));
+            } catch (_) {}
+            await conductor.pauseOthers(fallbackController);
+            await fallbackController.mute(_shouldMute(settings));
+            await fallbackController.play();
+            recovered = true;
+            unawaited(
+              remoteMediaLogService.log(
+                'autoplay',
+                'grid preview recovered by controller recreate',
+                data: {
+                  'uri': entry.uri,
+                  'protocol': remoteProtocol?.name,
+                },
+              ),
+            );
+          }
+        } catch (error) {
+          unawaited(
+            remoteMediaLogService.log(
+              'autoplay',
+              'grid preview controller recreate failed',
+              data: {
+                'uri': entry.uri,
+                'protocol': remoteProtocol?.name,
+                'error': '$error',
+              },
+            ),
+          );
+        }
+
+        final canTrySmbFallback = remoteProtocol == RemoteProtocol.smb && _lastSmbFallbackAttemptUri != failedUri;
+        if (!recovered && canTrySmbFallback) {
           _lastSmbFallbackAttemptUri = failedUri;
           final cachedFile = await remoteMediaService.prepareEntryForPlayback(
             entry,
@@ -436,7 +473,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
               final fallbackController = await conductor.getOrCreateController(entry, maxControllerCount: 2);
               if (mounted && token == _playToken && isCurrent) {
                 _setController(fallbackController);
-                if (mounted) setState(() {});
+                setState(() {});
                 try {
                   await fallbackController.untilReady.timeout(const Duration(milliseconds: 1500));
                 } catch (_) {}
@@ -498,8 +535,8 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           builder: (context, snapshot) {
             final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
             final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
-            final smbForceVisible = remoteProtocol == RemoteProtocol.smb && isCurrent && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
-            final show = _videoSurfaceVisible || keepLastFrameVisible || smbForceVisible;
+            final remoteForceVisible = remoteProtocol != null && isCurrent && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
+            final show = _videoSurfaceVisible || keepLastFrameVisible || remoteForceVisible;
             final tileHeight = widget.tileExtent;
             final decodedSize = controller.decodedVideoSizeNotifier.value;
             final displaySize = decodedSize ?? entry.displaySize;

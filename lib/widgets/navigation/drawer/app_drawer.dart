@@ -20,6 +20,7 @@ import 'package:aves/utils/file_utils.dart';
 import 'package:aves/widgets/about/about_page.dart';
 import 'package:aves/widgets/collection/collection_page.dart';
 import 'package:aves/widgets/common/basic/text/outlined.dart';
+import 'package:aves/widgets/common/action_mixins/feedback.dart';
 import 'package:aves/widgets/common/extensions/build_context.dart';
 import 'package:aves/widgets/common/extensions/media_query.dart';
 import 'package:aves/widgets/common/identity/aves_logo.dart';
@@ -86,7 +87,7 @@ class AppDrawer extends StatefulWidget {
   }
 }
 
-class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver {
+class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver, FeedbackMixin {
   // using the default controller conflicts
   // with bottom nav bar primary scroll monitoring
   final ScrollController _scrollController = ScrollController();
@@ -472,6 +473,58 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver {
       );
     }
 
+    Future<void> managePinned(RemoteServer server, RemotePinnedFolder folder) async {
+      final action = await showModalBottomSheet<String>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(AIcons.folder),
+                title: Text(_tr(context, 'Open folder', '打开目录')),
+                onTap: () => Navigator.maybeOf(sheetContext)?.pop('open'),
+              ),
+              ListTile(
+                leading: const Icon(AIcons.clear),
+                title: Text(_tr(context, 'Clear folder cache', '清理目录缓存')),
+                onTap: () => Navigator.maybeOf(sheetContext)?.pop('clear_cache'),
+              ),
+              ListTile(
+                leading: const Icon(AIcons.unpin),
+                title: Text(_tr(context, 'Remove from albums', '从相册移除')),
+                subtitle: Text(_tr(context, 'Auto clear folder cache', '自动清理目录缓存')),
+                onTap: () => Navigator.maybeOf(sheetContext)?.pop('remove'),
+              ),
+            ],
+          ),
+        ),
+      );
+      switch (action) {
+        case 'open':
+          await goToPinned(folder);
+        case 'clear_cache':
+          final cleared = await remoteMediaService.clearPinnedFolderCache(server: server, folderPath: folder.path);
+          if (!mounted) return;
+          showFeedback(
+            context,
+            cleared ? FeedbackType.info : FeedbackType.warn,
+            cleared ? _tr(context, 'Folder cache cleared', '目录缓存已清理') : _tr(context, 'Failed to clear folder cache', '目录缓存清理失败'),
+          );
+          setState(() {});
+        case 'remove':
+          final cleared = await remoteMediaService.clearPinnedFolderCache(server: server, folderPath: folder.path);
+          settings.remotePinnedFolders = settings.remotePinnedFolders.where((v) => !(v.serverId == server.id && v.path == folder.path)).toList();
+          if (!mounted) return;
+          showFeedback(
+            context,
+            FeedbackType.info,
+            cleared ? _tr(context, 'Removed and cache cleared', '已移除并清理缓存') : _tr(context, 'Removed from albums', '已从相册移除'),
+          );
+          setState(() {});
+      }
+    }
+
     final grouped = <RemoteServer, List<RemotePinnedFolder>>{};
     for (final folder in items) {
       final server = servers.byId(folder.serverId);
@@ -504,6 +557,7 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver {
                 title: Text(leafName),
                 subtitle: Text(folder.path),
                 onTap: () => goToPinned(folder),
+                onLongPress: () => managePinned(server, folder),
               );
             }).toList(),
           );

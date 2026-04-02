@@ -358,7 +358,7 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
         settings: const RouteSettings(name: CollectionPage.routeName),
         builder: (context) => CollectionPage(
           source: widget.source,
-          filters: const {},
+          filters: {filter},
           fixedSelection: const [],
         ),
       );
@@ -380,7 +380,7 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
       settings: const RouteSettings(name: CollectionPage.routeName),
       builder: (context) => CollectionPage(
         source: widget.source,
-        filters: const {},
+        filters: {filter},
         fixedSelection: entries,
       ),
     );
