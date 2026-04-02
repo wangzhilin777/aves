@@ -75,7 +75,9 @@ class _VideoViewState extends State<VideoView> {
             remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
         final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
         final canRenderDespiteError = isChunkedRemoteProtocol
-            ? controller.isPlaying || (widget.preferStableRemoteInit ? false : controller.isReady)
+            ? widget.preferStableRemoteInit
+                ? controller.isPlaying
+                : controller.isPlaying || controller.isReady || hasDecodedFrame
             : controller.isPlaying || controller.isReady || (hasDecodedFrame && allowDecodedFrameRenderOnError);
         final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
         final shouldKeepPlayerHiddenDuringChunkedInit =
