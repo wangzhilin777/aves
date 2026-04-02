@@ -120,73 +120,80 @@ class _VideoCoverState extends State<VideoCover> {
         return StreamBuilder<VideoStatus>(
           stream: videoController.statusStream,
           builder: (context, snapshot) {
-            final status = snapshot.data ?? videoController.status;
-            final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
-            final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
-            final isChunkedRemoteProtocol = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
-            final hasStableDetailFrame = hasFirstFrameRendered && videoController.isPlaying;
-            final withinRemoteCoverGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_coverGraceDeadline);
-            final startedPlayingNow = videoController.isPlaying && !_wasPlaying;
-            if (startedPlayingNow && isRemoteStream && isChunkedRemoteProtocol) {
-              _chunkedPlaybackCoverDeadline = DateTime.now().add(_chunkedRemotePlaybackCoverGrace);
-            }
-            _wasPlaying = videoController.isPlaying;
-            final withinChunkedPlaybackCoverGrace = isRemoteStream && isChunkedRemoteProtocol && _chunkedPlaybackCoverDeadline != null && DateTime.now().isBefore(_chunkedPlaybackCoverDeadline!);
-            final keepRemoteCoverUntilPlaying = isRemoteStream && (isChunkedRemoteProtocol ? (!hasStableDetailFrame || withinChunkedPlaybackCoverGrace) : !videoController.isPlaying);
-            final showCover = !videoController.isReady || !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) || keepRemoteCoverUntilPlaying || status == VideoStatus.error && isRemoteStream || withinRemoteCoverGrace;
-            if (withinRemoteCoverGrace || withinChunkedPlaybackCoverGrace) {
-              SchedulerBinding.instance.addPostFrameCallback((_) {
-                if (mounted) setState(() {});
-              });
-            }
-            return IgnorePointer(
-              ignoring: !showCover,
-              child: AnimatedOpacity(
-                opacity: showCover ? 1 : 0,
-                curve: Curves.easeInCirc,
-                duration: ADurations.viewerVideoPlayerTransition,
-                onEnd: () {
-                  final boundaries = magnifierController.scaleBoundaries;
-                  if (boundaries != null) {
-                    magnifierController.setScaleBoundaries(
-                      boundaries.copyWith(
-                        contentSize: videoDisplaySize,
-                      ),
-                    );
-                  }
-                },
-                child: ValueListenableBuilder<ImageInfo?>(
-                  valueListenable: _videoCoverInfoNotifier,
-                  builder: (context, videoCoverInfo, child) {
-                    final extent = entry.cachedThumbnails.firstOrNull?.key.extent;
-                    final hasCoverVisual = videoCoverInfo != null || (extent != null && extent > 0);
-                    final effectiveShowCover = hasCoverVisual && showCover && (!isChunkedRemoteProtocol || !videoController.isPlaying || !isRemoteStream || !hasFirstFrameRendered);
-                    if (videoCoverInfo != null) {
-                      final coverSize = Size(
-                        videoCoverInfo.image.width.toDouble(),
-                        videoCoverInfo.image.height.toDouble(),
-                      );
-                      final coverController = effectiveShowCover || coverSize == videoDisplaySize ? magnifierController : dismissedCoverMagnifierController;
-                      return widget.magnifierBuilder(coverController, coverSize, videoCoverUriImage);
-                    }
+            return StreamBuilder<int>(
+              stream: videoController.positionStream,
+              initialData: videoController.currentPosition,
+              builder: (context, positionSnapshot) {
+                final status = snapshot.data ?? videoController.status;
+                final currentPosition = positionSnapshot.data ?? videoController.currentPosition;
+                final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
+                final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+                final isChunkedRemoteProtocol = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
+                final hasStableDetailFrame = hasFirstFrameRendered && videoController.isPlaying && currentPosition > 0;
+                final withinRemoteCoverGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_coverGraceDeadline);
+                final startedPlayingNow = videoController.isPlaying && !_wasPlaying;
+                if (startedPlayingNow && isRemoteStream && isChunkedRemoteProtocol) {
+                  _chunkedPlaybackCoverDeadline = DateTime.now().add(_chunkedRemotePlaybackCoverGrace);
+                }
+                _wasPlaying = videoController.isPlaying;
+                final withinChunkedPlaybackCoverGrace = isRemoteStream && isChunkedRemoteProtocol && _chunkedPlaybackCoverDeadline != null && DateTime.now().isBefore(_chunkedPlaybackCoverDeadline!);
+                final keepRemoteCoverUntilPlaying = isRemoteStream && (isChunkedRemoteProtocol ? (!hasStableDetailFrame || withinChunkedPlaybackCoverGrace) : !videoController.isPlaying);
+                final showCover = !videoController.isReady || !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) || keepRemoteCoverUntilPlaying || status == VideoStatus.error && isRemoteStream || withinRemoteCoverGrace;
+                if (withinRemoteCoverGrace || withinChunkedPlaybackCoverGrace) {
+                  SchedulerBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) setState(() {});
+                  });
+                }
+                return IgnorePointer(
+                  ignoring: !showCover,
+                  child: AnimatedOpacity(
+                    opacity: showCover ? 1 : 0,
+                    curve: Curves.easeInCirc,
+                    duration: ADurations.viewerVideoPlayerTransition,
+                    onEnd: () {
+                      final boundaries = magnifierController.scaleBoundaries;
+                      if (boundaries != null) {
+                        magnifierController.setScaleBoundaries(
+                          boundaries.copyWith(
+                            contentSize: videoDisplaySize,
+                          ),
+                        );
+                      }
+                    },
+                    child: ValueListenableBuilder<ImageInfo?>(
+                      valueListenable: _videoCoverInfoNotifier,
+                      builder: (context, videoCoverInfo, child) {
+                        final extent = entry.cachedThumbnails.firstOrNull?.key.extent;
+                        final hasCoverVisual = videoCoverInfo != null || (extent != null && extent > 0);
+                        final effectiveShowCover = hasCoverVisual && showCover && (!isChunkedRemoteProtocol || currentPosition <= 0 || !videoController.isPlaying || !isRemoteStream || !hasFirstFrameRendered);
+                        if (videoCoverInfo != null) {
+                          final coverSize = Size(
+                            videoCoverInfo.image.width.toDouble(),
+                            videoCoverInfo.image.height.toDouble(),
+                          );
+                          final coverController = effectiveShowCover || coverSize == videoDisplaySize ? magnifierController : dismissedCoverMagnifierController;
+                          return widget.magnifierBuilder(coverController, coverSize, videoCoverUriImage);
+                        }
 
-                    if (extent != null && extent > 0) {
-                      return GestureDetector(
-                        onTap: widget.onTap,
-                        child: ThumbnailImage(
-                          entry: entry,
-                          extent: extent,
-                          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                          fit: BoxFit.contain,
-                          showLoadingBackground: false,
-                        ),
-                      );
-                    }
+                        if (extent != null && extent > 0) {
+                          return GestureDetector(
+                            onTap: widget.onTap,
+                            child: ThumbnailImage(
+                              entry: entry,
+                              extent: extent,
+                              devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                              fit: BoxFit.contain,
+                              showLoadingBackground: false,
+                            ),
+                          );
+                        }
 
-                    return const ColoredBox(color: Colors.transparent);
-                  },
-                ),
-              ),
+                        return const ColoredBox(color: Colors.transparent);
+                      },
+                    ),
+                  ),
+                );
+              },
             );
           },
         );

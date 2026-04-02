@@ -66,56 +66,63 @@ class _VideoViewState extends State<VideoView> {
     return StreamBuilder<VideoStatus>(
       stream: controller.statusStream,
       builder: (context, snapshot) {
-        final status = snapshot.data ?? controller.status;
-        final decodedSize = controller.decodedVideoSizeNotifier.value;
-        final hasDecodedFrame = decodedSize != null && decodedSize.width > 1 && decodedSize.height > 1;
-        final hasFirstFrameRendered = controller.firstFrameRenderedNotifier.value;
-        final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
-        final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
-        final isChunkedRemoteProtocol = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
-        final hasStableDetailFrame = controller.isPlaying && (hasFirstFrameRendered || hasDecodedFrame);
-        final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
-        final canRenderDespiteError = isChunkedRemoteProtocol
-            ? widget.preferStableRemoteInit
-                  ? hasStableDetailFrame
-                  : controller.isPlaying || controller.isReady || hasDecodedFrame
-            : controller.isPlaying || controller.isReady || (hasDecodedFrame && allowDecodedFrameRenderOnError);
-        final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
-        final shouldKeepPlayerHiddenDuringChunkedInit = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && !hasStableDetailFrame;
-        if (shouldKeepPlayerHiddenDuringChunkedInit) {
-          return const ColoredBox(color: Colors.transparent);
-        }
-        if (status == VideoStatus.error) {
-          if (canRenderDespiteError) {
-            if (!_loggedSoftErrorRender) {
-              _loggedSoftErrorRender = true;
-              unawaited(
-                remoteMediaLogService.log(
-                  'autoplay',
-                  'video view keeps rendering despite controller error status',
-                  data: {
-                    'uri': entry.uri,
-                    'isPlaying': controller.isPlaying,
-                    'isReady': controller.isReady,
-                    'hasDecodedFrame': hasDecodedFrame,
-                    'hasFirstFrameRendered': hasFirstFrameRendered,
-                  },
-                ),
-              );
+        return StreamBuilder<int>(
+          stream: controller.positionStream,
+          initialData: controller.currentPosition,
+          builder: (context, positionSnapshot) {
+            final status = snapshot.data ?? controller.status;
+            final currentPosition = positionSnapshot.data ?? controller.currentPosition;
+            final decodedSize = controller.decodedVideoSizeNotifier.value;
+            final hasDecodedFrame = decodedSize != null && decodedSize.width > 1 && decodedSize.height > 1;
+            final hasFirstFrameRendered = controller.firstFrameRenderedNotifier.value;
+            final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
+            final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+            final isChunkedRemoteProtocol = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
+            final hasStableDetailFrame = controller.isPlaying && currentPosition > 0 && (hasFirstFrameRendered || hasDecodedFrame);
+            final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
+            final canRenderDespiteError = isChunkedRemoteProtocol
+                ? widget.preferStableRemoteInit
+                      ? hasStableDetailFrame
+                      : controller.isPlaying || controller.isReady || hasDecodedFrame
+                : controller.isPlaying || controller.isReady || (hasDecodedFrame && allowDecodedFrameRenderOnError);
+            final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
+            final shouldKeepPlayerHiddenDuringChunkedInit = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && !hasStableDetailFrame;
+            if (shouldKeepPlayerHiddenDuringChunkedInit) {
+              return const ColoredBox(color: Colors.transparent);
+            }
+            if (status == VideoStatus.error) {
+              if (canRenderDespiteError) {
+                if (!_loggedSoftErrorRender) {
+                  _loggedSoftErrorRender = true;
+                  unawaited(
+                    remoteMediaLogService.log(
+                      'autoplay',
+                      'video view keeps rendering despite controller error status',
+                      data: {
+                        'uri': entry.uri,
+                        'isPlaying': controller.isPlaying,
+                        'isReady': controller.isReady,
+                        'hasDecodedFrame': hasDecodedFrame,
+                        'hasFirstFrameRendered': hasFirstFrameRendered,
+                      },
+                    ),
+                  );
+                }
+                return controller.buildPlayerWidget(context);
+              }
+              if (withinRemoteInitialErrorGrace || (isRemoteStream && isChunkedRemoteProtocol)) {
+                return const ColoredBox(color: Colors.transparent);
+              }
+              return const ColoredBox(color: Colors.black);
+            }
+            _loggedSoftErrorRender = false;
+            if (status == VideoStatus.idle) return const SizedBox();
+            if (widget.preferStableRemoteInit && isChunkedRemoteProtocol && !hasStableDetailFrame) {
+              return const ColoredBox(color: Colors.transparent);
             }
             return controller.buildPlayerWidget(context);
-          }
-          if (withinRemoteInitialErrorGrace || (isRemoteStream && isChunkedRemoteProtocol)) {
-            return const ColoredBox(color: Colors.transparent);
-          }
-          return const ColoredBox(color: Colors.black);
-        }
-        _loggedSoftErrorRender = false;
-        if (status == VideoStatus.idle) return const SizedBox();
-        if (widget.preferStableRemoteInit && isChunkedRemoteProtocol && !hasStableDetailFrame) {
-          return const ColoredBox(color: Colors.transparent);
-        }
-        return controller.buildPlayerWidget(context);
+          },
+        );
       },
     );
   }
