@@ -132,9 +132,9 @@ class _ChunkFileSegment {
 
 class RemoteMediaService {
   static const _streamChunkSizeBytes = 2 * 1024 * 1024;
-  static const _smbStreamChunkSizeBytes = 8 * 1024 * 1024;
+  static const _smbStreamChunkSizeBytes = 4 * 1024 * 1024;
   static const _streamChunkCacheVersion = 4;
-  static const _streamChunkPrefetchCount = 8;
+  static const _streamChunkPrefetchCount = 2;
   static const _previewInitialWarmupChunkCount = 1;
   static const _viewerInitialWarmupChunkCount = 2;
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
@@ -186,6 +186,27 @@ class RemoteMediaService {
       RemoteProtocol.webdav => 1,
       RemoteProtocol.ftp || RemoteProtocol.sftp || RemoteProtocol.smb => _viewerInitialWarmupChunkCount,
     };
+  }
+
+  int _prefetchChunkCountForRequest({
+    required RemoteProtocol protocol,
+    required RemoteByteRange requestedRange,
+    required int totalLength,
+  }) {
+    final requestedLength = requestedRange.contentLength;
+    final chunkSize = _chunkSizeForProtocol(protocol);
+    if (requestedLength <= 0 || totalLength <= 0) {
+      return 0;
+    }
+    final isProbeLikeRequest = requestedRange.start > 0 && requestedLength <= chunkSize;
+    if (isProbeLikeRequest) {
+      return 0;
+    }
+    final isOpenHeadRequest = requestedRange.start == 0 && requestedRange.endInclusive == totalLength - 1;
+    if (isOpenHeadRequest) {
+      return 1;
+    }
+    return 1;
   }
 
   Future<String> resolveStreamUriForPlayback(String rawUri) async {
@@ -2117,14 +2138,19 @@ class RemoteMediaService {
     final chunkSize = _chunkSizeForProtocol(server.protocol);
     final firstChunk = requestedRange.start ~/ chunkSize;
     final lastChunk = requestedRange.endInclusive ~/ chunkSize;
-    final prefetchCount = min(_streamChunkPrefetchCount, lastChunk - firstChunk + 1);
-    if (prefetchCount > 1) {
+    final maxPrefetchCount = _prefetchChunkCountForRequest(
+      protocol: server.protocol,
+      requestedRange: requestedRange,
+      totalLength: totalLength,
+    );
+    final prefetchCount = min(maxPrefetchCount, min(_streamChunkPrefetchCount, lastChunk - firstChunk + 1));
+    if (prefetchCount > 0) {
       unawaited(
         _prefetchUpcomingStreamChunks(
           server: server,
           node: node,
           startChunkIndex: firstChunk + 1,
-          count: prefetchCount - 1,
+          count: prefetchCount,
           totalLength: totalLength,
           fetchChunk: fetchChunk,
         ),
