@@ -147,7 +147,22 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   String? _lastDecisionKey;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
+  int _previewCoverHoldUntilMillis = 0;
   final Map<String, int> _lastAutoPlayErrorAtMillisByUri = {};
+
+  void _holdPreviewCover([int durationMillis = 260]) {
+    final holdUntil = DateTime.now().millisecondsSinceEpoch + durationMillis;
+    if (holdUntil > _previewCoverHoldUntilMillis) {
+      _previewCoverHoldUntilMillis = holdUntil;
+      if (mounted) {
+        setState(() {});
+        Future.delayed(Duration(milliseconds: durationMillis + 40), () {
+          if (!mounted) return;
+          setState(() {});
+        });
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -324,6 +339,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview');
       unawaited(remoteMediaService.warmupVideoCacheForEntry(entry, trigger: 'grid_preview'));
       await controller.mute(_shouldMute(settings));
+      _holdPreviewCover();
       await controller.play();
       unawaited(
         remoteMediaLogService.log(
@@ -349,6 +365,34 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             data: {'uri': entry.uri},
           ),
         );
+        final fallbackFile = await remoteMediaService.prepareEntryForPlayback(
+          entry,
+          trigger: 'grid_preview_error',
+          allowDownload: true,
+        );
+        if (fallbackFile != null && mounted && token == _playToken && isCurrent) {
+          final fallbackController = await conductor.getOrCreateController(entry, maxControllerCount: 2);
+          if (!mounted || token != _playToken || !isCurrent) return;
+          _controller = fallbackController;
+          if (mounted) setState(() {});
+          await conductor.pauseOthers(fallbackController);
+          await fallbackController.mute(_shouldMute(settings));
+          try {
+            await fallbackController.untilReady.timeout(const Duration(milliseconds: 1200));
+          } catch (_) {}
+          _holdPreviewCover(320);
+          await fallbackController.play();
+          unawaited(
+            remoteMediaLogService.log(
+              'autoplay',
+              'grid preview switched to downloaded fallback after stream error',
+              data: {
+                'uri': entry.uri,
+                'file': fallbackFile.path,
+              },
+            ),
+          );
+        }
       }
     } finally {
       _autoPlayInFlight = false;
@@ -365,10 +409,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         return StreamBuilder<VideoStatus>(
           stream: controller.statusStream,
           builder: (context, snapshot) {
+            final status = snapshot.data ?? controller.status;
             final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
             final tileHeight = widget.tileExtent;
             final decodedSize = controller.decodedVideoSizeNotifier.value;
-            final show = (controller.isPlaying || keepLastFrameVisible) && decodedSize != null;
+            final show = controller.isPlaying || keepLastFrameVisible;
+            final keepCoverForStartup = DateTime.now().millisecondsSinceEpoch < _previewCoverHoldUntilMillis;
+            final showPreviewCover = keepCoverForStartup || !show || decodedSize == null || status == VideoStatus.idle;
             final displaySize = decodedSize ?? entry.displaySize;
             final displayAspectRatio = decodedSize != null && decodedSize.height > 0 ? decodedSize.width / decodedSize.height : entry.displayAspectRatio;
             final tileWidth = widget.isMosaic
@@ -400,6 +447,21 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                             controller: controller,
                           ),
                         ),
+                      ),
+                    ),
+                  ),
+                  IgnorePointer(
+                    ignoring: !showPreviewCover,
+                    child: AnimatedOpacity(
+                      opacity: showPreviewCover ? 1 : 0,
+                      duration: const Duration(milliseconds: 140),
+                      curve: Curves.easeOut,
+                      child: ThumbnailImage(
+                        entry: entry,
+                        extent: widget.tileExtent,
+                        devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                        isMosaic: widget.isMosaic,
+                        showLoadingBackground: false,
                       ),
                     ),
                   ),
