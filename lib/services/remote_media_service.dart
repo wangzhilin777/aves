@@ -3161,7 +3161,8 @@ class RemoteMediaService {
   bool shouldPreferStreamOverCachedFile(RemoteServer server, RemoteBrowseNode node) => _shouldPreferStreamOverCachedFile(server, node);
 
   bool _shouldPreferStreamOverCachedFile(RemoteServer server, RemoteBrowseNode node) {
-    return node.isVideo;
+    if (!node.isVideo) return false;
+    return settings.remoteStreamMode == RemoteStreamMode.streamOnly;
   }
 
   Future<File?> _resolveValidCacheCandidate({

@@ -355,7 +355,14 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
         },
       );
       final route = MaterialPageRoute(
-        settings: const RouteSettings(name: CollectionPage.routeName),
+        settings: RouteSettings(
+          name: CollectionPage.routeName,
+          arguments: {
+            'remotePath': filter.path,
+            'remoteTitle': filter.title,
+            'remoteServerId': filter.serverId,
+          },
+        ),
         builder: (context) => CollectionPage(
           source: widget.source,
           filters: const {},
@@ -377,7 +384,14 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
     );
 
     final route = MaterialPageRoute(
-      settings: const RouteSettings(name: CollectionPage.routeName),
+      settings: RouteSettings(
+        name: CollectionPage.routeName,
+        arguments: {
+          'remotePath': filter.path,
+          'remoteTitle': filter.title,
+          'remoteServerId': filter.serverId,
+        },
+      ),
       builder: (context) => CollectionPage(
         source: widget.source,
         filters: const {},

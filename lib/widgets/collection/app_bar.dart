@@ -330,28 +330,42 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
     } else {
       final appMode = context.watch<ValueNotifier<AppMode>>().value;
       final remoteFilter = collection.filters.whereType<RemoteAlbumFilter>().firstOrNull;
-      String? remotePath;
+      var remotePath = '';
       if (remoteFilter != null) {
         remotePath = remoteFilter.path;
-      } else {
-        final fixedFirst = collection.fixedSelection?.firstOrNull;
-        if (fixedFirst != null) {
-          remotePath = remoteMediaService.getVirtualRemoteRef(fixedFirst.uri)?.$2.path;
+      }
+      if (remotePath.isEmpty) {
+        final routeArgs = ModalRoute.of(context)?.settings.arguments;
+        if (routeArgs is Map && routeArgs['remotePath'] is String) {
+          final routePath = routeArgs['remotePath'] as String;
+          if (routePath.isNotEmpty) {
+            remotePath = routePath;
+          }
         }
       }
-      final remoteLeaf = remotePath == null
-          ? null
-          : (() {
-              final parts = remotePath!.split('/').where((v) => v.isNotEmpty).toList();
+      if (remotePath.isEmpty) {
+        final fixedFirst = collection.fixedSelection?.firstOrNull;
+        if (fixedFirst != null) {
+          final path = remoteMediaService.getVirtualRemoteRef(fixedFirst.uri)?.$2.path;
+          if (path != null && path.isNotEmpty) {
+            remotePath = path;
+          }
+        }
+      }
+      final hasRemotePath = remotePath.isNotEmpty;
+      final remoteLeaf = hasRemotePath
+          ? (() {
+              final parts = remotePath.split('/').where((v) => v.isNotEmpty).toList();
               return parts.isEmpty ? '/' : parts.last;
-            })();
+            })()
+          : null;
       Widget title = Text(
         appMode.isPickingMedia ? l10n.collectionPickPageTitle : (isTrash ? l10n.binPageTitle : l10n.collectionPageTitle),
         softWrap: false,
         overflow: TextOverflow.fade,
         maxLines: 1,
       );
-      if (remotePath != null) {
+      if (hasRemotePath) {
         title = Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
