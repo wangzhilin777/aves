@@ -125,6 +125,8 @@ abstract class AvesVideoController extends Disposer with ABRepeatMixin {
 
   ValueNotifier<Size?> get decodedVideoSizeNotifier;
 
+  ValueNotifier<bool> get firstFrameRenderedNotifier;
+
   bool get isMuted;
 
   double get speed;

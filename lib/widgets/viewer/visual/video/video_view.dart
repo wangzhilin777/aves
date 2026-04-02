@@ -69,6 +69,7 @@ class _VideoViewState extends State<VideoView> {
         final status = snapshot.data ?? controller.status;
         final decodedSize = controller.decodedVideoSizeNotifier.value;
         final hasDecodedFrame = decodedSize != null && decodedSize.width > 1 && decodedSize.height > 1;
+        final hasFirstFrameRendered = controller.firstFrameRenderedNotifier.value;
         final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
         final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
         final isChunkedRemoteProtocol =
@@ -76,12 +77,12 @@ class _VideoViewState extends State<VideoView> {
         final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
         final canRenderDespiteError = isChunkedRemoteProtocol
             ? widget.preferStableRemoteInit
-                ? controller.isPlaying
+                ? controller.isPlaying || hasFirstFrameRendered
                 : controller.isPlaying || controller.isReady || hasDecodedFrame
             : controller.isPlaying || controller.isReady || (hasDecodedFrame && allowDecodedFrameRenderOnError);
         final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
         final shouldKeepPlayerHiddenDuringChunkedInit =
-            widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && !controller.isPlaying;
+            widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && !hasFirstFrameRendered;
         if (shouldKeepPlayerHiddenDuringChunkedInit) {
           return const ColoredBox(color: Colors.transparent);
         }
@@ -98,6 +99,7 @@ class _VideoViewState extends State<VideoView> {
                     'isPlaying': controller.isPlaying,
                     'isReady': controller.isReady,
                     'hasDecodedFrame': hasDecodedFrame,
+                    'hasFirstFrameRendered': hasFirstFrameRendered,
                   },
                 ),
               );
@@ -111,7 +113,7 @@ class _VideoViewState extends State<VideoView> {
         }
         _loggedSoftErrorRender = false;
         if (status == VideoStatus.idle) return const SizedBox();
-        if (widget.preferStableRemoteInit && isChunkedRemoteProtocol && !controller.isPlaying) {
+        if (widget.preferStableRemoteInit && isChunkedRemoteProtocol && !hasFirstFrameRendered) {
           return const ColoredBox(color: Colors.transparent);
         }
         return controller.buildPlayerWidget(context);

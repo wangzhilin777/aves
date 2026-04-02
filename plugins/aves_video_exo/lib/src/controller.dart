@@ -40,6 +40,9 @@ class ExoVideoController extends AvesVideoController {
   @override
   final ValueNotifier<Size?> decodedVideoSizeNotifier = ValueNotifier(null);
 
+  @override
+  final ValueNotifier<bool> firstFrameRenderedNotifier = ValueNotifier(false);
+
   ExoVideoController(
     super.entry, {
     required super.playbackStateHandler,
@@ -68,6 +71,7 @@ class ExoVideoController extends AvesVideoController {
     canSelectStreamNotifier.dispose();
     sarNotifier.dispose();
     decodedVideoSizeNotifier.dispose();
+    firstFrameRenderedNotifier.dispose();
 
     await super.dispose();
   }
@@ -101,6 +105,7 @@ class ExoVideoController extends AvesVideoController {
   }
 
   Future<void> _init() async {
+    firstFrameRenderedNotifier.value = false;
     _onControllerStateChanged();
     await _applyLoop();
     await _controller.initialize();
@@ -116,6 +121,9 @@ class ExoVideoController extends AvesVideoController {
     final size = value.size;
     if (size.width > 1 && size.height > 1) {
       decodedVideoSizeNotifier.value = size;
+      if (!firstFrameRenderedNotifier.value) {
+        firstFrameRenderedNotifier.value = true;
+      }
     }
 
     final status = _getStatusFromPlayerValue(value);

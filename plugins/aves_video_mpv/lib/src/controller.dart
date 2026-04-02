@@ -58,6 +58,9 @@ class MpvVideoController extends AvesVideoController {
   @override
   final ValueNotifier<Size?> decodedVideoSizeNotifier = ValueNotifier(null);
 
+  @override
+  final ValueNotifier<bool> firstFrameRenderedNotifier = ValueNotifier(false);
+
   MpvVideoController(
     super.entry, {
     required super.playbackStateHandler,
@@ -104,6 +107,7 @@ class MpvVideoController extends AvesVideoController {
     canSelectStreamNotifier.dispose();
     sarNotifier.dispose();
     decodedVideoSizeNotifier.dispose();
+    firstFrameRenderedNotifier.dispose();
 
     await super.dispose();
   }
@@ -220,6 +224,7 @@ class MpvVideoController extends AvesVideoController {
     if (_openInProgress) return;
     _openInProgress = true;
     try {
+      firstFrameRenderedNotifier.value = false;
       final playing = _mkPlayer.state.playing;
 
       // Audio quality is better with `audiotrack` than `opensles` (the default).
@@ -285,6 +290,7 @@ class MpvVideoController extends AvesVideoController {
 
     _recoveringFromStreamError = true;
     try {
+      firstFrameRenderedNotifier.value = false;
       _mediaCandidateIndex += 1;
       final shouldPlay = _mkPlayer.state.playing || _status == VideoStatus.playing;
       await _mkPlayer.open(_mediaCandidates[_mediaCandidateIndex], play: shouldPlay);
@@ -309,6 +315,7 @@ class MpvVideoController extends AvesVideoController {
         hwdec = 'mediacodec';
     }
     final oldController = _mkControllerNotifier.value;
+    firstFrameRenderedNotifier.value = false;
     final newController =
         VideoController(
             _mkPlayer,
@@ -318,6 +325,9 @@ class MpvVideoController extends AvesVideoController {
             ),
           )
           ..waitUntilFirstFrameRendered.then((v) {
+            if (!firstFrameRenderedNotifier.value) {
+              firstFrameRenderedNotifier.value = true;
+            }
             _statusStreamController.add(_status);
           });
     _mkControllerNotifier.value = newController;

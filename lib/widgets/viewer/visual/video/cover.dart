@@ -44,11 +44,9 @@ class _VideoCoverState extends State<VideoCover> {
   late ImageStreamListener _videoCoverStreamListener;
   final ValueNotifier<ImageInfo?> _videoCoverInfoNotifier = ValueNotifier(null);
   static const _remoteCoverGrace = Duration(milliseconds: 1400);
-  static const _remoteChunkedCoverDismissDelay = Duration(milliseconds: 420);
 
   AvesMagnifierController? _dismissedCoverMagnifierController;
   DateTime _coverGraceDeadline = DateTime.now().add(_remoteCoverGrace);
-  DateTime? _remoteChunkedCoverDismissDeadline;
 
   AvesMagnifierController get dismissedCoverMagnifierController {
     _dismissedCoverMagnifierController ??= AvesMagnifierController();
@@ -108,42 +106,22 @@ class _VideoCoverState extends State<VideoCover> {
   @override
   Widget build(BuildContext context) {
     // fade out image to ease transition with the player
-    return ValueListenableBuilder<Size?>(
-      valueListenable: videoController.decodedVideoSizeNotifier,
-      builder: (context, decodedVideoSize, child) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([videoController.decodedVideoSizeNotifier, videoController.firstFrameRenderedNotifier]),
+      builder: (context, _) {
+        final decodedVideoSize = videoController.decodedVideoSizeNotifier.value;
+        final hasDecodedFrame = decodedVideoSize != null && decodedVideoSize.width > 1 && decodedVideoSize.height > 1;
+        final hasFirstFrameRendered = videoController.firstFrameRenderedNotifier.value;
         return StreamBuilder<VideoStatus>(
           stream: videoController.statusStream,
           builder: (context, snapshot) {
             final status = snapshot.data ?? videoController.status;
-            final hasDecodedFrame = decodedVideoSize != null && decodedVideoSize.width > 1 && decodedVideoSize.height > 1;
             final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
             final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
-            final isChunkedRemoteProtocol =
-                remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
+            final isChunkedRemoteProtocol = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
             final withinRemoteCoverGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_coverGraceDeadline);
-            final shouldDelayChunkedCoverDismiss = isRemoteStream && isChunkedRemoteProtocol && videoController.isPlaying;
-            if (shouldDelayChunkedCoverDismiss) {
-              final now = DateTime.now();
-              final deadline = _remoteChunkedCoverDismissDeadline;
-              if (deadline == null || now.isAfter(deadline)) {
-                _remoteChunkedCoverDismissDeadline = now.add(_remoteChunkedCoverDismissDelay);
-                SchedulerBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) setState(() {});
-                });
-              }
-            } else {
-              _remoteChunkedCoverDismissDeadline = null;
-            }
-            final withinRemoteChunkedCoverDismissDelay =
-                _remoteChunkedCoverDismissDeadline != null && DateTime.now().isBefore(_remoteChunkedCoverDismissDeadline!);
-            final keepRemoteCoverUntilPlaying =
-                isRemoteStream && (isChunkedRemoteProtocol ? !videoController.isPlaying || withinRemoteChunkedCoverDismissDelay : !videoController.isPlaying);
-            final showCover =
-                !videoController.isReady ||
-                !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) ||
-                keepRemoteCoverUntilPlaying ||
-                status == VideoStatus.error && isRemoteStream ||
-                withinRemoteCoverGrace;
+            final keepRemoteCoverUntilPlaying = isRemoteStream && (isChunkedRemoteProtocol ? !hasFirstFrameRendered : !videoController.isPlaying);
+            final showCover = !videoController.isReady || !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) || keepRemoteCoverUntilPlaying || status == VideoStatus.error && isRemoteStream || withinRemoteCoverGrace;
             if (withinRemoteCoverGrace) {
               SchedulerBinding.instance.addPostFrameCallback((_) {
                 if (mounted) setState(() {});
@@ -156,9 +134,6 @@ class _VideoCoverState extends State<VideoCover> {
                 curve: Curves.easeInCirc,
                 duration: ADurations.viewerVideoPlayerTransition,
                 onEnd: () {
-                  // while cover is fading out, the same controller is used for both the cover and the video,
-                  // and both fire scale boundaries events, so we make sure that in the end
-                  // the scale boundaries from the video are used after the cover is gone
                   final boundaries = magnifierController.scaleBoundaries;
                   if (boundaries != null) {
                     magnifierController.setScaleBoundaries(
@@ -172,19 +147,14 @@ class _VideoCoverState extends State<VideoCover> {
                   valueListenable: _videoCoverInfoNotifier,
                   builder: (context, videoCoverInfo, child) {
                     if (videoCoverInfo != null) {
-                      // full cover image may have a different size and different aspect ratio
                       final coverSize = Size(
                         videoCoverInfo.image.width.toDouble(),
                         videoCoverInfo.image.height.toDouble(),
                       );
-                      // when the cover is the same size as the video itself
-                      // (which is often the case when the cover is not embedded but just a frame),
-                      // we can reuse the same magnifier and preserve its state when switching from cover to video
                       final coverController = showCover || coverSize == videoDisplaySize ? magnifierController : dismissedCoverMagnifierController;
                       return widget.magnifierBuilder(coverController, coverSize, videoCoverUriImage);
                     }
 
-                    // default to cached thumbnail, if any
                     final extent = entry.cachedThumbnails.firstOrNull?.key.extent;
                     if (extent != null && extent > 0) {
                       return GestureDetector(
