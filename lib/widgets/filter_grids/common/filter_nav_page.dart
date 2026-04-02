@@ -367,6 +367,7 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
           source: widget.source,
           filters: const {},
           fixedSelection: const [],
+          remotePathHint: filter.path,
         ),
       );
       navigate(route);
@@ -396,6 +397,7 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
         source: widget.source,
         filters: const {},
         fixedSelection: entries,
+        remotePathHint: filter.path,
       ),
     );
     navigate(route);

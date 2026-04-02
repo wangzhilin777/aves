@@ -100,64 +100,70 @@ class _VideoCoverState extends State<VideoCover> {
   @override
   Widget build(BuildContext context) {
     // fade out image to ease transition with the player
-    return StreamBuilder<VideoStatus>(
-      stream: videoController.statusStream,
-      builder: (context, snapshot) {
-        final showCover = !videoController.isReady;
-        return IgnorePointer(
-          ignoring: !showCover,
-          child: AnimatedOpacity(
-            opacity: showCover ? 1 : 0,
-            curve: Curves.easeInCirc,
-            duration: ADurations.viewerVideoPlayerTransition,
-            onEnd: () {
-              // while cover is fading out, the same controller is used for both the cover and the video,
-              // and both fire scale boundaries events, so we make sure that in the end
-              // the scale boundaries from the video are used after the cover is gone
-              final boundaries = magnifierController.scaleBoundaries;
-              if (boundaries != null) {
-                magnifierController.setScaleBoundaries(
-                  boundaries.copyWith(
-                    contentSize: videoDisplaySize,
-                  ),
-                );
-              }
-            },
-            child: ValueListenableBuilder<ImageInfo?>(
-              valueListenable: _videoCoverInfoNotifier,
-              builder: (context, videoCoverInfo, child) {
-                if (videoCoverInfo != null) {
-                  // full cover image may have a different size and different aspect ratio
-                  final coverSize = Size(
-                    videoCoverInfo.image.width.toDouble(),
-                    videoCoverInfo.image.height.toDouble(),
-                  );
-                  // when the cover is the same size as the video itself
-                  // (which is often the case when the cover is not embedded but just a frame),
-                  // we can reuse the same magnifier and preserve its state when switching from cover to video
-                  final coverController = showCover || coverSize == videoDisplaySize ? magnifierController : dismissedCoverMagnifierController;
-                  return widget.magnifierBuilder(coverController, coverSize, videoCoverUriImage);
-                }
+    return ValueListenableBuilder<Size?>(
+      valueListenable: videoController.decodedVideoSizeNotifier,
+      builder: (context, decodedVideoSize, child) {
+        return StreamBuilder<VideoStatus>(
+          stream: videoController.statusStream,
+          builder: (context, snapshot) {
+            final hasDecodedFrame = decodedVideoSize != null && decodedVideoSize.width > 1 && decodedVideoSize.height > 1;
+            final showCover = !videoController.isReady || (videoController.isPlaying && !hasDecodedFrame);
+            return IgnorePointer(
+              ignoring: !showCover,
+              child: AnimatedOpacity(
+                opacity: showCover ? 1 : 0,
+                curve: Curves.easeInCirc,
+                duration: ADurations.viewerVideoPlayerTransition,
+                onEnd: () {
+                  // while cover is fading out, the same controller is used for both the cover and the video,
+                  // and both fire scale boundaries events, so we make sure that in the end
+                  // the scale boundaries from the video are used after the cover is gone
+                  final boundaries = magnifierController.scaleBoundaries;
+                  if (boundaries != null) {
+                    magnifierController.setScaleBoundaries(
+                      boundaries.copyWith(
+                        contentSize: videoDisplaySize,
+                      ),
+                    );
+                  }
+                },
+                child: ValueListenableBuilder<ImageInfo?>(
+                  valueListenable: _videoCoverInfoNotifier,
+                  builder: (context, videoCoverInfo, child) {
+                    if (videoCoverInfo != null) {
+                      // full cover image may have a different size and different aspect ratio
+                      final coverSize = Size(
+                        videoCoverInfo.image.width.toDouble(),
+                        videoCoverInfo.image.height.toDouble(),
+                      );
+                      // when the cover is the same size as the video itself
+                      // (which is often the case when the cover is not embedded but just a frame),
+                      // we can reuse the same magnifier and preserve its state when switching from cover to video
+                      final coverController = showCover || coverSize == videoDisplaySize ? magnifierController : dismissedCoverMagnifierController;
+                      return widget.magnifierBuilder(coverController, coverSize, videoCoverUriImage);
+                    }
 
-                // default to cached thumbnail, if any
-                final extent = entry.cachedThumbnails.firstOrNull?.key.extent;
-                if (extent != null && extent > 0) {
-                  return GestureDetector(
-                    onTap: widget.onTap,
-                    child: ThumbnailImage(
-                      entry: entry,
-                      extent: extent,
-                      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                      fit: BoxFit.contain,
-                      showLoadingBackground: false,
-                    ),
-                  );
-                }
+                    // default to cached thumbnail, if any
+                    final extent = entry.cachedThumbnails.firstOrNull?.key.extent;
+                    if (extent != null && extent > 0) {
+                      return GestureDetector(
+                        onTap: widget.onTap,
+                        child: ThumbnailImage(
+                          entry: entry,
+                          extent: extent,
+                          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                          fit: BoxFit.contain,
+                          showLoadingBackground: false,
+                        ),
+                      );
+                    }
 
-                return const SizedBox();
-              },
-            ),
-          ),
+                    return const SizedBox();
+                  },
+                ),
+              ),
+            );
+          },
         );
       },
     );

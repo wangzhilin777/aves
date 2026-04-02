@@ -330,7 +330,7 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
     } else {
       final appMode = context.watch<ValueNotifier<AppMode>>().value;
       final remoteFilter = collection.filters.whereType<RemoteAlbumFilter>().firstOrNull;
-      var remotePath = '';
+      var remotePath = collection.remotePathHint ?? '';
       if (remoteFilter != null) {
         remotePath = remoteFilter.path;
       }

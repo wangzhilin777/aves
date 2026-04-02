@@ -41,6 +41,7 @@ class CollectionPage extends StatefulWidget {
   final Set<CollectionFilter?>? filters;
   final List<AvesEntry>? fixedSelection;
   final bool Function(AvesEntry element)? highlightTest;
+  final String? remotePathHint;
 
   const CollectionPage({
     super.key,
@@ -48,6 +49,7 @@ class CollectionPage extends StatefulWidget {
     required this.filters,
     this.fixedSelection,
     this.highlightTest,
+    this.remotePathHint,
   });
 
   @override
@@ -68,6 +70,7 @@ class _CollectionPageState extends State<CollectionPage> {
       source: widget.source,
       filters: widget.filters,
       fixedSelection: widget.fixedSelection,
+      remotePathHint: widget.remotePathHint,
     );
     super.initState();
     _subscriptions.add(

@@ -348,7 +348,11 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     final controllerEntry = videoController.entry;
     if (controllerEntry is AvesEntry) {
       await remoteMediaService.ensureEntryMetadata(controllerEntry, trigger: 'viewer_autoplay');
-      unawaited(remoteMediaService.warmupVideoCacheForEntry(controllerEntry, trigger: 'viewer_autoplay'));
+      if (!isRemoteStreamUri) {
+        unawaited(remoteMediaService.warmupVideoCacheForEntry(controllerEntry, trigger: 'viewer_autoplay'));
+      } else {
+        unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(controllerEntry, trigger: 'viewer_autoplay'));
+      }
     }
 
     if (!videoController.isMuted && (videoController.entry.isAnimated || shouldAutoPlayVideoMuted)) {

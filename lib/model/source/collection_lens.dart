@@ -38,6 +38,7 @@ class CollectionLens with ChangeNotifier {
   int? id;
   bool listenToSource, stackBursts, stackDevelopedRaws, fixedSort;
   List<AvesEntry>? fixedSelection;
+  final String? remotePathHint;
 
   final Set<AvesEntry> _syntheticEntries = {};
   List<AvesEntry> _filteredSortedEntries = [];
@@ -53,6 +54,7 @@ class CollectionLens with ChangeNotifier {
     this.stackDevelopedRaws = true,
     this.fixedSort = false,
     this.fixedSelection,
+    this.remotePathHint,
   }) : filters = (filters ?? {}).nonNulls.toSet(),
        burstPatterns = settings.collectionBurstPatterns,
        sectionFactor = settings.collectionSectionFactor,
@@ -123,12 +125,14 @@ class CollectionLens with ChangeNotifier {
     Set<CollectionFilter>? filters,
     bool? listenToSource,
     List<AvesEntry>? fixedSelection,
+    String? remotePathHint,
   }) => CollectionLens(
     source: source ?? this.source,
     filters: filters ?? this.filters,
     id: id,
     listenToSource: listenToSource ?? this.listenToSource,
     fixedSelection: fixedSelection ?? this.fixedSelection,
+    remotePathHint: remotePathHint ?? this.remotePathHint,
   );
 
   void _disposeSyntheticEntries() {

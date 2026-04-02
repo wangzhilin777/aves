@@ -3161,8 +3161,7 @@ class RemoteMediaService {
   bool shouldPreferStreamOverCachedFile(RemoteServer server, RemoteBrowseNode node) => _shouldPreferStreamOverCachedFile(server, node);
 
   bool _shouldPreferStreamOverCachedFile(RemoteServer server, RemoteBrowseNode node) {
-    if (!node.isVideo) return false;
-    return settings.remoteStreamMode == RemoteStreamMode.streamOnly;
+    return node.isVideo;
   }
 
   Future<File?> _resolveValidCacheCandidate({
@@ -3177,6 +3176,21 @@ class RemoteMediaService {
     }
     final expectedLength = node.sizeBytes;
     if (expectedLength != null && expectedLength > 0 && length != expectedLength) {
+      final downloadKey = '${server.id}|${node.path}';
+      if (_downloadInFlight.containsKey(downloadKey)) {
+        await remoteMediaLogService.log(
+          'cache',
+          'skip deleting incomplete cache file because download is still in progress',
+          data: {
+            'server': server.name,
+            'path': node.path,
+            'file': candidate.path,
+            'expectedLength': expectedLength,
+            'actualLength': length,
+          },
+        );
+        return null;
+      }
       await remoteMediaLogService.log(
         'cache',
         'discard remote cache file because length does not match source metadata',
