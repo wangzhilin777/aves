@@ -5,6 +5,7 @@ import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves_video/aves_video.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 class VideoView extends StatefulWidget {
   final AvesEntry entry;
@@ -24,11 +25,13 @@ class VideoView extends StatefulWidget {
 
 class _VideoViewState extends State<VideoView> {
   static const _remoteInitialErrorGrace = Duration(milliseconds: 1400);
+  static const _remoteChunkedRevealDelay = Duration(milliseconds: 260);
   AvesEntry get entry => widget.entry;
 
   AvesVideoController get controller => widget.controller;
   bool _loggedSoftErrorRender = false;
   late DateTime _initialErrorGraceDeadline;
+  DateTime? _remoteChunkedRevealDeadline;
 
   @override
   void initState() {
@@ -73,6 +76,21 @@ class _VideoViewState extends State<VideoView> {
         final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
         final isChunkedRemoteProtocol =
             remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
+        final shouldDelayChunkedReveal = isRemoteStream && isChunkedRemoteProtocol && controller.isPlaying;
+        if (shouldDelayChunkedReveal) {
+          final now = DateTime.now();
+          final deadline = _remoteChunkedRevealDeadline;
+          if (deadline == null || now.isAfter(deadline)) {
+            _remoteChunkedRevealDeadline = now.add(_remoteChunkedRevealDelay);
+            SchedulerBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() {});
+            });
+          }
+        } else {
+          _remoteChunkedRevealDeadline = null;
+        }
+        final withinRemoteChunkedRevealDelay =
+            _remoteChunkedRevealDeadline != null && DateTime.now().isBefore(_remoteChunkedRevealDeadline!);
         final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
         final canRenderDespiteError = widget.preferStableRemoteInit && isChunkedRemoteProtocol
             ? controller.isPlaying
@@ -80,7 +98,7 @@ class _VideoViewState extends State<VideoView> {
         final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
         final shouldKeepPlayerHiddenDuringChunkedInit =
             widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && !controller.isPlaying && !controller.isReady;
-        if (shouldKeepPlayerHiddenDuringChunkedInit) {
+        if (shouldKeepPlayerHiddenDuringChunkedInit || withinRemoteChunkedRevealDelay) {
           return const ColoredBox(color: Colors.transparent);
         }
         if (status == VideoStatus.error) {
@@ -109,7 +127,8 @@ class _VideoViewState extends State<VideoView> {
         }
         _loggedSoftErrorRender = false;
         if (status == VideoStatus.idle) return const SizedBox();
-        if (widget.preferStableRemoteInit && isChunkedRemoteProtocol && !controller.isPlaying && !controller.isReady) {
+        if ((widget.preferStableRemoteInit && isChunkedRemoteProtocol && !controller.isPlaying && !controller.isReady) ||
+            withinRemoteChunkedRevealDelay) {
           return const ColoredBox(color: Colors.transparent);
         }
         return controller.buildPlayerWidget(context);

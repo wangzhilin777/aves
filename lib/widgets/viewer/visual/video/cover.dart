@@ -1,6 +1,8 @@
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/images.dart';
 import 'package:aves/model/entry/extensions/multipage.dart';
+import 'package:aves/model/remote/remote_protocol.dart';
+import 'package:aves/services/common/services.dart';
 import 'package:aves/theme/durations.dart';
 import 'package:aves/widgets/common/thumbnail/image.dart';
 import 'package:aves_magnifier/aves_magnifier.dart';
@@ -42,9 +44,11 @@ class _VideoCoverState extends State<VideoCover> {
   late ImageStreamListener _videoCoverStreamListener;
   final ValueNotifier<ImageInfo?> _videoCoverInfoNotifier = ValueNotifier(null);
   static const _remoteCoverGrace = Duration(milliseconds: 1400);
+  static const _remoteChunkedCoverRevealDelay = Duration(milliseconds: 260);
 
   AvesMagnifierController? _dismissedCoverMagnifierController;
   DateTime _coverGraceDeadline = DateTime.now().add(_remoteCoverGrace);
+  DateTime? _remoteChunkedCoverRevealDeadline;
 
   AvesMagnifierController get dismissedCoverMagnifierController {
     _dismissedCoverMagnifierController ??= AvesMagnifierController();
@@ -113,8 +117,26 @@ class _VideoCoverState extends State<VideoCover> {
             final status = snapshot.data ?? videoController.status;
             final hasDecodedFrame = decodedVideoSize != null && decodedVideoSize.width > 1 && decodedVideoSize.height > 1;
             final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
+            final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+            final isChunkedRemoteProtocol =
+                remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
             final withinRemoteCoverGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_coverGraceDeadline);
-            final keepRemoteCoverUntilPlaying = isRemoteStream && !videoController.isPlaying;
+            final shouldDelayChunkedCoverDismiss = isRemoteStream && isChunkedRemoteProtocol && videoController.isPlaying;
+            if (shouldDelayChunkedCoverDismiss) {
+              final now = DateTime.now();
+              final deadline = _remoteChunkedCoverRevealDeadline;
+              if (deadline == null || now.isAfter(deadline)) {
+                _remoteChunkedCoverRevealDeadline = now.add(_remoteChunkedCoverRevealDelay);
+                SchedulerBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) setState(() {});
+                });
+              }
+            } else {
+              _remoteChunkedCoverRevealDeadline = null;
+            }
+            final withinRemoteChunkedCoverRevealDelay =
+                _remoteChunkedCoverRevealDeadline != null && DateTime.now().isBefore(_remoteChunkedCoverRevealDeadline!);
+            final keepRemoteCoverUntilPlaying = isRemoteStream && (!videoController.isPlaying || withinRemoteChunkedCoverRevealDelay);
             final showCover =
                 !videoController.isReady ||
                 !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) ||
