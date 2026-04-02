@@ -119,8 +119,9 @@ class _VideoCoverState extends State<VideoCover> {
             final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
             final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
             final isChunkedRemoteProtocol = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
+            final hasStableDetailFrame = hasFirstFrameRendered && videoController.isPlaying;
             final withinRemoteCoverGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_coverGraceDeadline);
-            final keepRemoteCoverUntilPlaying = isRemoteStream && (isChunkedRemoteProtocol ? !hasFirstFrameRendered : !videoController.isPlaying);
+            final keepRemoteCoverUntilPlaying = isRemoteStream && (isChunkedRemoteProtocol ? !hasStableDetailFrame : !videoController.isPlaying);
             final showCover = !videoController.isReady || !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) || keepRemoteCoverUntilPlaying || status == VideoStatus.error && isRemoteStream || withinRemoteCoverGrace;
             if (withinRemoteCoverGrace) {
               SchedulerBinding.instance.addPostFrameCallback((_) {
