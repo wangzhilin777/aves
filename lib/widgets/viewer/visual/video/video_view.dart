@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:aves/model/entry/entry.dart';
+import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves_video/aves_video.dart';
 import 'package:flutter/material.dart';
@@ -68,7 +69,15 @@ class _VideoViewState extends State<VideoView> {
         final hasDecodedFrame = decodedSize != null && decodedSize.width > 1 && decodedSize.height > 1;
         final canRenderDespiteError = controller.isPlaying || controller.isReady || hasDecodedFrame;
         final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
+        final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+        final isChunkedRemoteProtocol =
+            remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
         final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
+        final shouldKeepPlayerHiddenDuringChunkedInit =
+            isRemoteStream && isChunkedRemoteProtocol && !controller.isPlaying && !hasDecodedFrame;
+        if (shouldKeepPlayerHiddenDuringChunkedInit) {
+          return const ColoredBox(color: Colors.transparent);
+        }
         if (status == VideoStatus.error) {
           if (canRenderDespiteError) {
             if (!_loggedSoftErrorRender) {
