@@ -135,8 +135,8 @@ class RemoteMediaService {
   static const _smbStreamChunkSizeBytes = 8 * 1024 * 1024;
   static const _streamChunkCacheVersion = 4;
   static const _streamChunkPrefetchCount = 8;
-  static const _ftpSftpInitialWarmupChunkCount = 24;
-  static const _smbInitialWarmupChunkCount = 16;
+  static const _previewInitialWarmupChunkCount = 1;
+  static const _viewerInitialWarmupChunkCount = 2;
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
   final Map<String, Future<File?>> _downloadInFlight = {};
   final Set<String> _cacheWarmupKeys = {};
@@ -169,6 +169,23 @@ class RemoteMediaService {
       case RemoteProtocol.sftp:
         return _streamChunkSizeBytes;
     }
+  }
+
+  int _initialWarmupChunkCount({
+    required RemoteProtocol protocol,
+    required String trigger,
+  }) {
+    final normalizedTrigger = trigger.toLowerCase();
+    if (normalizedTrigger.contains('grid_preview')) {
+      return _previewInitialWarmupChunkCount;
+    }
+    if (normalizedTrigger.contains('viewer_init') || normalizedTrigger.contains('viewer_autoplay')) {
+      return _viewerInitialWarmupChunkCount;
+    }
+    return switch (protocol) {
+      RemoteProtocol.webdav => 1,
+      RemoteProtocol.ftp || RemoteProtocol.sftp || RemoteProtocol.smb => _viewerInitialWarmupChunkCount,
+    };
   }
 
   Future<String> resolveStreamUriForPlayback(String rawUri) async {
@@ -653,11 +670,10 @@ class RemoteMediaService {
         },
       );
 
-      final initialChunkCount = switch (server.protocol) {
-        RemoteProtocol.ftp || RemoteProtocol.sftp => _ftpSftpInitialWarmupChunkCount,
-        RemoteProtocol.smb => _smbInitialWarmupChunkCount,
-        RemoteProtocol.webdav => 1,
-      };
+      final initialChunkCount = _initialWarmupChunkCount(
+        protocol: server.protocol,
+        trigger: trigger,
+      );
       final chunkSize = _chunkSizeForProtocol(server.protocol);
       final ranges = <RemoteByteRange>[
         for (var chunkIndex = 0; chunkIndex < initialChunkCount; chunkIndex++)
@@ -693,30 +709,98 @@ class RemoteMediaService {
         case RemoteProtocol.smb:
           fetchChunk = (range) => _fetchSmbChunk(server: server, path: node.path, range: range);
       }
-      if (fetchChunk == null) return;
+      if (fetchChunk == null) {
+        _cacheWarmupKeys.remove(warmupKey);
+        return;
+      }
+      if (ranges.isEmpty) {
+        _cacheWarmupKeys.remove(warmupKey);
+        return;
+      }
 
-      for (final range in ranges) {
-        await _getOrCreateStreamChunkFile(
-          server: server,
-          node: node,
-          range: range,
-          fetchChunk: fetchChunk,
+      final immediateRange = ranges.first;
+      await _getOrCreateStreamChunkFile(
+        server: server,
+        node: node,
+        range: immediateRange,
+        fetchChunk: fetchChunk,
+      );
+
+      final backgroundRanges = ranges.skip(1).toList();
+      if (backgroundRanges.isNotEmpty) {
+        unawaited(
+          Future.wait([
+                for (final range in backgroundRanges)
+                  _getOrCreateStreamChunkFile(
+                    server: server,
+                    node: node,
+                    range: range,
+                    fetchChunk: fetchChunk,
+                  ),
+              ])
+              .then((_) async {
+                await remoteMediaLogService.log(
+                  'stream',
+                  'prepared remaining remote stream warmup chunks in background',
+                  data: {
+                    'trigger': trigger,
+                    'server': server.name,
+                    'protocol': server.protocol.name,
+                    'path': node.path,
+                    'backgroundRanges': backgroundRanges.map((range) => '${range.start}-${range.endInclusive}').toList(),
+                  },
+                );
+              })
+              .catchError((error, stack) async {
+                await remoteMediaLogService.log(
+                  'stream',
+                  'failed to prepare background remote stream warmup chunks',
+                  data: {
+                    'trigger': trigger,
+                    'server': server.name,
+                    'protocol': server.protocol.name,
+                    'path': node.path,
+                    'error': '$error',
+                  },
+                );
+                await reportService.recordError(error, stack);
+              })
+              .whenComplete(() {
+                _cacheWarmupKeys.remove(warmupKey);
+              }),
         );
+      } else {
+        _cacheWarmupKeys.remove(warmupKey);
       }
 
       await remoteMediaLogService.log(
         'stream',
-        'prepared initial remote stream chunks for playback',
+        'prepared immediate remote stream warmup chunk for playback',
         data: {
           'trigger': trigger,
           'server': server.name,
           'protocol': server.protocol.name,
           'path': node.path,
-          'preparedRanges': ranges.map((range) => '${range.start}-${range.endInclusive}').toList(),
+          'immediateRange': '${immediateRange.start}-${immediateRange.endInclusive}',
+          'backgroundRangeCount': backgroundRanges.length,
+          'allRanges': ranges.map((range) => '${range.start}-${range.endInclusive}').toList(),
         },
       );
-    } finally {
+    } catch (error, stack) {
       _cacheWarmupKeys.remove(warmupKey);
+      await remoteMediaLogService.log(
+        'stream',
+        'failed to prepare initial remote stream chunks for playback',
+        data: {
+          'trigger': trigger,
+          'server': server.name,
+          'protocol': server.protocol.name,
+          'path': node.path,
+          'error': '$error',
+        },
+      );
+      await reportService.recordError(error, stack);
+      rethrow;
     }
   }
 

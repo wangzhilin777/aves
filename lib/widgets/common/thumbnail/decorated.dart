@@ -463,47 +463,40 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         final canTrySmbFallback = remoteProtocol == RemoteProtocol.smb && _lastSmbFallbackAttemptUri != failedUri;
         if (!recovered && canTrySmbFallback) {
           _lastSmbFallbackAttemptUri = failedUri;
-          final cachedFile = await remoteMediaService.prepareEntryForPlayback(
-            entry,
-            trigger: 'grid_preview_error_fallback',
-            allowDownload: true,
-          );
-          if (cachedFile != null && mounted && token == _playToken && isCurrent) {
-            try {
-              final fallbackController = await conductor.getOrCreateController(entry, maxControllerCount: 2);
-              if (mounted && token == _playToken && isCurrent) {
-                _setController(fallbackController);
-                setState(() {});
-                try {
-                  await fallbackController.untilReady.timeout(const Duration(milliseconds: 1500));
-                } catch (_) {}
-                await conductor.pauseOthers(fallbackController);
-                await fallbackController.mute(_shouldMute(settings));
-                await fallbackController.play();
-                recovered = true;
-                unawaited(
-                  remoteMediaLogService.log(
-                    'autoplay',
-                    'grid preview recovered with smb cached file fallback',
-                    data: {
-                      'uri': entry.uri,
-                      'file': cachedFile.path,
-                    },
-                  ),
-                );
-              }
-            } catch (error) {
+          try {
+            await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview_error_retry');
+            final fallbackController = await conductor.getOrCreateController(entry, maxControllerCount: 2);
+            if (mounted && token == _playToken && isCurrent) {
+              _setController(fallbackController);
+              setState(() {});
+              try {
+                await fallbackController.untilReady.timeout(const Duration(milliseconds: 1800));
+              } catch (_) {}
+              await conductor.pauseOthers(fallbackController);
+              await fallbackController.mute(_shouldMute(settings));
+              await fallbackController.play();
+              recovered = true;
               unawaited(
                 remoteMediaLogService.log(
                   'autoplay',
-                  'grid preview smb cached file fallback failed',
+                  'grid preview recovered with smb stream retry',
                   data: {
                     'uri': entry.uri,
-                    'error': '$error',
                   },
                 ),
               );
             }
+          } catch (error) {
+            unawaited(
+              remoteMediaLogService.log(
+                'autoplay',
+                'grid preview smb stream retry failed',
+                data: {
+                  'uri': entry.uri,
+                  'error': '$error',
+                },
+              ),
+            );
           }
         }
         if (!recovered) {

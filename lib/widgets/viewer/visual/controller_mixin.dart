@@ -7,6 +7,7 @@ import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/multipage.dart';
 import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/remote/remote_protocol.dart';
+import 'package:aves/model/settings/enums/remote_stream_mode.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/theme/durations.dart';
@@ -464,6 +465,37 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         ),
       );
     }
+    final allowDownloadFallback = settings.remoteStreamMode == RemoteStreamMode.streamWithDownloadFallback;
+    if (token == _autoPlayRequestToken && isCurrent() && isRemoteStreamUri && controllerEntry is AvesEntry && videoController.status == VideoStatus.error) {
+      try {
+        await remoteMediaService.prepareInitialStreamPlaybackForEntry(controllerEntry, trigger: 'viewer_error_retry');
+        await Future.delayed(const Duration(milliseconds: 260) * timeDilation);
+        if (token == _autoPlayRequestToken && isCurrent()) {
+          await videoController.play();
+          unawaited(
+            remoteMediaLogService.log(
+              'autoplay',
+              'viewer requested remote stream retry before download fallback',
+              data: {
+                'uri': uri,
+                'protocol': remoteMediaService.getRemoteProtocolForEntry(controllerEntry)?.name,
+              },
+            ),
+          );
+        }
+      } catch (error) {
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'viewer remote stream retry preparation failed',
+            data: {
+              'uri': uri,
+              'error': '$error',
+            },
+          ),
+        );
+      }
+    }
     if (token == _autoPlayRequestToken && isCurrent() && isRemoteStreamUri && controllerEntry is AvesEntry) {
       final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(controllerEntry);
       final decoded = videoController.decodedVideoSizeNotifier.value;
@@ -515,6 +547,16 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       }
     }
     if (token == _autoPlayRequestToken && isCurrent() && videoController.status == VideoStatus.error && controllerEntry is AvesEntry) {
+      if (!allowDownloadFallback) {
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'viewer download fallback skipped because stream-only mode is enabled',
+            data: {'uri': uri},
+          ),
+        );
+        return;
+      }
       final fallbackFile = await remoteMediaService.ensureDownloadedForEntry(controllerEntry, trigger: 'viewer_error_fallback');
       if (fallbackFile != null && token == _autoPlayRequestToken && isCurrent()) {
         final fallbackController = await context.read<VideoConductor>().getOrCreateController(controllerEntry);
