@@ -74,12 +74,12 @@ class _VideoViewState extends State<VideoView> {
         final isChunkedRemoteProtocol =
             remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
         final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
-        final canRenderDespiteError = widget.preferStableRemoteInit && isChunkedRemoteProtocol
-            ? controller.isPlaying || hasDecodedFrame
+        final canRenderDespiteError = isChunkedRemoteProtocol
+            ? controller.isPlaying || (widget.preferStableRemoteInit ? false : controller.isReady)
             : controller.isPlaying || controller.isReady || (hasDecodedFrame && allowDecodedFrameRenderOnError);
         final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
         final shouldKeepPlayerHiddenDuringChunkedInit =
-            widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && !controller.isPlaying && !hasDecodedFrame;
+            widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && !controller.isPlaying;
         if (shouldKeepPlayerHiddenDuringChunkedInit) {
           return const ColoredBox(color: Colors.transparent);
         }
@@ -109,7 +109,7 @@ class _VideoViewState extends State<VideoView> {
         }
         _loggedSoftErrorRender = false;
         if (status == VideoStatus.idle) return const SizedBox();
-        if (widget.preferStableRemoteInit && isChunkedRemoteProtocol && !controller.isPlaying && !hasDecodedFrame) {
+        if (widget.preferStableRemoteInit && isChunkedRemoteProtocol && !controller.isPlaying) {
           return const ColoredBox(color: Colors.transparent);
         }
         return controller.buildPlayerWidget(context);

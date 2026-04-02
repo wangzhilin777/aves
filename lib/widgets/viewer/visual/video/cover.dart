@@ -119,7 +119,7 @@ class _VideoCoverState extends State<VideoCover> {
             final isChunkedRemoteProtocol =
                 remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
             final withinRemoteCoverGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_coverGraceDeadline);
-            final keepRemoteCoverUntilPlaying = isRemoteStream && (isChunkedRemoteProtocol ? !hasDecodedFrame : !videoController.isPlaying);
+            final keepRemoteCoverUntilPlaying = isRemoteStream && (isChunkedRemoteProtocol ? !videoController.isPlaying : !videoController.isPlaying);
             final showCover =
                 !videoController.isReady ||
                 !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) ||
