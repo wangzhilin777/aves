@@ -45,11 +45,14 @@ class _VideoCoverState extends State<VideoCover> {
   final ValueNotifier<ImageInfo?> _videoCoverInfoNotifier = ValueNotifier(null);
   static const _remoteCoverGrace = Duration(milliseconds: 1400);
   static const _chunkedRemotePlaybackCoverGrace = Duration(milliseconds: 180);
+  static const _chunkedRemoteProgressCoverGrace = Duration(milliseconds: 180);
 
   AvesMagnifierController? _dismissedCoverMagnifierController;
   DateTime _coverGraceDeadline = DateTime.now().add(_remoteCoverGrace);
   DateTime? _chunkedPlaybackCoverDeadline;
+  DateTime? _chunkedProgressCoverDeadline;
   bool _wasPlaying = false;
+  bool _hadPlaybackProgress = false;
 
   AvesMagnifierController get dismissedCoverMagnifierController {
     _dismissedCoverMagnifierController ??= AvesMagnifierController();
@@ -96,7 +99,9 @@ class _VideoCoverState extends State<VideoCover> {
   void _registerWidget(VideoCover widget) {
     _coverGraceDeadline = DateTime.now().add(_remoteCoverGrace);
     _chunkedPlaybackCoverDeadline = null;
+    _chunkedProgressCoverDeadline = null;
     _wasPlaying = false;
+    _hadPlaybackProgress = false;
     _videoCoverStreamListener = ImageStreamListener((image, _) => _videoCoverInfoNotifier.value = image);
     _videoCoverStream = videoCoverUriImage.resolve(ImageConfiguration.empty);
     _videoCoverStream!.addListener(_videoCoverStreamListener);
@@ -132,22 +137,30 @@ class _VideoCoverState extends State<VideoCover> {
                 final hasStableDetailFrame = hasFirstFrameRendered && videoController.isPlaying && currentPosition > 0;
                 final withinRemoteCoverGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_coverGraceDeadline);
                 final startedPlayingNow = videoController.isPlaying && !_wasPlaying;
+                final gainedPlaybackProgress = currentPosition > 0 && !_hadPlaybackProgress;
                 if (startedPlayingNow && isRemoteStream && isChunkedRemoteProtocol) {
                   _chunkedPlaybackCoverDeadline = DateTime.now().add(_chunkedRemotePlaybackCoverGrace);
                 }
+                if (gainedPlaybackProgress && isRemoteStream && isChunkedRemoteProtocol) {
+                  _chunkedProgressCoverDeadline = DateTime.now().add(_chunkedRemoteProgressCoverGrace);
+                }
                 _wasPlaying = videoController.isPlaying;
+                _hadPlaybackProgress = currentPosition > 0;
                 final withinChunkedPlaybackCoverGrace = isRemoteStream && isChunkedRemoteProtocol && _chunkedPlaybackCoverDeadline != null && DateTime.now().isBefore(_chunkedPlaybackCoverDeadline!);
+                final withinChunkedProgressCoverGrace = isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressCoverDeadline != null && DateTime.now().isBefore(_chunkedProgressCoverDeadline!);
                 final keepRemoteCoverUntilPlaying = isRemoteStream && (isChunkedRemoteProtocol ? (!hasStableDetailFrame || withinChunkedPlaybackCoverGrace) : !videoController.isPlaying);
+                final keepRemoteCoverUntilProgressSettles = isRemoteStream && isChunkedRemoteProtocol && withinChunkedProgressCoverGrace;
                 final showCover = !videoController.isReady || !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) || keepRemoteCoverUntilPlaying || status == VideoStatus.error && isRemoteStream || withinRemoteCoverGrace;
-                if (withinRemoteCoverGrace || withinChunkedPlaybackCoverGrace) {
+                final effectiveShowCover = showCover || keepRemoteCoverUntilProgressSettles;
+                if (withinRemoteCoverGrace || withinChunkedPlaybackCoverGrace || withinChunkedProgressCoverGrace) {
                   SchedulerBinding.instance.addPostFrameCallback((_) {
                     if (mounted) setState(() {});
                   });
                 }
                 return IgnorePointer(
-                  ignoring: !showCover,
+                  ignoring: !effectiveShowCover,
                   child: AnimatedOpacity(
-                    opacity: showCover ? 1 : 0,
+                    opacity: effectiveShowCover ? 1 : 0,
                     curve: Curves.easeInCirc,
                     duration: ADurations.viewerVideoPlayerTransition,
                     onEnd: () {
@@ -165,13 +178,14 @@ class _VideoCoverState extends State<VideoCover> {
                       builder: (context, videoCoverInfo, child) {
                         final extent = entry.cachedThumbnails.firstOrNull?.key.extent;
                         final hasCoverVisual = videoCoverInfo != null || (extent != null && extent > 0);
-                        final effectiveShowCover = hasCoverVisual && showCover && (!isChunkedRemoteProtocol || currentPosition <= 0 || !videoController.isPlaying || !isRemoteStream || !hasFirstFrameRendered);
+                        final shouldDisplayCoverVisual =
+                            hasCoverVisual && effectiveShowCover && (!isChunkedRemoteProtocol || currentPosition <= 0 || !videoController.isPlaying || !isRemoteStream || !hasFirstFrameRendered || withinChunkedProgressCoverGrace);
                         if (videoCoverInfo != null) {
                           final coverSize = Size(
                             videoCoverInfo.image.width.toDouble(),
                             videoCoverInfo.image.height.toDouble(),
                           );
-                          final coverController = effectiveShowCover || coverSize == videoDisplaySize ? magnifierController : dismissedCoverMagnifierController;
+                          final coverController = shouldDisplayCoverVisual || coverSize == videoDisplaySize ? magnifierController : dismissedCoverMagnifierController;
                           return widget.magnifierBuilder(coverController, coverSize, videoCoverUriImage);
                         }
 
