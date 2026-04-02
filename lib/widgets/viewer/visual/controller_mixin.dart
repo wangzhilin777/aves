@@ -25,8 +25,10 @@ import 'package:provider/provider.dart';
 // state controllers/monitors
 mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   final Map<AvesEntry, VoidCallback> _metadataChangeListeners = {};
+  final Map<AvesEntry, String> _lastBoundEntryUri = {};
   final Map<MultiPageController, Future<void> Function()> _multiPageControllerPageListeners = {};
   final Set<String> _sampledRemoteErrorProbeUris = {};
+  final Set<String> _smbAudioOnlyFallbackTriedUris = {};
   String? _lastAutoPlayUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
@@ -47,6 +49,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     if (entry.isMultiPage) {
       await _initMultiPageController(entry);
     }
+    _lastBoundEntryUri[entry] = entry.uri;
     void listener() => _onMetadataChanged(entry);
     _metadataChangeListeners[entry] = listener;
     entry.metadataChangeNotifier.addListener(listener);
@@ -62,10 +65,19 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     if (entry.isMultiPage) {
       _cleanMultiPageController(entry);
     }
+    _smbAudioOnlyFallbackTriedUris.remove(entry.uri);
+    _lastBoundEntryUri.remove(entry);
   }
 
   void _onMetadataChanged(AvesEntry entry) {
-    debugPrint('reinitialize controllers for entry=$entry because metadata changed');
+    final lastUri = _lastBoundEntryUri[entry];
+    if (lastUri == entry.uri) {
+      if (mounted && entry == entryNotifier.value) {
+        setState(() {});
+      }
+      return;
+    }
+    debugPrint('reinitialize controllers for entry=$entry because playback uri changed');
     cleanEntryControllers(entry);
     initEntryControllers(entry);
   }
@@ -146,11 +158,10 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
   Future<void> _initVideoController(AvesEntry entry) async {
     await remoteMediaService.ensureEntryMetadata(entry, trigger: 'viewer_init');
-    final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
     await remoteMediaService.prepareEntryForPlayback(
       entry,
       trigger: 'viewer_init',
-      allowDownload: remoteProtocol != RemoteProtocol.smb,
+      allowDownload: false,
     );
     if (entry.uri.startsWith('http://') || entry.uri.startsWith('https://')) {
       unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init'));
@@ -348,7 +359,22 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     final controllerEntry = videoController.entry;
     if (controllerEntry is AvesEntry) {
       await remoteMediaService.ensureEntryMetadata(controllerEntry, trigger: 'viewer_autoplay');
-      if (!isRemoteStreamUri) {
+      final hasRemoteRef = remoteMediaService.getVirtualRemoteRef(controllerEntry.uri) != null;
+      if (hasRemoteRef) {
+        if (isRemoteStreamUri) {
+          unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(controllerEntry, trigger: 'viewer_autoplay'));
+        } else {
+          unawaited(
+            remoteMediaLogService.log(
+              'auto_download',
+              'skip full warmup for remote-backed local playback uri during viewer autoplay',
+              data: {
+                'uri': controllerEntry.uri,
+              },
+            ),
+          );
+        }
+      } else if (!isRemoteStreamUri) {
         unawaited(remoteMediaService.warmupVideoCacheForEntry(controllerEntry, trigger: 'viewer_autoplay'));
       } else {
         unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(controllerEntry, trigger: 'viewer_autoplay'));
@@ -437,6 +463,56 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
           data: {'uri': uri, 'seekMillis': resumeTimeMillis ?? 0},
         ),
       );
+    }
+    if (token == _autoPlayRequestToken && isCurrent() && isRemoteStreamUri && controllerEntry is AvesEntry) {
+      final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(controllerEntry);
+      final decoded = videoController.decodedVideoSizeNotifier.value;
+      final hasVideoFrame = decoded != null && decoded.width > 1 && decoded.height > 1;
+      if (remoteProtocol == RemoteProtocol.smb && videoController.isPlaying && !hasVideoFrame) {
+        if (_smbAudioOnlyFallbackTriedUris.contains(uri)) {
+          return;
+        }
+        await Future.delayed(const Duration(milliseconds: 450) * timeDilation);
+        if (token != _autoPlayRequestToken || !isCurrent()) {
+          return;
+        }
+        final decodedAfterDelay = videoController.decodedVideoSizeNotifier.value;
+        final stillNoFrame = decodedAfterDelay == null || decodedAfterDelay.width <= 1 || decodedAfterDelay.height <= 1;
+        if (!stillNoFrame || !videoController.isPlaying) {
+          return;
+        }
+        _smbAudioOnlyFallbackTriedUris.add(uri);
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'viewer detected smb audio-only playback, trigger fallback download',
+            data: {
+              'uri': uri,
+            },
+          ),
+        );
+        final fallbackFile = await remoteMediaService.ensureDownloadedForEntry(controllerEntry, trigger: 'viewer_audio_only_fallback');
+        if (fallbackFile != null && token == _autoPlayRequestToken && isCurrent()) {
+          final fallbackController = await context.read<VideoConductor>().getOrCreateController(controllerEntry);
+          await context.read<VideoConductor>().pauseOthers(fallbackController);
+          await fallbackController.mute(shouldAutoPlayVideoMuted);
+          try {
+            await fallbackController.untilReady.timeout(const Duration(milliseconds: 1200));
+          } catch (_) {}
+          await fallbackController.play();
+          unawaited(
+            remoteMediaLogService.log(
+              'autoplay',
+              'viewer switched to downloaded fallback after smb audio-only detection',
+              data: {
+                'uri': controllerEntry.uri,
+                'file': fallbackFile.path,
+              },
+            ),
+          );
+          return;
+        }
+      }
     }
     if (token == _autoPlayRequestToken && isCurrent() && videoController.status == VideoStatus.error && controllerEntry is AvesEntry) {
       final fallbackFile = await remoteMediaService.ensureDownloadedForEntry(controllerEntry, trigger: 'viewer_error_fallback');
