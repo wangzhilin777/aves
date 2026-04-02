@@ -929,6 +929,27 @@ class RemoteMediaService {
     }
   }
 
+  Future<void> enforceAllConnectionCacheLimits({
+    String trigger = 'settings_update',
+  }) async {
+    final servers = settings.remoteServers;
+    if (servers.isEmpty) return;
+
+    for (final server in servers) {
+      await _enforceCacheLimit(server.id, trigger: trigger);
+    }
+
+    await remoteMediaLogService.log(
+      'cache',
+      'enforced remote cache limit for all connections',
+      data: {
+        'trigger': trigger,
+        'serverCount': servers.length,
+        'maxBytes': settings.remoteCacheMaxBytes,
+      },
+    );
+  }
+
   Future<int> getPinnedFolderCacheBytes({
     required RemoteServer server,
     required String folderPath,

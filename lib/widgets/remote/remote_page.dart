@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:aves/model/remote/remote_protocol.dart';
@@ -70,8 +70,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
                 _ensureCacheBytes(server.id);
                 final bytes = _cacheBytesByServer[server.id] ?? 0;
                 final cacheText = formatFileSize(context.locale, bytes, round: 1);
-                final pinnedFolders = settings.remotePinnedFolders.where((v) => v.serverId == server.id).toList()
-                  ..sort((a, b) => a.path.compareTo(b.path));
+                final pinnedFolders = settings.remotePinnedFolders.where((v) => v.serverId == server.id).toList()..sort((a, b) => a.path.compareTo(b.path));
                 return ExpansionTile(
                   leading: const Icon(AIcons.storageMain),
                   title: Text(server.name),
@@ -204,6 +203,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
           final cleared = await remoteMediaService.clearConnectionCache(server.id);
           if (cleared) {
             _cacheBytesByServer[server.id] = 0;
+            _setPinnedFolderCacheBytesForServer(server.id, 0);
           }
           if (mounted) {
             showFeedback(
@@ -225,10 +225,9 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
 
   Widget _buildPinnedFolderTile(RemoteServer server, RemotePinnedFolder folder) {
     final key = '${server.id}|${folder.path}';
+    unawaited(_refreshPinnedFolderCacheBytes(server: server, folderPath: folder.path));
     final cacheBytes = _cacheBytesByPinnedFolder[key];
-    final cacheText = cacheBytes == null
-        ? _tr(context, 'Tap menu to load cache size', '点菜单加载缓存大小')
-        : formatFileSize(context.locale, cacheBytes, round: 1);
+    final cacheText = cacheBytes == null ? _tr(context, 'Loading cache size…', '正在加载缓存大小…') : formatFileSize(context.locale, cacheBytes, round: 1);
     return Padding(
       padding: const EdgeInsetsDirectional.only(start: 20),
       child: ListTile(
@@ -320,6 +319,14 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
   String _leafName(String path) {
     final parts = path.split('/').where((v) => v.isNotEmpty).toList();
     return parts.isEmpty ? '/' : parts.last;
+  }
+
+  void _setPinnedFolderCacheBytesForServer(String serverId, int bytes) {
+    final prefix = '$serverId|';
+    final keys = _cacheBytesByPinnedFolder.keys.where((k) => k.startsWith(prefix)).toList();
+    for (final key in keys) {
+      _cacheBytesByPinnedFolder[key] = bytes;
+    }
   }
 
   void _ensureCacheBytes(String serverId, {bool force = false}) {
@@ -603,4 +610,3 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
     Navigator.maybeOf(context)?.pop(server);
   }
 }
-

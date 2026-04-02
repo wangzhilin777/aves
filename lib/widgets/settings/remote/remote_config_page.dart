@@ -25,7 +25,7 @@ class RemoteMediaConfigPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_tr(context, 'Remote Media Settings', '远程媒体配置')),
+        title: Text(_tr(context, 'Remote Media Settings', '\u8fdc\u7a0b\u5a92\u4f53\u914d\u7f6e')),
       ),
       body: SafeArea(
         child: ListView(
@@ -34,12 +34,12 @@ class RemoteMediaConfigPage extends StatelessWidget {
             SettingsSwitchListTile(
               selector: (context, s) => s.remoteWifiOnlyDownload,
               onChanged: (v) => settings.remoteWifiOnlyDownload = v,
-              title: _tr(context, 'Only auto-load on Wi-Fi', '仅在 Wi-Fi 下自动加载'),
+              title: _tr(context, 'Only auto-load on Wi-Fi', '\u4ec5\u5728 Wi-Fi \u4e0b\u81ea\u52a8\u52a0\u8f7d'),
             ),
             SettingsSwitchListTile(
               selector: (context, s) => s.remotePinAtTop,
               onChanged: (v) => settings.remotePinAtTop = v,
-              title: _tr(context, 'Pin remote album entry at top', '远程相册入口置顶'),
+              title: _tr(context, 'Pin remote album entry at top', '\u8fdc\u7a0b\u76f8\u518c\u5165\u53e3\u7f6e\u9876'),
             ),
             _RemoteCacheInSmartCollectionsTile(),
             SettingsSwitchListTile(
@@ -54,8 +54,8 @@ class RemoteMediaConfigPage extends StatelessWidget {
                   ),
                 );
               },
-              title: _tr(context, 'Video stream-only playback', '视频仅流式播放'),
-              subtitle: _tr(context, 'When enabled, video auto-download limit is ignored', '开启后视频自动下载上限不生效'),
+              title: _tr(context, 'Video stream-only playback', '\u89c6\u9891\u4ec5\u6d41\u5f0f\u64ad\u653e'),
+              subtitle: _tr(context, 'When enabled, video auto-download limit is ignored', '\u5f00\u542f\u540e\u89c6\u9891\u81ea\u52a8\u4e0b\u8f7d\u4e0a\u9650\u4e0d\u751f\u6548'),
             ),
             _RemoteAutoDownloadImageMaxTile(),
             _RemoteAutoDownloadVideoMaxTile(),
@@ -76,8 +76,8 @@ class _RemoteLogsTile extends StatelessWidget {
       selector: (context, s) => s.remoteLogEnabled,
       builder: (context, enabled, child) {
         return ListTile(
-          title: Text(_tr(context, 'Remote logs', '远程日志')),
-          subtitle: Text(_tr(context, 'Tap to view/copy/export logs', '点击查看/复制/导出日志')),
+          title: Text(_tr(context, 'Remote logs', '\u8fdc\u7a0b\u65e5\u5fd7')),
+          subtitle: Text(_tr(context, 'Tap to view/copy/export logs', '\u70b9\u51fb\u67e5\u770b/\u590d\u5236/\u5bfc\u51fa\u65e5\u5fd7')),
           trailing: Switch(
             value: enabled,
             onChanged: (v) => settings.remoteLogEnabled = v,
@@ -103,7 +103,7 @@ class _RemoteCacheInSmartCollectionsTile extends StatelessWidget {
   Widget build(BuildContext context) => SettingsSwitchListTile(
     selector: (context, s) => s.remoteCacheInSmartCollections,
     onChanged: (v) => unawaited(_apply(context, v)),
-    title: _tr(context, 'Include remote cache in media/video sets', '将远程缓存纳入媒体/视频集合'),
+    title: _tr(context, 'Include remote cache in media/video sets', '\u5c06\u8fdc\u7a0b\u7f13\u5b58\u7eb3\u5165\u5a92\u4f53/\u89c6\u9891\u96c6\u5408'),
   );
 
   Future<void> _apply(BuildContext context, bool enabled) async {
@@ -149,8 +149,8 @@ class _RemoteAutoDownloadImageMaxTile extends StatelessWidget {
     getName: (context, value) => formatFileSize(context.locale, value, round: 0),
     selector: (context, s) => s.remoteAutoDownloadImageMaxBytes,
     onSelection: (v) => settings.remoteAutoDownloadImageMaxBytes = v,
-    tileTitle: _tr(context, 'Image auto-download max size', '图片自动下载大小上限'),
-    dialogTitle: _tr(context, 'Image auto-download max size', '图片自动下载大小上限'),
+    tileTitle: _tr(context, 'Image auto-download max size', '\u56fe\u7247\u81ea\u52a8\u4e0b\u8f7d\u5927\u5c0f\u4e0a\u9650'),
+    dialogTitle: _tr(context, 'Image auto-download max size', '\u56fe\u7247\u81ea\u52a8\u4e0b\u8f7d\u5927\u5c0f\u4e0a\u9650'),
   );
 }
 
@@ -176,9 +176,9 @@ class _RemoteAutoDownloadVideoMaxTile extends StatelessWidget {
         final streamOnly = state.$2 == RemoteStreamMode.streamOnly;
         return ListTile(
           enabled: !streamOnly,
-          title: Text(_tr(context, 'Video auto-download max size', '视频自动下载大小上限')),
+          title: Text(_tr(context, 'Video auto-download max size', '\u89c6\u9891\u81ea\u52a8\u4e0b\u8f7d\u5927\u5c0f\u4e0a\u9650')),
           subtitle: Text(
-            streamOnly ? _tr(context, 'Disabled because video stream-only is enabled', '已启用视频仅流式，当前项不生效') : formatFileSize(context.locale, current, round: 0),
+            streamOnly ? _tr(context, 'Disabled because video stream-only is enabled', '\u5df2\u542f\u7528\u89c6\u9891\u4ec5\u6d41\u5f0f\uff0c\u5f53\u524d\u9879\u4e0d\u751f\u6548') : formatFileSize(context.locale, current, round: 0),
           ),
           onTap: streamOnly
               ? null
@@ -187,7 +187,7 @@ class _RemoteAutoDownloadVideoMaxTile extends StatelessWidget {
                   builder: (context) => AvesSingleSelectionDialog<int>(
                     initialValue: current,
                     options: Map.fromEntries(_values.map((v) => MapEntry(v, formatFileSize(context.locale, v, round: 0)))),
-                    title: _tr(context, 'Video auto-download max size', '视频自动下载大小上限'),
+                    title: _tr(context, 'Video auto-download max size', '\u89c6\u9891\u81ea\u52a8\u4e0b\u8f7d\u5927\u5c0f\u4e0a\u9650'),
                   ),
                   onSelection: (v) => settings.remoteAutoDownloadVideoMaxBytes = v,
                 ),
@@ -214,8 +214,27 @@ class _RemoteCacheMaxTile extends StatelessWidget {
     values: _values,
     getName: (context, value) => formatFileSize(context.locale, value, round: 0),
     selector: (context, s) => s.remoteCacheMaxBytes,
-    onSelection: (v) => settings.remoteCacheMaxBytes = v,
-    tileTitle: _tr(context, 'Remote cache max size', '远程缓存最大容量'),
-    dialogTitle: _tr(context, 'Remote cache max size', '远程缓存最大容量'),
+    onSelection: (v) => unawaited(_apply(context, v)),
+    tileTitle: _tr(context, 'Remote cache max size', '\u8fdc\u7a0b\u7f13\u5b58\u6700\u5927\u5bb9\u91cf'),
+    dialogTitle: _tr(context, 'Remote cache max size', '\u8fdc\u7a0b\u7f13\u5b58\u6700\u5927\u5bb9\u91cf'),
   );
+
+  Future<void> _apply(BuildContext context, int value) async {
+    settings.remoteCacheMaxBytes = value;
+    await remoteMediaService.enforceAllConnectionCacheLimits(
+      trigger: 'settings_remote_cache_limit_changed',
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text(
+          _tr(
+            context,
+            'Remote cache limit updated and cleanup applied',
+            '\u8fdc\u7a0b\u7f13\u5b58\u4e0a\u9650\u5df2\u66f4\u65b0\uff0c\u5e76\u5df2\u6267\u884c\u6e05\u7406',
+          ),
+        ),
+      ),
+    );
+  }
 }

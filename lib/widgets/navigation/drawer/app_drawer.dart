@@ -482,18 +482,18 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver, Feed
             children: [
               ListTile(
                 leading: const Icon(AIcons.folder),
-                title: Text(_tr(context, 'Open folder', '打开目录')),
+                title: Text(_tr(context, 'Open folder', '\u6253\u5f00\u76ee\u5f55')),
                 onTap: () => Navigator.maybeOf(sheetContext)?.pop('open'),
               ),
               ListTile(
                 leading: const Icon(AIcons.clear),
-                title: Text(_tr(context, 'Clear folder cache', '清理目录缓存')),
+                title: Text(_tr(context, 'Clear folder cache', '\u6e05\u7406\u76ee\u5f55\u7f13\u5b58')),
                 onTap: () => Navigator.maybeOf(sheetContext)?.pop('clear_cache'),
               ),
               ListTile(
                 leading: const Icon(AIcons.unpin),
-                title: Text(_tr(context, 'Remove from albums', '从相册移除')),
-                subtitle: Text(_tr(context, 'Auto clear folder cache', '自动清理目录缓存')),
+                title: Text(_tr(context, 'Remove from albums', '\u4ece\u76f8\u518c\u79fb\u9664')),
+                subtitle: Text(_tr(context, 'Auto clear folder cache', '\u81ea\u52a8\u6e05\u7406\u76ee\u5f55\u7f13\u5b58')),
                 onTap: () => Navigator.maybeOf(sheetContext)?.pop('remove'),
               ),
             ],
@@ -509,7 +509,7 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver, Feed
           showFeedback(
             context,
             cleared ? FeedbackType.info : FeedbackType.warn,
-            cleared ? _tr(context, 'Folder cache cleared', '目录缓存已清理') : _tr(context, 'Failed to clear folder cache', '目录缓存清理失败'),
+            cleared ? _tr(context, 'Folder cache cleared', '\u76ee\u5f55\u7f13\u5b58\u5df2\u6e05\u7406') : _tr(context, 'Failed to clear folder cache', '\u76ee\u5f55\u7f13\u5b58\u6e05\u7406\u5931\u8d25'),
           );
           setState(() {});
         case 'remove':
@@ -519,7 +519,7 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver, Feed
           showFeedback(
             context,
             FeedbackType.info,
-            cleared ? _tr(context, 'Removed and cache cleared', '已移除并清理缓存') : _tr(context, 'Removed from albums', '已从相册移除'),
+            cleared ? _tr(context, 'Removed and cache cleared', '\u5df2\u79fb\u9664\u5e76\u6e05\u7406\u7f13\u5b58') : _tr(context, 'Removed from albums', '\u5df2\u4ece\u76f8\u518c\u79fb\u9664'),
           );
           setState(() {});
       }
@@ -539,15 +539,15 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver, Feed
       const Divider(),
       ExpansionTile(
         leading: const Icon(AIcons.storageMain),
-        title: Text(_tr(context, 'Remote Albums', '远程相册列表')),
-        subtitle: Text(_tr(context, 'Connection -> Folder', '连接 -> 文件夹')),
+        title: Text(_tr(context, 'Remote Albums', '\u8fdc\u7a0b\u76f8\u518c\u5217\u8868')),
+        subtitle: Text(_tr(context, 'Connection -> Folder', '\u8fde\u63a5 -> \u6587\u4ef6\u5939')),
         children: grouped.entries.map((entry) {
           final server = entry.key;
           final folders = entry.value;
           return ExpansionTile(
             leading: const Icon(AIcons.storageMain),
             title: Text(server.name),
-            subtitle: Text(_tr(context, '${folders.length} folders', '${folders.length} 个目录')),
+            subtitle: Text(_tr(context, '${folders.length} folders', '${folders.length} \u4e2a\u6587\u4ef6\u5939')),
             children: folders.map((folder) {
               final pathParts = folder.path.split('/').where((v) => v.isNotEmpty).toList();
               final leafName = pathParts.isEmpty ? '/' : pathParts.last;
