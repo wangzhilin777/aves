@@ -103,6 +103,7 @@ class _VideoViewState extends State<VideoView> {
             final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
             final withinChunkedProgressRevealGrace = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressRevealDeadline != null && DateTime.now().isBefore(_chunkedProgressRevealDeadline!);
             final shouldKeepPlayerHiddenDuringChunkedInit = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && (!hasStableDetailFrame || withinChunkedProgressRevealGrace);
+            final shouldKeepLocalPlayerHiddenUntilFrame = !isRemoteStream && !hasLocalRecoverableFrame;
             if (!isRemoteStream && settings.remoteLogEnabled) {
               final decision = status == VideoStatus.error
                   ? (canRenderDespiteError ? 'local_error_render_player' : 'local_error_hide_player')
@@ -156,10 +157,13 @@ class _VideoViewState extends State<VideoView> {
               if (withinRemoteInitialErrorGrace || (isRemoteStream && isChunkedRemoteProtocol)) {
                 return const ColoredBox(color: Colors.transparent);
               }
-              return const ColoredBox(color: Colors.black);
+              return const ColoredBox(color: Colors.transparent);
             }
             _loggedSoftErrorRender = false;
             if (status == VideoStatus.idle) return const SizedBox();
+            if (shouldKeepLocalPlayerHiddenUntilFrame) {
+              return const ColoredBox(color: Colors.transparent);
+            }
             if (widget.preferStableRemoteInit && isChunkedRemoteProtocol && !hasStableDetailFrame) {
               return const ColoredBox(color: Colors.transparent);
             }

@@ -30,6 +30,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   final Map<MultiPageController, Future<void> Function()> _multiPageControllerPageListeners = {};
   final Set<String> _sampledRemoteErrorProbeUris = {};
   final Set<String> _smbAudioOnlyFallbackTriedUris = {};
+  final Set<String> _localErrorRecoveryTriedUris = {};
   String? _lastAutoPlayUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
@@ -67,6 +68,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       _cleanMultiPageController(entry);
     }
     _smbAudioOnlyFallbackTriedUris.remove(entry.uri);
+    _localErrorRecoveryTriedUris.remove(entry.uri);
     _lastBoundEntryUri.remove(entry);
   }
 
@@ -644,6 +646,31 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
           ),
         );
         return;
+      }
+    }
+    if (token == _autoPlayRequestToken && isCurrent() && !isRemoteStreamUri && controllerEntry is AvesEntry && videoController.status == VideoStatus.error) {
+      final decoded = videoController.decodedVideoSizeNotifier.value;
+      final hasVideoFrame = decoded != null && decoded.width > 1 && decoded.height > 1;
+      final hasPlaybackProgress = videoController.currentPosition > 0;
+      if (!hasVideoFrame && !hasPlaybackProgress && !_localErrorRecoveryTriedUris.contains(uri)) {
+        _localErrorRecoveryTriedUris.add(uri);
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'viewer requested local controller recreation after early error without frame',
+            data: {'uri': uri},
+          ),
+        );
+        final recreatedController = await context.read<VideoConductor>().recreateController(controllerEntry);
+        if (!mounted) return;
+        setState(() {});
+        if (token == _autoPlayRequestToken && isCurrent()) {
+          await Future.delayed(const Duration(milliseconds: 180) * timeDilation);
+          if (token == _autoPlayRequestToken && isCurrent()) {
+            await _autoPlayVideo(recreatedController, isCurrent, resumeTimeMillis: resumeTimeMillis);
+            return;
+          }
+        }
       }
     }
     if (token == _autoPlayRequestToken && isCurrent() && videoController.status == VideoStatus.error) {
