@@ -165,7 +165,8 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       allowDownload: false,
     );
     final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
-    if (entry.uri.startsWith('http://') || entry.uri.startsWith('https://')) {
+    final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
+    if (isRemoteStream) {
       if (remoteProtocol == RemoteProtocol.smb) {
         await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init');
         unawaited(
@@ -190,25 +191,40 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
           'isVideo': entry.isVideo,
           'status': controller.status.name,
           'autoPlayEnabled': videoAutoPlayEnabled,
-          'isRemoteStream': entry.uri.startsWith('http://') || entry.uri.startsWith('https://'),
+          'isRemoteStream': isRemoteStream,
+          'isRemoteCached': entry.isRemoteCachedMedia,
+          'sourceType': isRemoteStream ? 'remote' : 'local',
+          'path': entry.path,
         },
       ),
     );
 
-    if ((entry.uri.startsWith('http://') || entry.uri.startsWith('https://')) && settings.remoteLogEnabled) {
+    if (settings.remoteLogEnabled) {
       unawaited(
         controller.statusStream
             .firstWhere((status) => status == VideoStatus.error)
             .timeout(const Duration(seconds: 4))
             .then((_) async {
-              if (!_sampledRemoteErrorProbeUris.add(entry.uri)) return;
-              final probe = await remoteMediaService.probeStreamUriHealth(entry.uri);
+              if (isRemoteStream) {
+                if (!_sampledRemoteErrorProbeUris.add(entry.uri)) return;
+                final probe = await remoteMediaService.probeStreamUriHealth(entry.uri);
+                return remoteMediaLogService.log(
+                  'autoplay',
+                  'viewer remote stream entered error status',
+                  data: {
+                    'uri': entry.uri,
+                    'probe': probe,
+                  },
+                );
+              }
               return remoteMediaLogService.log(
                 'autoplay',
-                'viewer remote stream entered error status',
+                'viewer local video entered error status',
                 data: {
                   'uri': entry.uri,
-                  'probe': probe,
+                  'path': entry.path,
+                  'status': controller.status.name,
+                  'isRemoteCached': entry.isRemoteCachedMedia,
                 },
               );
             })
@@ -227,6 +243,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
             'autoPlayEnabled': videoAutoPlayEnabled,
             'muted': shouldAutoPlayVideoMuted,
             'isRemoteCached': entry.isRemoteCachedMedia,
+            'sourceType': isRemoteStream ? 'remote' : 'local',
             'viewerAutoPlayMode': settings.videoAutoPlayMode.name,
           },
         ),
@@ -459,8 +476,14 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         'playback requested',
         data: {
           'uri': videoController.entry.uri,
+          'path': controllerEntry is AvesEntry ? controllerEntry.path : null,
           'resumeTimeMillis': resumeTimeMillis,
           'muted': videoController.isMuted,
+          'isRemoteStream': isRemoteStreamUri,
+          'sourceType': isRemoteStreamUri ? 'remote' : 'local',
+          'status': videoController.status.name,
+          'isPlaying': videoController.isPlaying,
+          'positionMillis': videoController.currentPosition,
         },
       ),
     );

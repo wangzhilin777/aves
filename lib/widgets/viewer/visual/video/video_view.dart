@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/remote/remote_protocol.dart';
+import 'package:aves/model/settings/settings.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves_video/aves_video.dart';
 import 'package:flutter/material.dart';
@@ -32,6 +33,7 @@ class _VideoViewState extends State<VideoView> {
   late DateTime _initialErrorGraceDeadline;
   DateTime? _chunkedProgressRevealDeadline;
   bool _hadPlaybackProgress = false;
+  String? _lastLocalRenderDecision;
 
   @override
   void initState() {
@@ -100,6 +102,33 @@ class _VideoViewState extends State<VideoView> {
             final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
             final withinChunkedProgressRevealGrace = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressRevealDeadline != null && DateTime.now().isBefore(_chunkedProgressRevealDeadline!);
             final shouldKeepPlayerHiddenDuringChunkedInit = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && (!hasStableDetailFrame || withinChunkedProgressRevealGrace);
+            if (!isRemoteStream && settings.remoteLogEnabled) {
+              final decision = status == VideoStatus.error
+                  ? (canRenderDespiteError ? 'local_error_render_player' : 'local_error_hide_player')
+                  : status == VideoStatus.idle
+                      ? 'local_idle_hide_player'
+                      : 'local_render_player';
+              if (_lastLocalRenderDecision != decision) {
+                _lastLocalRenderDecision = decision;
+                unawaited(
+                  remoteMediaLogService.log(
+                    'autoplay',
+                    'local video view render decision',
+                    data: {
+                      'uri': entry.uri,
+                      'path': entry.path,
+                      'decision': decision,
+                      'status': status.name,
+                      'isPlaying': controller.isPlaying,
+                      'isReady': controller.isReady,
+                      'positionMillis': currentPosition,
+                      'hasDecodedFrame': hasDecodedFrame,
+                      'hasFirstFrameRendered': hasFirstFrameRendered,
+                    },
+                  ),
+                );
+              }
+            }
             if (shouldKeepPlayerHiddenDuringChunkedInit) {
               return const ColoredBox(color: Colors.transparent);
             }
