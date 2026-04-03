@@ -27,6 +27,7 @@ class VideoView extends StatefulWidget {
 class _VideoViewState extends State<VideoView> {
   static const _remoteInitialErrorGrace = Duration(milliseconds: 1400);
   static const _chunkedRemoteProgressRevealGrace = Duration(milliseconds: 180);
+  static const _chunkedRemoteFirstFrameRevealGrace = Duration(milliseconds: 120);
   AvesEntry get entry => widget.entry;
 
   AvesVideoController get controller => widget.controller;
@@ -35,12 +36,14 @@ class _VideoViewState extends State<VideoView> {
   DateTime? _chunkedProgressRevealDeadline;
   bool _hadPlaybackProgress = false;
   String? _lastLocalRenderDecision;
+  DateTime? _chunkedFirstFrameRevealDeadline;
 
   @override
   void initState() {
     super.initState();
     _initialErrorGraceDeadline = DateTime.now().add(_remoteInitialErrorGrace);
     _chunkedProgressRevealDeadline = null;
+    _chunkedFirstFrameRevealDeadline = null;
     _hadPlaybackProgress = false;
     _registerWidget(widget);
   }
@@ -51,6 +54,7 @@ class _VideoViewState extends State<VideoView> {
     if (oldWidget.entry != widget.entry) {
       _initialErrorGraceDeadline = DateTime.now().add(_remoteInitialErrorGrace);
       _chunkedProgressRevealDeadline = null;
+      _chunkedFirstFrameRevealDeadline = null;
       _hadPlaybackProgress = false;
     }
     _unregisterWidget(oldWidget);
@@ -98,6 +102,9 @@ class _VideoViewState extends State<VideoView> {
             if (gainedPlaybackProgress && widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol) {
               _chunkedProgressRevealDeadline = DateTime.now().add(_chunkedRemoteProgressRevealGrace);
             }
+            if (hasFirstFrameRendered && isChunkedRemotePreview && _chunkedFirstFrameRevealDeadline == null) {
+              _chunkedFirstFrameRevealDeadline = DateTime.now().add(_chunkedRemoteFirstFrameRevealGrace);
+            }
             _hadPlaybackProgress = currentPosition > 0;
             final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
             final hasLocalRecoverableFrame = !isRemoteManagedEntry && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
@@ -113,6 +120,10 @@ class _VideoViewState extends State<VideoView> {
                 : controller.isPlaying || controller.isReady || hasLocalRecoverableFrame || (hasDecodedFrame && allowDecodedFrameRenderOnError);
             final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
             final withinChunkedProgressRevealGrace = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressRevealDeadline != null && DateTime.now().isBefore(_chunkedProgressRevealDeadline!);
+            final withinChunkedFirstFrameRevealGrace =
+                isChunkedRemotePreview &&
+                _chunkedFirstFrameRevealDeadline != null &&
+                DateTime.now().isBefore(_chunkedFirstFrameRevealDeadline!);
             final shouldKeepPlayerHiddenDuringChunkedInit = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && (!hasStableDetailFrame || withinChunkedProgressRevealGrace);
             final shouldKeepLocalPlayerHiddenUntilFrame = !isRemoteManagedEntry && !hasLocalRecoverableFrame;
             if (!isRemoteManagedEntry && settings.remoteLogEnabled) {
@@ -178,6 +189,9 @@ class _VideoViewState extends State<VideoView> {
             }
             _loggedSoftErrorRender = false;
             if (status == VideoStatus.idle) return const SizedBox();
+            if (isChunkedRemotePreview && withinChunkedFirstFrameRevealGrace) {
+              return const ColoredBox(color: Colors.transparent);
+            }
             if (isChunkedRemotePreview) {
               return controller.buildPlayerWidget(context);
             }
