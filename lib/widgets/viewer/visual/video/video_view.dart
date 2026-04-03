@@ -102,7 +102,7 @@ class _VideoViewState extends State<VideoView> {
                 ? isChunkedRemoteProtocol
                     ? widget.preferStableRemoteInit
                           ? hasStableDetailFrame
-                          : hasRemotePreviewFrame
+                          : false
                     : widget.preferStableRemoteInit
                         ? hasStableDetailFrame
                         : controller.isPlaying || hasRemotePreviewFrame
@@ -168,6 +168,9 @@ class _VideoViewState extends State<VideoView> {
             }
             _loggedSoftErrorRender = false;
             if (status == VideoStatus.idle) return const SizedBox();
+            if (!widget.preferStableRemoteInit && isChunkedRemoteProtocol) {
+              return controller.buildPlayerWidget(context);
+            }
             if (!widget.preferStableRemoteInit && isRemoteManagedEntry && !hasRemotePreviewFrame) {
               return const ColoredBox(color: Colors.transparent);
             }

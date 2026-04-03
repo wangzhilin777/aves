@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/props.dart';
@@ -152,7 +153,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   String? _lastSmbFallbackAttemptUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
-  int _lastChunkedSoftErrorHoldMillis = 0;
   final Map<String, int> _lastAutoPlayErrorAtMillisByUri = {};
   final Map<String, int> _lastDecodedFrameAtMillisByUri = {};
   StreamSubscription<VideoStatus>? _statusSubscription;
@@ -160,6 +160,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   Timer? _videoSurfaceRevealTimer;
   ViewerEntryNotifier? _viewerEntryNotifier;
   bool _hasPlaybackProgress = false;
+  final Map<String, int> _lastLocalCacheProbeAtMillisByUri = {};
 
   bool _hasDecodedFrame(AvesVideoController? controller) {
     final decodedSize = controller?.decodedVideoSizeNotifier.value;
@@ -321,6 +322,84 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     return !settings.gridVideoSoundOn;
   }
 
+  Future<void> _logLocalCacheUsage(String stage) async {
+    if (entry.isRemoteCachedMedia || entry.uri.startsWith('http://') || entry.uri.startsWith('https://')) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final last = _lastLocalCacheProbeAtMillisByUri[entry.uri];
+    if (last != null && now - last < 4000 && stage == 'preview_start') return;
+    if (stage == 'preview_start') {
+      _lastLocalCacheProbeAtMillisByUri[entry.uri] = now;
+    }
+    try {
+      final usage = await storageService.getDataUsage();
+      final internalCacheDetails = await _describeDirectoryChildren(Directory.systemTemp);
+      final externalCacheRoot = await storageService.getExternalCacheDirectory();
+      final externalCacheDetails = externalCacheRoot.isNotEmpty
+          ? await _describeDirectoryChildren(Directory(externalCacheRoot))
+          : const <String, int>{};
+      await remoteMediaLogService.log(
+        'local_cache_probe',
+        'sampled local media cache usage',
+        data: {
+          'uri': entry.uri,
+          'path': entry.path,
+          'stage': stage,
+          'internalCacheBytes': usage['internalCache'],
+          'externalCacheBytes': usage['externalCache'],
+          'flutterBytes': usage['flutter'],
+          'databaseBytes': usage['database'],
+          'miscBytes': usage['miscData'],
+          'internalCacheChildren': internalCacheDetails,
+          'externalCacheChildren': externalCacheDetails,
+        },
+      );
+    } catch (error) {
+      unawaited(
+        remoteMediaLogService.log(
+          'local_cache_probe',
+          'failed to sample local media cache usage',
+          data: {
+            'uri': entry.uri,
+            'stage': stage,
+            'error': '$error',
+          },
+        ),
+      );
+    }
+  }
+
+  Future<Map<String, int>> _describeDirectoryChildren(Directory directory) async {
+    try {
+      if (!await directory.exists()) return const <String, int>{};
+      final result = <String, int>{};
+      await for (final entity in directory.list(followLinks: false)) {
+        final name = entity.uri.pathSegments.isNotEmpty ? entity.uri.pathSegments.where((v) => v.isNotEmpty).last : entity.path;
+        result[name] = await _computeEntitySize(entity);
+      }
+      return result;
+    } catch (_) {
+      return const <String, int>{};
+    }
+  }
+
+  Future<int> _computeEntitySize(FileSystemEntity entity) async {
+    try {
+      if (entity is File) {
+        return await entity.length();
+      }
+      if (entity is Directory) {
+        var total = 0;
+        await for (final child in entity.list(recursive: true, followLinks: false)) {
+          if (child is File) {
+            total += await child.length();
+          }
+        }
+        return total;
+      }
+    } catch (_) {}
+    return 0;
+  }
+
   Future<void> _onCurrentChanged() async {
     if (_autoPlayInFlight) return;
     _autoPlayInFlight = true;
@@ -332,7 +411,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final isViewerActive = _viewerEntryNotifier?.value != null;
       final conductor = context.read<VideoConductor>();
       final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
-      final isChunkedRemotePreview = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
       if (!isViewerActive && !isCurrent && remoteProtocol != null) {
         final preheatedController = conductor.getController(entry);
         if (preheatedController != null) {
@@ -430,28 +508,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         return;
       }
       if (!mounted || token != _playToken || !isCurrent) return;
-      if (isChunkedRemotePreview &&
-          _controller != null &&
-          identical(_controller, controller) &&
-          _playRequestedForCurrentFocus &&
-          controller.status == VideoStatus.error &&
-          _hasDecodedFrame(controller)) {
-        final nowHoldMillis = DateTime.now().millisecondsSinceEpoch;
-        if (nowHoldMillis - _lastChunkedSoftErrorHoldMillis < 5000) {
-          unawaited(
-            remoteMediaLogService.log(
-              'autoplay',
-              'chunked remote preview stays on decoded frame during soft-error cooldown',
-              data: {
-                'uri': entry.uri,
-                'protocol': remoteProtocol?.name,
-                'status': controller.status.name,
-              },
-            ),
-          );
-          return;
-        }
-      }
       _controller = controller;
       _setController(controller);
       if (controller.isPlaying) {
@@ -499,7 +555,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         return;
       }
 
-      var shouldSkipActivePlaybackRequest = false;
       try {
         await controller.untilReady.timeout(const Duration(milliseconds: 1000));
         unawaited(
@@ -513,86 +568,58 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           ),
         );
       } catch (_) {
-        if (_hasDecodedFrame(controller)) {
-          _lastDecodedFrameAtMillisByUri[entry.uri] = DateTime.now().millisecondsSinceEpoch;
-          shouldSkipActivePlaybackRequest = true;
-          _playRequestedForCurrentFocus = true;
-          unawaited(
-            remoteMediaLogService.log(
-              'autoplay',
-              'grid preview timeout ignored because decoded frame is already available',
-              data: {
-                'uri': entry.uri,
-                'status': controller.status.name,
-                'isPlaying': controller.isPlaying,
-              },
-            ),
-          );
-        } else {
-          unawaited(
-            remoteMediaLogService.log(
-              'autoplay',
-              'grid preview video not ready before autoplay timeout',
-              data: {
-                'uri': entry.uri,
-                'status': controller.status.name,
-                'isPlaying': controller.isPlaying,
-              },
-            ),
-          );
-        }
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'grid preview video not ready before autoplay timeout',
+            data: {
+              'uri': entry.uri,
+              'status': controller.status.name,
+              'isPlaying': controller.isPlaying,
+            },
+          ),
+        );
       }
 
       if (!mounted || token != _playToken || !isCurrent) return;
       await conductor.pauseOthers(controller);
       await remoteMediaService.ensureEntryMetadata(entry, trigger: 'grid_preview');
       final isStreamingEntry = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
-      if (isStreamingEntry && !shouldSkipActivePlaybackRequest) {
+      if (!isStreamingEntry) {
+        unawaited(_logLocalCacheUsage('preview_start'));
+      }
+      if (isStreamingEntry) {
         await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview');
         unawaited(remoteMediaService.warmupVideoCacheForEntry(entry, trigger: 'grid_preview'));
       }
       // SMB preview is more stable when we keep a single controller/source path.
       // We avoid automatic stream->cache promotion and controller recreation in grid preview.
       await controller.mute(_shouldMute(settings));
-      if (!shouldSkipActivePlaybackRequest) {
-        await controller.play();
-        _playRequestedForCurrentFocus = true;
-        unawaited(
-          remoteMediaLogService.log(
-            'autoplay',
-            'grid preview playback requested',
-            data: {
-              'uri': entry.uri,
-              'isRemoteCached': entry.isRemoteCachedMedia,
-              'muted': controller.isMuted,
-            },
-          ),
-        );
-      } else {
-        unawaited(
-          remoteMediaLogService.log(
-            'autoplay',
-            'grid preview keeps decoded frame without replay request',
-            data: {
-              'uri': entry.uri,
-              'status': controller.status.name,
-            },
-          ),
-        );
-      }
+      await controller.play();
+      _playRequestedForCurrentFocus = true;
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'grid preview playback requested',
+          data: {
+            'uri': entry.uri,
+            'isRemoteCached': entry.isRemoteCachedMedia,
+            'muted': controller.isMuted,
+          },
+        ),
+      );
 
       await Future.delayed(const Duration(milliseconds: 350));
+      if (!isStreamingEntry) {
+        unawaited(_logLocalCacheUsage('preview_after_350ms'));
+      }
       final hasDecodedFrameAfterPlay = _hasDecodedFrame(controller);
       if (hasDecodedFrameAfterPlay) {
         _lastDecodedFrameAtMillisByUri[entry.uri] = DateTime.now().millisecondsSinceEpoch;
       }
       if (mounted && token == _playToken && isCurrent && !controller.isPlaying && controller.status != VideoStatus.error) {
         await controller.play();
-      } else if (mounted &&
-          token == _playToken &&
-          isCurrent &&
-          controller.status == VideoStatus.error &&
-          !hasDecodedFrameAfterPlay) {
+      } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error) {
         final failedUri = entry.uri;
         var recovered = false;
         try {
@@ -682,21 +709,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             ),
           );
         }
-      } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error && hasDecodedFrameAfterPlay) {
-        if (isChunkedRemotePreview) {
-          _lastChunkedSoftErrorHoldMillis = DateTime.now().millisecondsSinceEpoch;
-        }
-        unawaited(
-          remoteMediaLogService.log(
-            'autoplay',
-            'grid preview keeps current controller despite soft error',
-            data: {
-              'uri': entry.uri,
-              'hasDecodedFrame': true,
-              'isPlaying': controller.isPlaying,
-            },
-          ),
-        );
       }
     } finally {
       _autoPlayInFlight = false;

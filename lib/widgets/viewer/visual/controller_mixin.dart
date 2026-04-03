@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:aves/app_mode.dart';
@@ -34,6 +35,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   String? _lastAutoPlayUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
+  final Map<String, int> _lastLocalCacheProbeAtMillisByUri = {};
   int _autoPlayRequestToken = 0;
 
   bool? videoMutedOverride;
@@ -159,6 +161,82 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     return settings.enableMotionPhotoAutoPlay;
   }
 
+  Future<void> _logLocalCacheUsage(AvesEntry entry, String stage) async {
+    if (entry.isRemoteCachedMedia || entry.uri.startsWith('http://') || entry.uri.startsWith('https://')) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final last = _lastLocalCacheProbeAtMillisByUri[entry.uri];
+    if (last != null && now - last < 4000 && stage == 'viewer_init') return;
+    if (stage == 'viewer_init') {
+      _lastLocalCacheProbeAtMillisByUri[entry.uri] = now;
+    }
+    try {
+      final usage = await storageService.getDataUsage();
+      final internalCacheDetails = await _describeDirectoryChildren(Directory.systemTemp);
+      final externalCacheRoot = await storageService.getExternalCacheDirectory();
+      final externalCacheDetails = externalCacheRoot.isNotEmpty
+          ? await _describeDirectoryChildren(Directory(externalCacheRoot))
+          : const <String, int>{};
+      await remoteMediaLogService.log(
+        'local_cache_probe',
+        'sampled local viewer cache usage',
+        data: {
+          'uri': entry.uri,
+          'path': entry.path,
+          'stage': stage,
+          'internalCacheBytes': usage['internalCache'],
+          'externalCacheBytes': usage['externalCache'],
+          'flutterBytes': usage['flutter'],
+          'databaseBytes': usage['database'],
+          'miscBytes': usage['miscData'],
+          'internalCacheChildren': internalCacheDetails,
+          'externalCacheChildren': externalCacheDetails,
+        },
+      );
+    } catch (error) {
+      await remoteMediaLogService.log(
+        'local_cache_probe',
+        'failed to sample local viewer cache usage',
+        data: {
+          'uri': entry.uri,
+          'stage': stage,
+          'error': '$error',
+        },
+      );
+    }
+  }
+
+  Future<Map<String, int>> _describeDirectoryChildren(Directory directory) async {
+    try {
+      if (!await directory.exists()) return const <String, int>{};
+      final result = <String, int>{};
+      await for (final entity in directory.list(followLinks: false)) {
+        final name = entity.uri.pathSegments.isNotEmpty ? entity.uri.pathSegments.where((v) => v.isNotEmpty).last : entity.path;
+        result[name] = await _computeEntitySize(entity);
+      }
+      return result;
+    } catch (_) {
+      return const <String, int>{};
+    }
+  }
+
+  Future<int> _computeEntitySize(FileSystemEntity entity) async {
+    try {
+      if (entity is File) {
+        return await entity.length();
+      }
+      if (entity is Directory) {
+        var total = 0;
+        await for (final child in entity.list(recursive: true, followLinks: false)) {
+          if (child is File) {
+            total += await child.length();
+          }
+        }
+        return total;
+      }
+    } catch (_) {}
+    return 0;
+  }
+
   Future<bool> _waitForLocalVideoPriming(AvesVideoController controller, String uri) async {
     final decoded = controller.decodedVideoSizeNotifier.value;
     final hasDecodedFrame = decoded != null && decoded.width > 1 && decoded.height > 1;
@@ -230,6 +308,9 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   Future<void> _initVideoController(AvesEntry entry) async {
+    if (!entry.isRemoteCachedMedia && !entry.uri.startsWith('http://') && !entry.uri.startsWith('https://')) {
+      unawaited(_logLocalCacheUsage(entry, 'viewer_init'));
+    }
     await remoteMediaService.ensureEntryMetadata(entry, trigger: 'viewer_init');
     await remoteMediaService.prepareEntryForPlayback(
       entry,
@@ -518,6 +599,12 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
           },
         ),
       );
+      if (controllerEntry is AvesEntry &&
+          !controllerEntry.isRemoteCachedMedia &&
+          !controllerEntry.uri.startsWith('http://') &&
+          !controllerEntry.uri.startsWith('https://')) {
+        unawaited(_logLocalCacheUsage(controllerEntry, 'viewer_playback_requested'));
+      }
     } else {
       try {
         await videoController.untilReady.timeout(Duration(milliseconds: isRemoteStreamUri ? 1200 : 1500));
