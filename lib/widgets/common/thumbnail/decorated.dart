@@ -825,12 +825,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                 isChunkedRemotePreview &&
                 errorCooldownStartedAt != null &&
                 DateTime.now().millisecondsSinceEpoch - errorCooldownStartedAt < 4000;
-            final ftpForceVisible =
-                isCurrent && isFtpPreview && (keepLastFrameVisible || hasStablePreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
-            final sftpForceVisible =
-                isCurrent && isSftpPreview && (keepLastFrameVisible || hasStablePreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
-            final smbForceVisible =
-                isCurrent && isSmbPreview && (keepLastFrameVisible || hasStablePreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
+            final ftpForceVisible = isCurrent && isFtpPreview && _videoSurfaceVisible;
+            final sftpForceVisible = isCurrent && isSftpPreview && _videoSurfaceVisible;
+            final smbForceVisible = isCurrent && isSmbPreview && _videoSurfaceVisible;
             final webdavForceVisible =
                 isCurrent && isWebdavPreview && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
             final show = _videoSurfaceVisible ||
