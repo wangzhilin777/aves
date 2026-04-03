@@ -831,10 +831,14 @@ class _EntryViewerStackState extends State<EntryViewerStack> with EntryViewContr
 
     final newEntry = _currentEntryIndex < entries.length ? entries[_currentEntryIndex] : null;
     if (entryNotifier.value == newEntry) return;
-    cleanEntryControllers(entryNotifier.value);
+    final previousEntry = entryNotifier.value;
+    await pauseVideoControllers();
+    if (previousEntry?.isVideo == true) {
+      await context.read<VideoConductor>().disposeControllerForEntry(previousEntry!);
+    }
+    cleanEntryControllers(previousEntry);
     entryNotifier.value = newEntry;
     _isEntryTracked = false;
-    await pauseVideoControllers();
     await initEntryControllers(newEntry);
 
     if (viewerController.isCasting) {

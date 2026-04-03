@@ -119,6 +119,14 @@ class VideoConductor {
     }
   }
 
+  Future<void> disposeControllerForEntry(AvesEntry entry) async {
+    final controller = getController(entry);
+    if (controller == null) return;
+    _controllers.remove(controller);
+    await _disposeController(controller);
+    playingVideoControllerNotifier.value = getPlayingController();
+  }
+
   Future<void> muteAll(bool muted) => _applyToAll((controller) => controller.mute(muted));
 
   Future<void> _disposeController(AvesVideoController controller) async {

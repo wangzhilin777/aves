@@ -30,7 +30,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   final Map<MultiPageController, Future<void> Function()> _multiPageControllerPageListeners = {};
   final Set<String> _sampledRemoteErrorProbeUris = {};
   final Set<String> _smbAudioOnlyFallbackTriedUris = {};
-  final Set<String> _localErrorRecoveryTriedUris = {};
+  final Map<String, int> _localErrorRecoveryAttempts = {};
   String? _lastAutoPlayUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
@@ -68,7 +68,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       _cleanMultiPageController(entry);
     }
     _smbAudioOnlyFallbackTriedUris.remove(entry.uri);
-    _localErrorRecoveryTriedUris.remove(entry.uri);
+    _localErrorRecoveryAttempts.remove(entry.uri);
     _lastBoundEntryUri.remove(entry);
   }
 
@@ -538,8 +538,9 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         localPrimed = await _waitForLocalVideoPriming(videoController, uri);
         final localDecoded = videoController.decodedVideoSizeNotifier.value;
         final hasLocalFrame = localPrimed || (localDecoded != null && localDecoded.width > 1 && localDecoded.height > 1) || videoController.firstFrameRenderedNotifier.value || videoController.currentPosition > 0;
-        if (!hasLocalFrame && videoController.status != VideoStatus.error && !_localErrorRecoveryTriedUris.contains(uri)) {
-          _localErrorRecoveryTriedUris.add(uri);
+        final localRecoveryAttempts = _localErrorRecoveryAttempts[uri] ?? 0;
+        if (!hasLocalFrame && videoController.status != VideoStatus.error && localRecoveryAttempts < 1) {
+          _localErrorRecoveryAttempts[uri] = localRecoveryAttempts + 1;
           unawaited(
             remoteMediaLogService.log(
               'autoplay',
@@ -748,8 +749,9 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       final decoded = videoController.decodedVideoSizeNotifier.value;
       final hasVideoFrame = decoded != null && decoded.width > 1 && decoded.height > 1;
       final hasPlaybackProgress = videoController.currentPosition > 0;
-      if (!hasVideoFrame && !hasPlaybackProgress && !_localErrorRecoveryTriedUris.contains(uri)) {
-        _localErrorRecoveryTriedUris.add(uri);
+      final localRecoveryAttempts = _localErrorRecoveryAttempts[uri] ?? 0;
+      if (!hasVideoFrame && !hasPlaybackProgress && localRecoveryAttempts < 2) {
+        _localErrorRecoveryAttempts[uri] = localRecoveryAttempts + 1;
         unawaited(
           remoteMediaLogService.log(
             'autoplay',
