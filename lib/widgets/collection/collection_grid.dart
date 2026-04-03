@@ -355,6 +355,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   String? _lastVideoPreheatSignature;
   DateTime _lastEdgeFocusAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastEdgeFocusUri;
+  DateTime _lastFocusChangeAt = DateTime.fromMillisecondsSinceEpoch(0);
   ScrollDirection _lastScrollIntentDirection = ScrollDirection.idle;
   DateTime _lastScrollIntentAt = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -617,6 +618,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     final entries = collection.sortedEntries;
     final firstVisibleIndex = firstVisibleCandidate != null ? entries.indexOf(firstVisibleCandidate) : -1;
     final lastVisibleIndex = lastVisibleCandidate != null ? entries.indexOf(lastVisibleCandidate) : -1;
+    final currentFocus = widget.previewPlayingEntryNotifier.value;
+    final currentFocusIndex = currentFocus != null ? entries.indexOf(currentFocus) : -1;
     final atListTop = entries.isNotEmpty && firstVisibleIndex == 0;
     final atListBottom = entries.isNotEmpty && lastVisibleIndex == entries.length - 1;
     final nearTop = currentOffset <= minScrollExtent + size.height * .18 || atListTop;
@@ -626,6 +629,22 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     final forceTop = nearTop && !scrollingTowardBottom;
     final forceBottom = nearBottom && scrollingTowardBottom;
     if (!forceTop && !forceBottom) return null;
+
+    final fastScroll = widget.isScrollingNotifier.value && _lastScrollSpeedPxPerSecond >= 1400;
+    if (fastScroll) return null;
+
+    final now = DateTime.now();
+    final withinEdgeCooldown = now.difference(_lastEdgeFocusAt) < const Duration(milliseconds: 900);
+    final currentFocusVisible =
+        currentFocus != null &&
+        currentFocusIndex >= 0 &&
+        firstVisibleIndex >= 0 &&
+        lastVisibleIndex >= 0 &&
+        currentFocusIndex >= firstVisibleIndex &&
+        currentFocusIndex <= lastVisibleIndex;
+    if (withinEdgeCooldown && currentFocusVisible && currentFocus.isVideo) {
+      return currentFocus;
+    }
 
     final edgeProbeYs = forceTop
         ? [
@@ -645,10 +664,9 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
         final candidate = layout.getItemAt(Offset(x, y));
         edgeAnchor ??= candidate;
         if (candidate?.isVideo == true) {
-          final now = DateTime.now();
           final uri = candidate?.uri;
           final sameTarget = _lastEdgeFocusUri == uri;
-          final withinCooldown = now.difference(_lastEdgeFocusAt) < const Duration(milliseconds: 600);
+          final withinCooldown = now.difference(_lastEdgeFocusAt) < const Duration(milliseconds: 900);
           if (!(sameTarget && withinCooldown)) {
             _lastEdgeFocusUri = uri;
             _lastEdgeFocusAt = now;
@@ -697,9 +715,10 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     final isScrolling = widget.isScrollingNotifier.value;
     final current = widget.previewPlayingEntryNotifier.value;
     if (current == target) return;
+    final now = DateTime.now();
     final initialFocusLocked =
         _initialFocusLockUntil != null &&
-        DateTime.now().isBefore(_initialFocusLockUntil!) &&
+        now.isBefore(_initialFocusLockUntil!) &&
         current != null &&
         target != null &&
         current.uri == _initialFocusLockedUri &&
@@ -709,8 +728,15 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       return;
     }
 
+    final rapidVideoRetarget =
+        current?.isVideo == true &&
+        target?.isVideo == true &&
+        now.difference(_lastFocusChangeAt) < const Duration(milliseconds: 700);
+    if (rapidVideoRetarget && _lastScrollSpeedPxPerSecond < 900) {
+      return;
+    }
+
     if (target == null && isScrolling && current != null) {
-      final now = DateTime.now();
       final currentUri = current.uri;
       final sameUri = _lastKeepFocusLogUri == currentUri;
       final withinCooldown = now.difference(_lastKeepFocusLogAt) < const Duration(seconds: 2);
@@ -747,6 +773,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   void _applyFocusTarget(AvesEntry? target) {
     if (widget.previewPlayingEntryNotifier.value == target) return;
     widget.previewPlayingEntryNotifier.value = target;
+    _lastFocusChangeAt = DateTime.now();
     unawaited(_prefetchRemoteWindow(target));
     unawaited(
       remoteMediaLogService.log(
