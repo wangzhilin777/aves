@@ -259,8 +259,10 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final holdLastFrame = keepLastFrameVisible && hasRenderableFrame;
     final currentReadyForReveal = isCurrent
         ? isChunkedRemotePreview
-              ? hasRenderableFrame
-              : (holdLastFrame || hasRenderableFrame)
+              ? (holdLastFrame || (controller.isPlaying && hasRenderableFrame))
+              : isRemoteManagedEntry
+                  ? (holdLastFrame || hasRenderableFrame)
+                  : (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame)
         : false;
     final canReveal =
         !isViewerActive &&
@@ -292,8 +294,10 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final activeHoldLastFrame = activeKeepLastFrameVisible && activeHasRenderableFrame;
       final currentReadyForReveal = isCurrent
           ? activeIsChunkedRemotePreview
-                ? activeHasRenderableFrame
-                : (activeHoldLastFrame || activeHasRenderableFrame)
+                ? (activeHoldLastFrame || (activeController.isPlaying && activeHasRenderableFrame))
+                : isActiveRemoteManagedEntry
+                    ? (activeHoldLastFrame || activeHasRenderableFrame)
+                    : (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame)
           : false;
       final shouldReveal =
           (_viewerEntryNotifier?.value == null) &&
@@ -711,9 +715,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
             final isChunkedRemotePreview = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
             final isRemoteManagedEntry = remoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
-            final remoteForceVisible = isRemoteManagedEntry && isCurrent && _playRequestedForCurrentFocus && hasRenderableFrame;
+            final remoteForceVisible = isRemoteManagedEntry &&
+                isCurrent &&
+                _playRequestedForCurrentFocus &&
+                hasRenderableFrame &&
+                (!isChunkedRemotePreview || controller.isPlaying || (keepLastFrameVisible && hasRenderableFrame));
             final show = _videoSurfaceVisible ||
-                (keepLastFrameVisible && hasRenderableFrame) ||
+                (isRemoteManagedEntry ? (keepLastFrameVisible && hasRenderableFrame) : (keepLastFrameVisible || hasDecodedFrame)) ||
                 remoteForceVisible ||
                 (!isCurrent &&
                     isRemoteManagedEntry &&
