@@ -811,7 +811,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             final hasDecodedFrame = _hasDecodedFrame(controller);
             final hasFirstFrameRendered = controller.firstFrameRenderedNotifier.value;
             final hasPreviewFrame = hasDecodedFrame || hasFirstFrameRendered;
-            final hasStablePreviewFrame = hasFirstFrameRendered || _hasPlaybackProgress || controller.currentPosition > 0;
             final hasRenderableFrame = hasDecodedFrame || hasFirstFrameRendered || _hasPlaybackProgress || controller.currentPosition > 0;
             final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
             final isWebdavPreview = remoteProtocol == RemoteProtocol.webdav;
@@ -826,20 +825,25 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                 errorCooldownStartedAt != null &&
                 DateTime.now().millisecondsSinceEpoch - errorCooldownStartedAt < 4000;
             final ftpForceVisible =
-                isCurrent && isFtpPreview && (keepLastFrameVisible || hasStablePreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
+                !isCurrent && isFtpPreview && keepLastFrameVisible && hasPreviewFrame;
             final sftpForceVisible =
-                isCurrent && isSftpPreview && (keepLastFrameVisible || hasStablePreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
+                !isCurrent && isSftpPreview && keepLastFrameVisible && hasPreviewFrame;
             final smbForceVisible =
-                isCurrent && isSmbPreview && (keepLastFrameVisible || hasStablePreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
+                !isCurrent && isSmbPreview && keepLastFrameVisible && hasPreviewFrame;
+            final ftpCurrentShow = isCurrent && isFtpPreview && (_videoSurfaceVisible || keepLastFrameVisible || (_videoSurfaceVisible && inChunkedErrorCooldown));
+            final sftpCurrentShow =
+                isCurrent && isSftpPreview && (_videoSurfaceVisible || keepLastFrameVisible || (_videoSurfaceVisible && inChunkedErrorCooldown));
+            final smbCurrentShow =
+                isCurrent && isSmbPreview && (_videoSurfaceVisible || keepLastFrameVisible || (_videoSurfaceVisible && inChunkedErrorCooldown));
             final webdavForceVisible =
                 isCurrent && isWebdavPreview && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
             final show = _videoSurfaceVisible ||
                 ((isFtpPreview)
-                    ? (keepLastFrameVisible || ftpForceVisible)
+                    ? (ftpCurrentShow || ftpForceVisible)
                     : (isSftpPreview)
-                        ? (keepLastFrameVisible || sftpForceVisible)
+                        ? (sftpCurrentShow || sftpForceVisible)
                         : (isSmbPreview)
-                            ? (keepLastFrameVisible || smbForceVisible)
+                            ? (smbCurrentShow || smbForceVisible)
                             : isWebdavPreview
                                 ? (keepLastFrameVisible ||
                                     hasDecodedFrame ||
