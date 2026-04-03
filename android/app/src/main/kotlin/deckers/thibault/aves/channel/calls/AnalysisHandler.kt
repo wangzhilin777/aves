@@ -3,6 +3,7 @@ package deckers.thibault.aves.channel.calls
 import android.app.ActivityManager
 import android.content.Context
 import android.content.ContextWrapper
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.edit
 import androidx.lifecycle.LifecycleOwner
 import androidx.work.ExistingWorkPolicy
@@ -94,6 +95,7 @@ class AnalysisHandler<T>(private val activity: T, private val onAnalysisComplete
 
     private fun cancelAnalysis(call: MethodCall, result: MethodChannel.Result) {
         WorkManager.getInstance(activity).cancelUniqueWork(ANALYSIS_WORK_NAME)
+        NotificationManagerCompat.from(activity).cancel(AnalysisWorker.NOTIFICATION_ID)
         result.success(true)
     }
 
