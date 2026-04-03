@@ -350,6 +350,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   DateTime? _initialFocusLockUntil;
   String? _initialFocusLockedUri;
   double? _initialFocusLockOffset;
+  ScrollDirection _lastScrollIntentDirection = ScrollDirection.idle;
+  DateTime _lastScrollIntentAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   CollectionLens get collection => widget.collection;
 
@@ -397,6 +399,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
         appBarHeightNotifier: _appBarHeightNotifier,
         isScrollingNotifier: widget.isScrollingNotifier,
         scrollController: scrollController,
+        onScrollIntent: _onScrollIntent,
       ),
     );
 
@@ -427,6 +430,14 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
 
   void _onAppBarHeightChanged() => setState(() {});
 
+  void _onScrollIntent(ScrollDirection direction) {
+    _lastScrollIntentDirection = direction;
+    _lastScrollIntentAt = DateTime.now();
+    if (direction != ScrollDirection.idle) {
+      _onScrollOrLayoutChanged();
+    }
+  }
+
   void _onScrollingStateChanged() {
     if (!widget.isScrollingNotifier.value) {
       _lastSlowScrollAt = DateTime.now();
@@ -453,10 +464,15 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     final maxScrollExtent = scrollController.position.maxScrollExtent;
     final currentOffset = scrollController.offset;
     final previousOffset = _lastScrollOffset ?? currentOffset;
-    final userDirection = scrollController.hasClients ? scrollController.position.userScrollDirection : ScrollDirection.idle;
-    final scrollingTowardBottom = userDirection == ScrollDirection.reverse || (userDirection == ScrollDirection.idle && currentOffset > previousOffset);
-    _lastScrollOffset = currentOffset;
     final now = DateTime.now();
+    final userDirection = scrollController.hasClients ? scrollController.position.userScrollDirection : ScrollDirection.idle;
+    final effectiveDirection = userDirection != ScrollDirection.idle && widget.isScrollingNotifier.value
+        ? userDirection
+        : now.difference(_lastScrollIntentAt).inMilliseconds <= 700
+        ? _lastScrollIntentDirection
+        : userDirection;
+    final scrollingTowardBottom = effectiveDirection == ScrollDirection.reverse || (effectiveDirection == ScrollDirection.idle && currentOffset > previousOffset);
+    _lastScrollOffset = currentOffset;
     final sampleAt = _lastScrollSampleAt;
     if (sampleAt != null) {
       final dtMs = now.difference(sampleAt).inMilliseconds;
@@ -509,11 +525,13 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
 
     AvesEntry? target;
     AvesEntry? anchor;
+    AvesEntry? firstVisibleCandidate;
     AvesEntry? lastVisibleCandidate;
     for (final y in probesY) {
       for (final x in probesX) {
         final candidate = layout.getItemAt(Offset(x, y));
         anchor ??= candidate;
+        firstVisibleCandidate ??= candidate;
         lastVisibleCandidate = candidate ?? lastVisibleCandidate;
         if (candidate?.isVideo == true) {
           target = candidate;
@@ -531,6 +549,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       maxScrollExtent: maxScrollExtent,
       scrollingTowardBottom: scrollingTowardBottom,
       probesX: probesX,
+      firstVisibleCandidate: firstVisibleCandidate,
+      lastVisibleCandidate: lastVisibleCandidate,
       fallbackAnchor: lastVisibleCandidate ?? anchor,
     );
     target ??= _resolveInitialTopFocusTarget(
@@ -584,10 +604,17 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     required double maxScrollExtent,
     required bool scrollingTowardBottom,
     required List<double> probesX,
+    required AvesEntry? firstVisibleCandidate,
+    required AvesEntry? lastVisibleCandidate,
     required AvesEntry? fallbackAnchor,
   }) {
-    final nearTop = currentOffset <= minScrollExtent + size.height * .18;
-    final nearBottom = currentOffset >= maxScrollExtent - size.height * .18;
+    final entries = collection.sortedEntries;
+    final firstVisibleIndex = firstVisibleCandidate != null ? entries.indexOf(firstVisibleCandidate) : -1;
+    final lastVisibleIndex = lastVisibleCandidate != null ? entries.indexOf(lastVisibleCandidate) : -1;
+    final atListTop = entries.isNotEmpty && firstVisibleIndex == 0;
+    final atListBottom = entries.isNotEmpty && lastVisibleIndex == entries.length - 1;
+    final nearTop = currentOffset <= minScrollExtent + size.height * .18 || atListTop;
+    final nearBottom = currentOffset >= maxScrollExtent - size.height * .18 || atListBottom;
     if (!nearTop && !nearBottom) return null;
 
     final forceTop = nearTop && !scrollingTowardBottom;
@@ -871,6 +898,7 @@ class _CollectionScrollView extends StatefulWidget {
   final ValueNotifier<double> appBarHeightNotifier;
   final ValueNotifier<bool> isScrollingNotifier;
   final ScrollController scrollController;
+  final ValueChanged<ScrollDirection> onScrollIntent;
 
   const _CollectionScrollView({
     required this.scrollableKey,
@@ -879,6 +907,7 @@ class _CollectionScrollView extends StatefulWidget {
     required this.appBarHeightNotifier,
     required this.isScrollingNotifier,
     required this.scrollController,
+    required this.onScrollIntent,
   });
 
   @override
@@ -1007,30 +1036,40 @@ class _CollectionScrollViewState extends State<_CollectionScrollView> with Widge
   }
 
   Widget _buildScrollView(Widget appBar, CollectionLens collection) {
-    return CustomScrollView(
-      key: widget.scrollableKey,
-      primary: true,
-      // workaround to prevent scrolling the app bar away
-      // when there is no content and we use `SliverFillRemaining`
-      physics: collection.isEmpty
-          ? const NeverScrollableScrollPhysics()
-          : SloppyScrollPhysics(
-              gestureSettings: MediaQuery.gestureSettingsOf(context),
-              parent: const AlwaysScrollableScrollPhysics(),
-            ),
-      cacheExtent: context.select<TileExtentController, double>((controller) => controller.effectiveExtentMax),
-      slivers: [
-        appBar,
-        collection.isEmpty
-            ? SliverFillRemaining(
-                hasScrollBody: false,
-                child: _buildEmptyContent(collection),
-              )
-            : const SectionedListSliver<AvesEntry>(),
-        const NavBarPaddingSliver(),
-        const BottomPaddingSliver(),
-        const TvTileGridBottomPaddingSliver(),
-      ],
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (notification is UserScrollNotification) {
+          widget.onScrollIntent(notification.direction);
+        } else if (notification is OverscrollNotification) {
+          widget.onScrollIntent(notification.overscroll > 0 ? ScrollDirection.reverse : ScrollDirection.forward);
+        }
+        return false;
+      },
+      child: CustomScrollView(
+        key: widget.scrollableKey,
+        primary: true,
+        // workaround to prevent scrolling the app bar away
+        // when there is no content and we use `SliverFillRemaining`
+        physics: collection.isEmpty
+            ? const NeverScrollableScrollPhysics()
+            : SloppyScrollPhysics(
+                gestureSettings: MediaQuery.gestureSettingsOf(context),
+                parent: const AlwaysScrollableScrollPhysics(),
+              ),
+        cacheExtent: context.select<TileExtentController, double>((controller) => controller.effectiveExtentMax),
+        slivers: [
+          appBar,
+          collection.isEmpty
+              ? SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _buildEmptyContent(collection),
+                )
+              : const SectionedListSliver<AvesEntry>(),
+          const NavBarPaddingSliver(),
+          const BottomPaddingSliver(),
+          const TvTileGridBottomPaddingSliver(),
+        ],
+      ),
     );
   }
 

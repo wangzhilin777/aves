@@ -16,6 +16,7 @@ import 'package:aves/model/settings/enums/remote_stream_mode.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/ref/mime_types.dart';
 import 'package:aves/services/common/services.dart';
+import 'package:aves/services/runtime_collection_source.dart';
 import 'package:aves/services/remote_stream_proxy_service.dart';
 import 'package:collection/collection.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -3377,6 +3378,13 @@ class RemoteMediaService {
     final mimeType = inferMimeType(node);
     try {
       final uri = await mediaStoreService.scanFile(cacheFile.path, mimeType);
+      await _attachIndexedRemoteCacheEntryToRuntimeSource(
+        server: server,
+        node: node,
+        cacheFile: cacheFile,
+        mimeType: mimeType,
+        scannedUri: uri,
+      );
       await remoteMediaLogService.log(
         'remote_load',
         'scanned remote cache file for smart collections',
@@ -3402,6 +3410,77 @@ class RemoteMediaService {
       );
       await reportService.recordError(error, stack);
     }
+  }
+
+  Future<void> _attachIndexedRemoteCacheEntryToRuntimeSource({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required File cacheFile,
+    required String mimeType,
+    required Uri? scannedUri,
+  }) async {
+    final source = runtimeCollectionSource;
+    if (source == null) return;
+
+    final scannedUriString = scannedUri?.toString();
+    final existingRuntimeEntry = source.allEntries.firstWhereOrNull(
+      (entry) => entry.path == cacheFile.path || (scannedUriString != null && entry.uri == scannedUriString),
+    );
+    if (existingRuntimeEntry != null) return;
+
+    final indexedEntries = await localMediaDb.loadEntries(origin: EntryOrigins.mediaStoreContent);
+    var indexedEntry = indexedEntries.firstWhereOrNull(
+      (entry) => entry.path == cacheFile.path || (scannedUriString != null && entry.uri == scannedUriString),
+    );
+
+    if (indexedEntry == null) {
+      final fetchUri = scannedUriString ?? Uri.file(cacheFile.path).toString();
+      final fetchedEntry = await mediaFetchService.getEntry(fetchUri, mimeType, allowUnsized: true);
+      if (fetchedEntry == null) {
+        await remoteMediaLogService.log(
+          'remote_load',
+          'failed to fetch scanned remote cache entry for runtime source',
+          data: {
+            'server': server.name,
+            'path': node.path,
+            'file': cacheFile.path,
+            'uri': fetchUri,
+          },
+        );
+        return;
+      }
+
+      fetchedEntry.id = localMediaDb.nextId;
+      fetchedEntry.origin = EntryOrigins.mediaStoreContent;
+      fetchedEntry.path = cacheFile.path;
+      fetchedEntry.sizeBytes ??= await cacheFile.length();
+      await localMediaDb.insertEntries({fetchedEntry});
+      indexedEntry = fetchedEntry;
+      await remoteMediaLogService.log(
+        'remote_load',
+        'inserted scanned remote cache entry into local database',
+        data: {
+          'server': server.name,
+          'path': node.path,
+          'file': cacheFile.path,
+          'uri': fetchedEntry.uri,
+          'entryId': fetchedEntry.id,
+        },
+      );
+    }
+
+    source.addEntries({indexedEntry});
+    await remoteMediaLogService.log(
+      'remote_load',
+      'attached indexed remote cache entry to runtime source',
+      data: {
+        'server': server.name,
+        'path': node.path,
+        'file': cacheFile.path,
+        'uri': indexedEntry.uri,
+        'entryId': indexedEntry.id,
+      },
+    );
   }
 
   Future<void> _applyNoMediaPolicy(Directory targetDir) async {

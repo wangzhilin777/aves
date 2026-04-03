@@ -20,6 +20,7 @@ import 'package:aves/model/source/media_store_source.dart';
 import 'package:aves/ref/locales.dart';
 import 'package:aves/services/accessibility_service.dart';
 import 'package:aves/services/common/services.dart';
+import 'package:aves/services/runtime_collection_source.dart';
 import 'package:aves/theme/colors.dart';
 import 'package:aves/theme/icons.dart';
 import 'package:aves/theme/styles.dart';
@@ -204,6 +205,7 @@ class _AvesAppState extends State<AvesApp> with WidgetsBindingObserver {
     _updateCutoutInsets();
     _updateWindowMode();
     _appModeNotifier.addListener(_onAppModeChanged);
+    runtimeCollectionSource = _mediaStoreSource;
 
     debugPrint('start listening to app lifecycle');
     WidgetsBinding.instance.addObserver(this);
@@ -212,6 +214,9 @@ class _AvesAppState extends State<AvesApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    if (identical(runtimeCollectionSource, _mediaStoreSource)) {
+      runtimeCollectionSource = null;
+    }
     _subscriptions
       ..forEach((sub) => sub.cancel())
       ..clear();
