@@ -126,17 +126,11 @@ class _EntryPageViewState extends State<EntryPageView> with TickerProviderStateM
   @override
   Widget build(BuildContext context) {
     Widget child = AnimatedBuilder(
-      animation: entry.visualChangeNotifier,
+      animation: Listenable.merge([entry.visualChangeNotifier, entry.metadataChangeNotifier]),
       builder: (context, child) {
         Widget? child;
         if (entry.isSvg) {
           child = _buildSvgView();
-        } else if (!entry.displaySize.isEmpty) {
-          if (entry.isVideo) {
-            child = _buildVideoView();
-          } else if (entry.isDecodingSupported) {
-            child = _buildRasterView();
-          }
         } else if (_isPendingRemoteImageMetadata) {
           child = ColoredBox(
             color: EntryViewerPage.getBackground(context),
@@ -148,6 +142,12 @@ class _EntryPageViewState extends State<EntryPageView> with TickerProviderStateM
               ),
             ),
           );
+        } else if (!entry.displaySize.isEmpty) {
+          if (entry.isVideo) {
+            child = _buildVideoView();
+          } else if (entry.isDecodingSupported) {
+            child = _buildRasterView();
+          }
         }
 
         child ??= ErrorView(
@@ -185,7 +185,7 @@ class _EntryPageViewState extends State<EntryPageView> with TickerProviderStateM
     return !entry.isVideo &&
         !entry.isSvg &&
         entry.isDecodingSupported &&
-        entry.displaySize.isEmpty &&
+        (entry.width <= 1 || entry.height <= 1 || entry.displaySize.isEmpty) &&
         (entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri));
   }
 
