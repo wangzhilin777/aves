@@ -159,13 +159,13 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     return settings.enableMotionPhotoAutoPlay;
   }
 
-  Future<void> _waitForLocalVideoPriming(AvesVideoController controller, String uri) async {
+  Future<bool> _waitForLocalVideoPriming(AvesVideoController controller, String uri) async {
     final decoded = controller.decodedVideoSizeNotifier.value;
     final hasDecodedFrame = decoded != null && decoded.width > 1 && decoded.height > 1;
     final hasFirstFrame = controller.firstFrameRenderedNotifier.value;
     final hasPlaybackProgress = controller.currentPosition > 0;
     if (hasDecodedFrame || hasFirstFrame || hasPlaybackProgress || controller.status == VideoStatus.error) {
-      return;
+      return hasDecodedFrame || hasFirstFrame || hasPlaybackProgress;
     }
     final completer = Completer<void>();
     VoidCallback? decodedListener;
@@ -225,6 +225,8 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     controller.firstFrameRenderedNotifier.removeListener(firstFrameListener!);
     await positionSub?.cancel();
     await statusSub?.cancel();
+    final size = controller.decodedVideoSizeNotifier.value;
+    return controller.currentPosition > 0 || controller.firstFrameRenderedNotifier.value || (size != null && size.width > 1 && size.height > 1);
   }
 
   Future<void> _initVideoController(AvesEntry entry) async {
@@ -504,6 +506,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
     final prefersImmediatePlayback =
         isRemoteStreamUri && (remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb);
+    var localPrimed = false;
     if (prefersImmediatePlayback) {
       unawaited(
         remoteMediaLogService.log(
@@ -532,7 +535,29 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         );
       }
       if (!isRemoteStreamUri) {
-        await _waitForLocalVideoPriming(videoController, uri);
+        localPrimed = await _waitForLocalVideoPriming(videoController, uri);
+        final localDecoded = videoController.decodedVideoSizeNotifier.value;
+        final hasLocalFrame = localPrimed || (localDecoded != null && localDecoded.width > 1 && localDecoded.height > 1) || videoController.firstFrameRenderedNotifier.value || videoController.currentPosition > 0;
+        if (!hasLocalFrame && videoController.status != VideoStatus.error && !_localErrorRecoveryTriedUris.contains(uri)) {
+          _localErrorRecoveryTriedUris.add(uri);
+          unawaited(
+            remoteMediaLogService.log(
+              'autoplay',
+              'viewer requested local controller recreation before playback after priming timeout without frame',
+              data: {'uri': uri},
+            ),
+          );
+          final recreatedController = await context.read<VideoConductor>().recreateController(controllerEntry as AvesEntry);
+          if (!mounted) return;
+          setState(() {});
+          if (token == _autoPlayRequestToken && isCurrent()) {
+            await Future.delayed(const Duration(milliseconds: 140) * timeDilation);
+            if (token == _autoPlayRequestToken && isCurrent()) {
+              await _autoPlayVideo(recreatedController, isCurrent, resumeTimeMillis: resumeTimeMillis);
+            }
+          }
+          return;
+        }
       }
     }
 
