@@ -19,6 +19,7 @@ import 'package:aves/model/source/collection_source.dart';
 import 'package:aves/model/source/media_store_source.dart';
 import 'package:aves/ref/locales.dart';
 import 'package:aves/services/accessibility_service.dart';
+import 'package:aves/services/analysis_service.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/services/runtime_collection_source.dart';
 import 'package:aves/theme/colors.dart';
@@ -196,6 +197,7 @@ class _AvesAppState extends State<AvesApp> with WidgetsBindingObserver {
     super.initState();
     EquatableConfig.stringify = true;
     _appSetup = _setup();
+    unawaited(AnalysisService.cancelService());
     _shouldUseBoldFontLoader = AccessibilityService.shouldUseBoldFont();
     _subscriptions.add(_mediaStoreChangeChannel.receiveBroadcastStream().cast<String?>().listen(_mediaStoreSource.onStoreChanged));
     _subscriptions.add(_newIntentChannel.receiveBroadcastStream().cast<Map?>().listen(_onNewIntent));

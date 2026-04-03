@@ -56,6 +56,18 @@ class AnalysisService {
       await reportService.recordError(e, stack);
     }
   }
+
+  static Future<void> cancelService() async {
+    await remoteMediaLogService.log(
+      'analysis',
+      'platform analysis service cancel requested',
+    );
+    try {
+      await _platform.invokeMethod('cancelAnalysis');
+    } on PlatformException catch (e, stack) {
+      await reportService.recordError(e, stack);
+    }
+  }
 }
 
 const _channel = AvesMethodChannel('deckers.thibault/aves/analysis_service_background');

@@ -29,6 +29,7 @@ class AnalysisHandler<T>(private val activity: T, private val onAnalysisComplete
         when (call.method) {
             "registerCallback" -> ioScope.launch { Coresult.safe(call, result, ::registerCallback) }
             "startAnalysis" -> Coresult.safe(call, result, ::startAnalysis)
+            "cancelAnalysis" -> ioScope.launch { Coresult.safe(call, result, ::cancelAnalysis) }
             else -> result.notImplemented()
         }
     }
@@ -90,6 +91,11 @@ class AnalysisHandler<T>(private val activity: T, private val onAnalysisComplete
     }
 
     private var attached = false
+
+    private fun cancelAnalysis(call: MethodCall, result: MethodChannel.Result) {
+        WorkManager.getInstance(activity).cancelUniqueWork(ANALYSIS_WORK_NAME)
+        result.success(true)
+    }
 
     fun attachToActivity() {
         if (!attached) {
