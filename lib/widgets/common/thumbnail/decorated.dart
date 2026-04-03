@@ -147,6 +147,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   bool _autoPlayInFlight = false;
   bool _videoSurfaceVisible = false;
   bool _playRequestedForCurrentFocus = false;
+  int _lastChunkedPlayRequestedAtMillis = 0;
   String? _lastAutoPlayUri;
   String? _lastDecisionKey;
   int _lastAutoPlayAttemptMillis = 0;
@@ -186,6 +187,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _controller = null;
       _videoSurfaceVisible = false;
       _playRequestedForCurrentFocus = false;
+      _lastChunkedPlayRequestedAtMillis = 0;
       _hasPlaybackProgress = false;
     }
     _onCurrentChanged();
@@ -265,9 +267,14 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         isChunkedRemotePreview &&
         errorCooldownStartedAt != null &&
         DateTime.now().millisecondsSinceEpoch - errorCooldownStartedAt < 4000;
+    final chunkedPlayRevealReady =
+        isChunkedRemotePreview &&
+        _playRequestedForCurrentFocus &&
+        _lastChunkedPlayRequestedAtMillis > 0 &&
+        DateTime.now().millisecondsSinceEpoch - _lastChunkedPlayRequestedAtMillis >= 260;
     final currentReadyForReveal = isCurrent
         ? isChunkedRemotePreview
-              ? (holdLastFrame || controller.isPlaying || (inChunkedErrorCooldown && _playRequestedForCurrentFocus))
+              ? (holdLastFrame || hasPreviewFrame || chunkedPlayRevealReady || (inChunkedErrorCooldown && _playRequestedForCurrentFocus))
               : isRemoteManagedEntry
                   ? (holdLastFrame || hasRenderableFrame)
                   : (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame)
@@ -306,9 +313,14 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           activeIsChunkedRemotePreview &&
           activeErrorCooldownStartedAt != null &&
           DateTime.now().millisecondsSinceEpoch - activeErrorCooldownStartedAt < 4000;
+      final activeChunkedPlayRevealReady =
+          activeIsChunkedRemotePreview &&
+          _playRequestedForCurrentFocus &&
+          _lastChunkedPlayRequestedAtMillis > 0 &&
+          DateTime.now().millisecondsSinceEpoch - _lastChunkedPlayRequestedAtMillis >= 260;
       final currentReadyForReveal = isCurrent
           ? activeIsChunkedRemotePreview
-                ? (activeHoldLastFrame || activeController.isPlaying || (activeInChunkedErrorCooldown && _playRequestedForCurrentFocus))
+                ? (activeHoldLastFrame || activeHasPreviewFrame || activeChunkedPlayRevealReady || (activeInChunkedErrorCooldown && _playRequestedForCurrentFocus))
                 : isActiveRemoteManagedEntry
                     ? (activeHoldLastFrame || activeHasRenderableFrame)
                     : (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame)
@@ -427,6 +439,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           );
         }
         _playRequestedForCurrentFocus = false;
+        _lastChunkedPlayRequestedAtMillis = 0;
         return;
       }
 
@@ -620,6 +633,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       await controller.mute(_shouldMute(settings));
       await controller.play();
       _playRequestedForCurrentFocus = true;
+      if (isChunkedRemotePreview) {
+        _lastChunkedPlayRequestedAtMillis = DateTime.now().millisecondsSinceEpoch;
+      }
       unawaited(
         remoteMediaLogService.log(
           'autoplay',
@@ -645,6 +661,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error) {
         final failedUri = entry.uri;
         _playRequestedForCurrentFocus = false;
+        _lastChunkedPlayRequestedAtMillis = 0;
         _lastAutoPlayErrorAtMillisByUri[failedUri] = DateTime.now().millisecondsSinceEpoch;
         unawaited(
           remoteMediaLogService.log(
