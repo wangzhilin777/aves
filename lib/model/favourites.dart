@@ -114,7 +114,7 @@ class Favourites with ChangeNotifier {
   // import/export
 
   Map<String, List<String>>? export(CollectionSource source) {
-    final visibleEntries = source.visibleEntries;
+    final visibleEntries = source.allEntries;
     final ids = all;
     final paths = visibleEntries.where((entry) => ids.contains(entry.id)).map((entry) => entry.path).nonNulls.toSet();
     final byVolume = groupBy<String, StorageVolume?>(paths, androidFileUtils.getStorageVolume);
@@ -136,7 +136,7 @@ class Favourites with ChangeNotifier {
       return;
     }
 
-    final visibleEntries = source.visibleEntries;
+    final visibleEntries = source.allEntries;
     final foundEntries = <AvesEntry>{};
     final missedPaths = <String>{};
     jsonMap.cast<String, List>().forEach((volume, relativePaths) {
