@@ -54,6 +54,13 @@ class StoredAlbumFilter extends CollectionFilter with CoveredFilter, AlbumBaseFi
   String get universalLabel => displayName ?? pContext.split(album).last;
 
   @override
+  bool matchLabel(BuildContext context, String query) {
+    final label = getLabel(context).toUpperCase();
+    if (label.contains(query)) return true;
+    return album.toUpperCase().contains(query);
+  }
+
+  @override
   String getTooltip(BuildContext context) => isVault ? super.getTooltip(context) : album;
 
   @override

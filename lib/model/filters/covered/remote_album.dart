@@ -48,6 +48,13 @@ class RemoteAlbumFilter extends CollectionFilter with AlbumBaseFilter {
   String get universalLabel => title;
 
   @override
+  bool matchLabel(BuildContext context, String query) {
+    final upperTitle = title.toUpperCase();
+    if (upperTitle.contains(query)) return true;
+    return path.toUpperCase().contains(query);
+  }
+
+  @override
   Widget? iconBuilder(BuildContext context, double size, {bool allowGenericIcon = true}) => Icon(AIcons.storageMain, size: size);
 
   @override
