@@ -260,9 +260,14 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
     final isRemotePreviewCandidate = isRemoteManagedEntry && !controller.isPlaying;
     final holdLastFrame = keepLastFrameVisible && hasRenderableFrame;
+    final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
+    final inChunkedErrorCooldown =
+        isChunkedRemotePreview &&
+        errorCooldownStartedAt != null &&
+        DateTime.now().millisecondsSinceEpoch - errorCooldownStartedAt < 4000;
     final currentReadyForReveal = isCurrent
         ? isChunkedRemotePreview
-              ? (holdLastFrame || controller.isPlaying)
+              ? (holdLastFrame || controller.isPlaying || (inChunkedErrorCooldown && _playRequestedForCurrentFocus))
               : isRemoteManagedEntry
                   ? (holdLastFrame || hasRenderableFrame)
                   : (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame)
@@ -296,9 +301,14 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           activeRemoteProtocol == RemoteProtocol.ftp || activeRemoteProtocol == RemoteProtocol.sftp || activeRemoteProtocol == RemoteProtocol.smb;
       final isActiveRemotePreviewCandidate = isActiveRemoteManagedEntry && !activeController.isPlaying;
       final activeHoldLastFrame = activeKeepLastFrameVisible && activeHasRenderableFrame;
+      final activeErrorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
+      final activeInChunkedErrorCooldown =
+          activeIsChunkedRemotePreview &&
+          activeErrorCooldownStartedAt != null &&
+          DateTime.now().millisecondsSinceEpoch - activeErrorCooldownStartedAt < 4000;
       final currentReadyForReveal = isCurrent
           ? activeIsChunkedRemotePreview
-                ? (activeHoldLastFrame || activeController.isPlaying)
+                ? (activeHoldLastFrame || activeController.isPlaying || (activeInChunkedErrorCooldown && _playRequestedForCurrentFocus))
                 : isActiveRemoteManagedEntry
                     ? (activeHoldLastFrame || activeHasRenderableFrame)
                     : (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame)
@@ -432,6 +442,22 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _lastAutoPlayAnyAttemptMillis = nowMillis;
       _lastAutoPlayUri = entry.uri;
       _lastAutoPlayAttemptMillis = nowMillis;
+      final isChunkedRemotePreview = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
+      final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
+      if (isChunkedRemotePreview && errorCooldownStartedAt != null && nowMillis - errorCooldownStartedAt < 4000) {
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'skipped chunked remote preview replay during error cooldown',
+            data: {
+              'uri': entry.uri,
+              'protocol': remoteProtocol?.name,
+              'cooldownRemainingMillis': 4000 - (nowMillis - errorCooldownStartedAt),
+            },
+          ),
+        );
+        return;
+      }
 
       if (entry.isVideo && remoteProtocol != null) {
         final existingCacheFile = await remoteMediaService.prepareEntryForPlayback(
@@ -480,8 +506,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       if (controller.isPlaying) {
         return;
       }
-      final isChunkedRemotePreview = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
-      final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
       final nowAfterControllerReady = DateTime.now().millisecondsSinceEpoch;
       if (isChunkedRemotePreview && errorCooldownStartedAt != null && nowAfterControllerReady - errorCooldownStartedAt < 4000) {
         unawaited(
@@ -657,13 +681,18 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             final isWebdavPreview = remoteProtocol == RemoteProtocol.webdav;
             final isChunkedRemotePreview = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
             final isRemoteManagedEntry = remoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
+            final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
+            final inChunkedErrorCooldown =
+                isChunkedRemotePreview &&
+                errorCooldownStartedAt != null &&
+                DateTime.now().millisecondsSinceEpoch - errorCooldownStartedAt < 4000;
             final remoteForceVisible = isCurrent &&
                 _playRequestedForCurrentFocus &&
-                isWebdavPreview &&
-                controller.status != VideoStatus.error;
+                ((isWebdavPreview && controller.status != VideoStatus.error) ||
+                    (isChunkedRemotePreview && (controller.isPlaying || inChunkedErrorCooldown)));
             final show = _videoSurfaceVisible ||
                 (isChunkedRemotePreview
-                    ? keepLastFrameVisible
+                    ? (keepLastFrameVisible || (isCurrent && inChunkedErrorCooldown))
                     : isWebdavPreview
                         ? (keepLastFrameVisible || hasDecodedFrame || (isCurrent && controller.status != VideoStatus.error && (controller.isPlaying || controller.isReady || _playRequestedForCurrentFocus)))
                     : (isRemoteManagedEntry ? (keepLastFrameVisible && hasRenderableFrame) : (keepLastFrameVisible || hasDecodedFrame))) ||

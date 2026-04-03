@@ -147,7 +147,7 @@ class _VideoViewState extends State<VideoView> {
             }
             if (status == VideoStatus.error) {
               if (isChunkedRemotePreview) {
-                if ((isSftpProtocol || isSmbProtocol) && hasRemotePreviewFrame) {
+                if (hasRemotePreviewFrame) {
                   return controller.buildPlayerWidget(context);
                 }
                 return const ColoredBox(color: Colors.black);
