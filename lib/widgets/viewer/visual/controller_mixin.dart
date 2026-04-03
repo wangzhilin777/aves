@@ -613,7 +613,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         }
       }
     }
-    if (token == _autoPlayRequestToken && isCurrent() && videoController.status == VideoStatus.error && controllerEntry is AvesEntry) {
+    if (token == _autoPlayRequestToken && isCurrent() && isRemoteStreamUri && videoController.status == VideoStatus.error && controllerEntry is AvesEntry) {
       if (!allowDownloadFallback) {
         unawaited(
           remoteMediaLogService.log(

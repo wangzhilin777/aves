@@ -94,11 +94,12 @@ class _VideoViewState extends State<VideoView> {
             }
             _hadPlaybackProgress = currentPosition > 0;
             final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
+            final hasLocalRecoverableFrame = !isRemoteStream && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
             final canRenderDespiteError = isChunkedRemoteProtocol
                 ? widget.preferStableRemoteInit
                       ? hasStableDetailFrame
                       : controller.isPlaying || controller.isReady || hasDecodedFrame
-                : controller.isPlaying || controller.isReady || (hasDecodedFrame && allowDecodedFrameRenderOnError);
+                : controller.isPlaying || controller.isReady || hasLocalRecoverableFrame || (hasDecodedFrame && allowDecodedFrameRenderOnError);
             final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
             final withinChunkedProgressRevealGrace = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressRevealDeadline != null && DateTime.now().isBefore(_chunkedProgressRevealDeadline!);
             final shouldKeepPlayerHiddenDuringChunkedInit = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && (!hasStableDetailFrame || withinChunkedProgressRevealGrace);
