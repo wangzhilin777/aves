@@ -448,6 +448,53 @@ class RemoteMediaService {
     return ensureDownloadedForEntry(entry, trigger: '${trigger}_download');
   }
 
+  Future<AvesEntry?> ensureIndexedCacheEntryForEntry(
+    AvesEntry entry, {
+    String trigger = 'favourite_add',
+  }) async {
+    if (!settings.remoteCacheInSmartCollections) return null;
+
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref == null) return null;
+
+    File? cacheFile = await _getExistingCacheFile(ref.$1, ref.$2);
+    final totalLength = ref.$2.sizeBytes ?? entry.sizeBytes ?? 0;
+    if (cacheFile == null && entry.isVideo && totalLength > 0) {
+      await _tryMergeCompleteChunkCache(
+        server: ref.$1,
+        node: ref.$2,
+        totalLength: totalLength,
+      );
+      cacheFile = await _getExistingCacheFile(ref.$1, ref.$2);
+    }
+
+    cacheFile ??= await ensureDownloadedForEntry(entry, trigger: '${trigger}_download');
+    if (cacheFile == null) return null;
+
+    await _scanDownloadedFileIfNeeded(
+      server: ref.$1,
+      node: ref.$2,
+      cacheFile: cacheFile,
+    );
+
+    final source = runtimeCollectionSource;
+    final indexedEntries = source?.allEntries ?? await localMediaDb.loadEntries(origin: EntryOrigins.mediaStoreContent);
+    final indexedEntry = indexedEntries.firstWhereOrNull((candidate) => candidate.path == cacheFile!.path);
+    await remoteMediaLogService.log(
+      'remote_load',
+      'ensured indexed remote cache entry for action',
+      data: {
+        'trigger': trigger,
+        'server': ref.$1.name,
+        'path': ref.$2.path,
+        'file': cacheFile.path,
+        'entryId': indexedEntry?.id,
+        'isVideo': entry.isVideo,
+      },
+    );
+    return indexedEntry;
+  }
+
   Future<void> ensureEntryMetadata(
     AvesEntry entry, {
     String trigger = 'remote_metadata',

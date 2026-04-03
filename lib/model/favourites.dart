@@ -32,6 +32,7 @@ class Favourites with ChangeNotifier {
   FavouriteRow _entryToRow(AvesEntry entry) => FavouriteRow(entryId: entry.id);
 
   Future<void> add(Set<AvesEntry> entries) async {
+    await _materializeRemoteVideoAliases(entries);
     final expandedEntries = await _expandEntriesWithRemoteCacheAliases(entries);
     final newRows = expandedEntries.map(_entryToRow).toSet();
 
@@ -39,6 +40,20 @@ class Favourites with ChangeNotifier {
     _rows.addAll(newRows);
 
     notifyListeners();
+  }
+
+  Future<void> _materializeRemoteVideoAliases(Set<AvesEntry> entries) async {
+    final remoteVideos = entries.where((entry) => entry.isVideo && remoteMediaService.getVirtualRemoteRef(entry.uri) != null).toSet();
+    if (remoteVideos.isEmpty) return;
+
+    await Future.wait(
+      remoteVideos.map(
+        (entry) => remoteMediaService.ensureIndexedCacheEntryForEntry(
+          entry,
+          trigger: 'favourite_add',
+        ),
+      ),
+    );
   }
 
   Future<void> removeEntries(Set<AvesEntry> entries) async {

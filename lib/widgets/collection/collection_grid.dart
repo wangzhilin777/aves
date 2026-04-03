@@ -540,7 +540,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       }
       if (target != null) break;
     }
-    target ??= _resolveEdgeFocusTarget(
+    final edgeTarget = _resolveEdgeFocusTarget(
       layout: layout,
       size: size,
       viewportTopY: viewportTopY,
@@ -553,6 +553,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       lastVisibleCandidate: lastVisibleCandidate,
       fallbackAnchor: lastVisibleCandidate ?? anchor,
     );
+    target = edgeTarget ?? target;
     target ??= _resolveInitialTopFocusTarget(
       currentOffset: currentOffset,
       minScrollExtent: minScrollExtent,
