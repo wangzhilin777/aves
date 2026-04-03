@@ -998,6 +998,14 @@ class RemoteMediaService {
     );
   }
 
+  Future<Set<String>> _loadProtectedRemoteCachePaths() async {
+    final favouriteRows = await localMediaDb.loadAllFavourites();
+    if (favouriteRows.isEmpty) return const {};
+
+    final entries = await localMediaDb.loadEntriesById(favouriteRows.map((row) => row.entryId).toSet());
+    return entries.where((entry) => entry.isRemoteCachedMedia).map((entry) => entry.path).nonNulls.toSet();
+  }
+
   Future<int> getPinnedFolderCacheBytes({
     required RemoteServer server,
     required String folderPath,
@@ -3635,6 +3643,7 @@ class RemoteMediaService {
     if (maxBytes <= 0) return;
     final dir = await getConnectionCacheDirectory(serverId);
     if (!await dir.exists()) return;
+    final protectedPaths = await _loadProtectedRemoteCachePaths();
 
     final files = <File>[];
     var totalBytes = 0;
@@ -3653,8 +3662,13 @@ class RemoteMediaService {
     files.sort((a, b) => a.statSync().modified.compareTo(b.statSync().modified));
 
     var deletedCount = 0;
+    var protectedCount = 0;
     for (final file in files) {
       if (totalBytes <= maxBytes) break;
+      if (protectedPaths.contains(file.path)) {
+        protectedCount++;
+        continue;
+      }
       try {
         final length = await file.length();
         await file.delete();
@@ -3673,6 +3687,7 @@ class RemoteMediaService {
           'maxBytes': maxBytes,
           'remainingBytes': totalBytes,
           'deletedCount': deletedCount,
+          'protectedCount': protectedCount,
         },
       );
     }

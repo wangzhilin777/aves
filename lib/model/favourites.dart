@@ -59,6 +59,7 @@ class Favourites with ChangeNotifier {
   Future<void> removeEntries(Set<AvesEntry> entries) async {
     final expandedEntries = await _expandEntriesWithRemoteCacheAliases(entries);
     await removeIds(expandedEntries.map((entry) => entry.id).toSet());
+    await remoteMediaService.enforceAllConnectionCacheLimits(trigger: 'favourite_remove');
   }
 
   Future<void> removeIds(Set<int> entryIds) async {
@@ -75,6 +76,7 @@ class Favourites with ChangeNotifier {
     _rows.clear();
 
     notifyListeners();
+    await remoteMediaService.enforceAllConnectionCacheLimits(trigger: 'favourites_clear');
   }
 
   Future<Set<AvesEntry>> _expandEntriesWithRemoteCacheAliases(Set<AvesEntry> entries) async {
