@@ -853,15 +853,21 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                 isCurrent && isSftpPreview && (_videoSurfaceVisible || keepLastFrameVisible || (_videoSurfaceVisible && inChunkedErrorCooldown));
             final smbCurrentShow =
                 isCurrent && isSmbPreview && (_videoSurfaceVisible || keepLastFrameVisible || (_videoSurfaceVisible && inChunkedErrorCooldown));
+            final ftpCurrentForceVisible =
+                isCurrent && isFtpPreview && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
+            final sftpCurrentForceVisible =
+                isCurrent && isSftpPreview && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
+            final smbCurrentForceVisible =
+                isCurrent && isSmbPreview && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
             final webdavForceVisible =
                 isCurrent && isWebdavPreview && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
             final show = _videoSurfaceVisible ||
                 ((isFtpPreview)
-                    ? (ftpCurrentShow || ftpForceVisible)
+                    ? (ftpCurrentShow || ftpForceVisible || ftpCurrentForceVisible)
                     : (isSftpPreview)
-                        ? (sftpCurrentShow || sftpForceVisible)
+                        ? (sftpCurrentShow || sftpForceVisible || sftpCurrentForceVisible)
                         : (isSmbPreview)
-                            ? (smbCurrentShow || smbForceVisible)
+                            ? (smbCurrentShow || smbForceVisible || smbCurrentForceVisible)
                             : isWebdavPreview
                                 ? (keepLastFrameVisible ||
                                     hasDecodedFrame ||
