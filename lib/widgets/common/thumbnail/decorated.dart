@@ -147,7 +147,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   bool _autoPlayInFlight = false;
   bool _videoSurfaceVisible = false;
   bool _playRequestedForCurrentFocus = false;
-  int _lastChunkedPlayRequestedAtMillis = 0;
   bool _chunkedCurrentFocusPlaybackStarted = false;
   String? _lastAutoPlayUri;
   String? _lastDecisionKey;
@@ -188,7 +187,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _controller = null;
       _videoSurfaceVisible = false;
       _playRequestedForCurrentFocus = false;
-      _lastChunkedPlayRequestedAtMillis = 0;
       _chunkedCurrentFocusPlaybackStarted = false;
       _hasPlaybackProgress = false;
     }
@@ -275,38 +273,18 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         isChunkedRemotePreview &&
         errorCooldownStartedAt != null &&
         DateTime.now().millisecondsSinceEpoch - errorCooldownStartedAt < 4000;
-    final chunkedPlayRevealReady =
-        isChunkedRemotePreview &&
-        _playRequestedForCurrentFocus &&
-        _lastChunkedPlayRequestedAtMillis > 0 &&
-        DateTime.now().millisecondsSinceEpoch - _lastChunkedPlayRequestedAtMillis >= 260;
     final ftpCurrentReadyForReveal =
         isFtpPreview &&
         isCurrent &&
-        (holdLastFrame ||
-            hasPreviewFrame ||
-            _playRequestedForCurrentFocus ||
-            _chunkedCurrentFocusPlaybackStarted ||
-            chunkedPlayRevealReady ||
-            inChunkedErrorCooldown);
+        (holdLastFrame || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
     final sftpCurrentReadyForReveal =
         isSftpPreview &&
         isCurrent &&
-        (holdLastFrame ||
-            hasPreviewFrame ||
-            _playRequestedForCurrentFocus ||
-            _chunkedCurrentFocusPlaybackStarted ||
-            chunkedPlayRevealReady ||
-            inChunkedErrorCooldown);
+        (holdLastFrame || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
     final smbCurrentReadyForReveal =
         isSmbPreview &&
         isCurrent &&
-        (holdLastFrame ||
-            hasPreviewFrame ||
-            _playRequestedForCurrentFocus ||
-            _chunkedCurrentFocusPlaybackStarted ||
-            chunkedPlayRevealReady ||
-            inChunkedErrorCooldown);
+        (holdLastFrame || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
     final currentReadyForReveal = isCurrent
         ? (isFtpPreview || isSftpPreview || isSmbPreview)
               ? (ftpCurrentReadyForReveal || sftpCurrentReadyForReveal || smbCurrentReadyForReveal)
@@ -348,41 +326,21 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           activeIsChunkedRemotePreview &&
           activeErrorCooldownStartedAt != null &&
           DateTime.now().millisecondsSinceEpoch - activeErrorCooldownStartedAt < 4000;
-      final activeChunkedPlayRevealReady =
-          activeIsChunkedRemotePreview &&
-          _playRequestedForCurrentFocus &&
-          _lastChunkedPlayRequestedAtMillis > 0 &&
-          DateTime.now().millisecondsSinceEpoch - _lastChunkedPlayRequestedAtMillis >= 260;
       final activeIsFtpPreview = activeRemoteProtocol == RemoteProtocol.ftp;
       final activeIsSftpPreview = activeRemoteProtocol == RemoteProtocol.sftp;
       final activeIsSmbPreview = activeRemoteProtocol == RemoteProtocol.smb;
       final ftpCurrentReadyForReveal =
           activeIsFtpPreview &&
           isCurrent &&
-          (activeHoldLastFrame ||
-              activeHasPreviewFrame ||
-              _playRequestedForCurrentFocus ||
-              _chunkedCurrentFocusPlaybackStarted ||
-              activeChunkedPlayRevealReady ||
-              activeInChunkedErrorCooldown);
+          (activeHoldLastFrame || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
       final sftpCurrentReadyForReveal =
           activeIsSftpPreview &&
           isCurrent &&
-          (activeHoldLastFrame ||
-              activeHasPreviewFrame ||
-              _playRequestedForCurrentFocus ||
-              _chunkedCurrentFocusPlaybackStarted ||
-              activeChunkedPlayRevealReady ||
-              activeInChunkedErrorCooldown);
+          (activeHoldLastFrame || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
       final smbCurrentReadyForReveal =
           activeIsSmbPreview &&
           isCurrent &&
-          (activeHoldLastFrame ||
-              activeHasPreviewFrame ||
-              _playRequestedForCurrentFocus ||
-              _chunkedCurrentFocusPlaybackStarted ||
-              activeChunkedPlayRevealReady ||
-              activeInChunkedErrorCooldown);
+          (activeHoldLastFrame || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
       final currentReadyForReveal = isCurrent
           ? (activeIsFtpPreview || activeIsSftpPreview || activeIsSmbPreview)
                 ? (ftpCurrentReadyForReveal || sftpCurrentReadyForReveal || smbCurrentReadyForReveal)
@@ -504,7 +462,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           );
         }
         _playRequestedForCurrentFocus = false;
-        _lastChunkedPlayRequestedAtMillis = 0;
         _chunkedCurrentFocusPlaybackStarted = false;
         return;
       }
@@ -774,7 +731,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         await controller.mute(_shouldMute(settings));
         await controller.play();
         _playRequestedForCurrentFocus = true;
-        _lastChunkedPlayRequestedAtMillis = DateTime.now().millisecondsSinceEpoch;
         _chunkedCurrentFocusPlaybackStarted = true;
         unawaited(
           remoteMediaLogService.log(
@@ -820,7 +776,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         _lastAutoPlayErrorAtMillisByUri[failedUri] = DateTime.now().millisecondsSinceEpoch;
         if (!(isFtpPreview || isSftpPreview || isSmbPreview)) {
           _playRequestedForCurrentFocus = false;
-          _lastChunkedPlayRequestedAtMillis = 0;
           _chunkedCurrentFocusPlaybackStarted = false;
         }
         unawaited(
@@ -866,15 +821,12 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                 isChunkedRemotePreview &&
                 errorCooldownStartedAt != null &&
                 DateTime.now().millisecondsSinceEpoch - errorCooldownStartedAt < 4000;
-            final ftpForceVisible = isCurrent &&
-                isFtpPreview &&
-                (_playRequestedForCurrentFocus || _chunkedCurrentFocusPlaybackStarted || controller.isPlaying || inChunkedErrorCooldown);
-            final sftpForceVisible = isCurrent &&
-                isSftpPreview &&
-                (_playRequestedForCurrentFocus || _chunkedCurrentFocusPlaybackStarted || controller.isPlaying || inChunkedErrorCooldown);
-            final smbForceVisible = isCurrent &&
-                isSmbPreview &&
-                (_playRequestedForCurrentFocus || _chunkedCurrentFocusPlaybackStarted || controller.isPlaying || inChunkedErrorCooldown);
+            final ftpForceVisible =
+                isCurrent && isFtpPreview && (keepLastFrameVisible || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
+            final sftpForceVisible =
+                isCurrent && isSftpPreview && (keepLastFrameVisible || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
+            final smbForceVisible =
+                isCurrent && isSmbPreview && (keepLastFrameVisible || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
             final webdavForceVisible =
                 isCurrent && isWebdavPreview && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
             final show = _videoSurfaceVisible ||
