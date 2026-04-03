@@ -439,6 +439,10 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           trigger: 'grid_preview',
           allowDownload: false,
         );
+        if ((remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb) &&
+            existingCacheFile == null) {
+          await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview_pre_controller');
+        }
         if (remoteProtocol == RemoteProtocol.smb && existingCacheFile == null) {
           unawaited(
             remoteMediaLogService.log(
@@ -582,7 +586,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         unawaited(_logLocalCacheUsage('preview_start'));
       }
       if (isStreamingEntry) {
-        await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview');
+        if (!isChunkedRemotePreview) {
+          await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview');
+        }
         unawaited(remoteMediaService.warmupVideoCacheForEntry(entry, trigger: 'grid_preview'));
       }
       // SMB preview is more stable when we keep a single controller/source path.
