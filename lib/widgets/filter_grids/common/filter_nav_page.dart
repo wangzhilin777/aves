@@ -261,7 +261,7 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
         final preparedNode = await remoteMediaService.ensureNodeMetadata(server, node, trigger: 'collection_inject');
         final cachedFile = await remoteMediaService.getExistingCacheFile(server, preparedNode);
         final shouldPreferStream = remoteMediaService.shouldPreferStreamOverCachedFile(server, preparedNode);
-        final uri = cachedFile != null && !shouldPreferStream
+        final uri = cachedFile != null
             ? Uri.file(cachedFile.path)
             : (remoteMediaService.buildStreamUri(server: server, node: preparedNode) ?? (cachedFile != null ? Uri.file(cachedFile.path) : _buildDeferredRemoteUri(server.id, preparedNode.path)));
         remoteMediaService.registerVirtualRemoteRef(

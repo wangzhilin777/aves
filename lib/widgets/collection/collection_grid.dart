@@ -860,7 +860,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
         entry,
         trigger: 'collection_focus_next_video_warmup',
       );
-      final existingFile = await remoteMediaService.prepareEntryForPlayback(
+      var existingFile = await remoteMediaService.prepareEntryForPlayback(
         entry,
         trigger: 'collection_focus_next_video_preheat',
         allowDownload: false,
@@ -932,8 +932,13 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
           entry,
           trigger: 'collection_focus_next_video_warmup_retry',
         );
+        existingFile = await remoteMediaService.prepareEntryForPlayback(
+          entry,
+          trigger: 'collection_focus_next_video_preheat_retry',
+          allowDownload: false,
+        );
         activeController = await context.read<VideoConductor>().recreateController(entry);
-        activeController = await primeController(activeController, isRemoteNoCache: true);
+        activeController = await primeController(activeController, isRemoteNoCache: existingFile == null);
       }
 
       final refreshedSize = activeController.decodedVideoSizeNotifier.value;

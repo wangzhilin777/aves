@@ -783,7 +783,13 @@ class RemoteMediaService {
       Future<List<int>> Function(RemoteByteRange range)? fetchChunk;
       switch (server.protocol) {
         case RemoteProtocol.webdav:
-          fetchChunk = null;
+          final base = server.webdavUrl;
+          if (base != null && base.isNotEmpty) {
+            final targetUri = _buildWebDavUri(base, _resolveEffectivePath(server, node.path));
+            if (targetUri != null) {
+              fetchChunk = (range) => _fetchWebDavChunk(server: server, targetUri: targetUri, path: node.path, range: range);
+            }
+          }
         case RemoteProtocol.ftp:
           fetchChunk = (range) => _fetchFtpChunk(server: server, path: node.path, range: range);
         case RemoteProtocol.sftp:
@@ -1190,8 +1196,7 @@ class RemoteMediaService {
   }) async {
     final plan = await decidePreviewPlan(server: server, node: node);
     final cachedFile = await _getExistingCacheFile(server, node);
-    final preferStreamOverCache = _shouldPreferStreamOverCachedFile(server, node);
-    if (cachedFile != null && !preferStreamOverCache) {
+    if (cachedFile != null) {
       await remoteMediaLogService.log(
         'auto_download',
         'reuse cached remote media',
@@ -1209,19 +1214,6 @@ class RemoteMediaService {
     }
 
     final streamUri = buildStreamUri(server: server, node: node);
-    if (cachedFile != null && preferStreamOverCache && streamUri != null) {
-      await remoteMediaLogService.log(
-        'stream',
-        'prefer remote stream over cached file for playback',
-        data: {
-          'server': server.name,
-          'protocol': server.protocol.name,
-          'path': node.path,
-          'cachedFile': cachedFile.path,
-          'streamUri': streamUri.toString(),
-        },
-      );
-    }
     File? downloadedFile;
     if (plan.shouldAutoDownload) {
       downloadedFile = await _autoDownload(server: server, node: node);
@@ -2243,29 +2235,26 @@ class RemoteMediaService {
     required Future<List<int>> Function(RemoteByteRange range) fetchChunk,
   }) async {
     final preferStreamOverCache = _shouldPreferStreamOverCachedFile(server, node);
-    final fullCacheFile = preferStreamOverCache ? null : await _getExistingCacheFile(server, node);
+    final fullCacheFile = await _getExistingCacheFile(server, node);
     if (fullCacheFile != null) {
+      if (preferStreamOverCache) {
+        await remoteMediaLogService.log(
+          'stream',
+          'prefer existing full cache file over remote stream because cache is complete',
+          data: {
+            'server': server.name,
+            'protocol': server.protocol.name,
+            'path': node.path,
+            'file': fullCacheFile.path,
+          },
+        );
+      }
       return _serveLocalFile(
         file: fullCacheFile,
         mimeType: inferMimeType(node),
         rangeHeader: request.rangeHeader,
         method: request.method,
       );
-    }
-    if (preferStreamOverCache) {
-      final existingCache = await _getExistingCacheFile(server, node);
-      if (existingCache != null) {
-        await remoteMediaLogService.log(
-          'stream',
-          'bypass existing full cache file and keep remote streaming path',
-          data: {
-            'server': server.name,
-            'protocol': server.protocol.name,
-            'path': node.path,
-            'file': existingCache.path,
-          },
-        );
-      }
     }
 
     final range = _resolveByteRange(request.rangeHeader, totalLength);
