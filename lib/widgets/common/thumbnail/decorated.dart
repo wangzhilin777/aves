@@ -148,6 +148,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   bool _videoSurfaceVisible = false;
   bool _playRequestedForCurrentFocus = false;
   int _lastChunkedPlayRequestedAtMillis = 0;
+  bool _chunkedCurrentFocusPlaybackStarted = false;
   String? _lastAutoPlayUri;
   String? _lastDecisionKey;
   int _lastAutoPlayAttemptMillis = 0;
@@ -188,7 +189,14 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _videoSurfaceVisible = false;
       _playRequestedForCurrentFocus = false;
       _lastChunkedPlayRequestedAtMillis = 0;
+      _chunkedCurrentFocusPlaybackStarted = false;
       _hasPlaybackProgress = false;
+    }
+    final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+    final isChunkedRemotePreview =
+        remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
+    if (oldWidget.entry == widget.entry && isChunkedRemotePreview) {
+      return;
     }
     _onCurrentChanged();
   }
@@ -440,6 +448,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         }
         _playRequestedForCurrentFocus = false;
         _lastChunkedPlayRequestedAtMillis = 0;
+        _chunkedCurrentFocusPlaybackStarted = false;
         return;
       }
 
@@ -456,6 +465,19 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _lastAutoPlayUri = entry.uri;
       _lastAutoPlayAttemptMillis = nowMillis;
       final isChunkedRemotePreview = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
+      if (isChunkedRemotePreview && _chunkedCurrentFocusPlaybackStarted) {
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'skipped chunked remote preview autoplay because current focus session already started',
+            data: {
+              'uri': entry.uri,
+              'protocol': remoteProtocol?.name,
+            },
+          ),
+        );
+        return;
+      }
       final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
       if (isChunkedRemotePreview && errorCooldownStartedAt != null && nowMillis - errorCooldownStartedAt < 4000) {
         unawaited(
@@ -636,6 +658,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         await controller.play();
         _playRequestedForCurrentFocus = true;
         _lastChunkedPlayRequestedAtMillis = DateTime.now().millisecondsSinceEpoch;
+        _chunkedCurrentFocusPlaybackStarted = true;
         unawaited(
           remoteMediaLogService.log(
             'autoplay',
@@ -680,6 +703,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         _playRequestedForCurrentFocus = false;
         _lastChunkedPlayRequestedAtMillis = 0;
         _lastAutoPlayErrorAtMillisByUri[failedUri] = DateTime.now().millisecondsSinceEpoch;
+        _chunkedCurrentFocusPlaybackStarted = false;
         unawaited(
           remoteMediaLogService.log(
             'autoplay',
