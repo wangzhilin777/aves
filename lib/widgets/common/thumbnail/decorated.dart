@@ -261,7 +261,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final hasDecodedFrame = _hasDecodedFrame(controller);
     final hasFirstFrameRendered = controller.firstFrameRenderedNotifier.value;
     final hasPreviewFrame = hasDecodedFrame || hasFirstFrameRendered;
-    final hasStablePreviewFrame = hasFirstFrameRendered || _hasPlaybackProgress || controller.currentPosition > 0;
     final hasRenderableFrame = hasDecodedFrame || hasFirstFrameRendered || _hasPlaybackProgress || controller.currentPosition > 0;
     if (hasDecodedFrame) {
       _lastDecodedFrameAtMillisByUri[entry.uri] = DateTime.now().millisecondsSinceEpoch;
@@ -277,15 +276,15 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final ftpCurrentReadyForReveal =
         isFtpPreview &&
         isCurrent &&
-        (holdLastFrame || hasStablePreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
+        (holdLastFrame || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
     final sftpCurrentReadyForReveal =
         isSftpPreview &&
         isCurrent &&
-        (holdLastFrame || hasStablePreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
+        (holdLastFrame || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
     final smbCurrentReadyForReveal =
         isSmbPreview &&
         isCurrent &&
-        (holdLastFrame || hasStablePreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
+        (holdLastFrame || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
     final currentReadyForReveal = isCurrent
         ? (isFtpPreview || isSftpPreview || isSmbPreview)
               ? (ftpCurrentReadyForReveal || sftpCurrentReadyForReveal || smbCurrentReadyForReveal)
@@ -315,8 +314,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final activeHasDecodedFrame = _hasDecodedFrame(activeController);
       final activeHasFirstFrameRendered = activeController.firstFrameRenderedNotifier.value;
       final activeHasPreviewFrame = activeHasDecodedFrame || activeHasFirstFrameRendered;
-      final activeHasStablePreviewFrame =
-          activeHasFirstFrameRendered || _hasPlaybackProgress || activeController.currentPosition > 0;
       final activeHasRenderableFrame =
           activeHasDecodedFrame || activeHasFirstFrameRendered || _hasPlaybackProgress || activeController.currentPosition > 0;
       final activeKeepLastFrameVisible = activeController.status == VideoStatus.paused || activeController.status == VideoStatus.completed;
@@ -335,15 +332,15 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final ftpCurrentReadyForReveal =
           activeIsFtpPreview &&
           isCurrent &&
-          (activeHoldLastFrame || activeHasStablePreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
+          (activeHoldLastFrame || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
       final sftpCurrentReadyForReveal =
           activeIsSftpPreview &&
           isCurrent &&
-          (activeHoldLastFrame || activeHasStablePreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
+          (activeHoldLastFrame || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
       final smbCurrentReadyForReveal =
           activeIsSmbPreview &&
           isCurrent &&
-          (activeHoldLastFrame || activeHasStablePreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
+          (activeHoldLastFrame || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
       final currentReadyForReveal = isCurrent
           ? (activeIsFtpPreview || activeIsSftpPreview || activeIsSmbPreview)
                 ? (ftpCurrentReadyForReveal || sftpCurrentReadyForReveal || smbCurrentReadyForReveal)
