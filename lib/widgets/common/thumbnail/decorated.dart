@@ -259,7 +259,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final holdLastFrame = keepLastFrameVisible && hasRenderableFrame;
     final currentReadyForReveal = isCurrent
         ? isChunkedRemotePreview
-              ? (holdLastFrame || (controller.isPlaying && hasPreviewFrame))
+              ? (holdLastFrame || controller.isPlaying)
               : isRemoteManagedEntry
                   ? (holdLastFrame || hasRenderableFrame)
                   : (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame)
@@ -295,7 +295,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final activeHoldLastFrame = activeKeepLastFrameVisible && activeHasRenderableFrame;
       final currentReadyForReveal = isCurrent
           ? activeIsChunkedRemotePreview
-                ? (activeHoldLastFrame || (activeController.isPlaying && activeHasPreviewFrame))
+                ? (activeHoldLastFrame || activeController.isPlaying)
                 : isActiveRemoteManagedEntry
                     ? (activeHoldLastFrame || activeHasRenderableFrame)
                     : (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame)
