@@ -473,9 +473,26 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       if (controller.isPlaying) {
         return;
       }
+      final isChunkedRemotePreview = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
+      final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
+      final nowAfterControllerReady = DateTime.now().millisecondsSinceEpoch;
+      if (isChunkedRemotePreview && errorCooldownStartedAt != null && nowAfterControllerReady - errorCooldownStartedAt < 4000) {
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'skipped chunked remote preview replay during error cooldown',
+            data: {
+              'uri': entry.uri,
+              'protocol': remoteProtocol?.name,
+              'cooldownRemainingMillis': 4000 - (nowAfterControllerReady - errorCooldownStartedAt),
+            },
+          ),
+        );
+        return;
+      }
       final decodedFrameAt = _lastDecodedFrameAtMillisByUri[entry.uri];
       final hasRecentDecodedFrame = decodedFrameAt != null && nowMillis - decodedFrameAt < 4000;
-      if (hasRecentDecodedFrame && _hasDecodedFrame(controller)) {
+      if (!isChunkedRemotePreview && hasRecentDecodedFrame && _hasDecodedFrame(controller)) {
         await conductor.pauseOthers(controller);
         await controller.mute(_shouldMute(settings));
         await controller.play();
@@ -486,6 +503,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             'grid preview resumed from preheated decoded frame',
             data: {
               'uri': entry.uri,
+              'protocol': remoteProtocol?.name,
               'status': controller.status.name,
               'isPlaying': controller.isPlaying,
             },
