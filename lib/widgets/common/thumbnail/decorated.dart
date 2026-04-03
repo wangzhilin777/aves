@@ -268,6 +268,12 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
     final isRemotePreviewCandidate = isRemoteManagedEntry && !controller.isPlaying;
     final holdLastFrame = keepLastFrameVisible && hasRenderableFrame;
+    final ftpPreviewRevealTrigger =
+        isFtpPreview && isCurrent && controller.status != VideoStatus.error && (_playRequestedForCurrentFocus || controller.isPlaying || controller.isReady);
+    final sftpPreviewRevealTrigger =
+        isSftpPreview && isCurrent && controller.status != VideoStatus.error && (_playRequestedForCurrentFocus || controller.isPlaying || controller.isReady);
+    final smbPreviewRevealTrigger =
+        isSmbPreview && isCurrent && controller.status != VideoStatus.error && (_playRequestedForCurrentFocus || controller.isPlaying || controller.isReady);
     final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
     final inChunkedErrorCooldown =
         isChunkedRemotePreview &&
@@ -276,15 +282,15 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final ftpCurrentReadyForReveal =
         isFtpPreview &&
         isCurrent &&
-        (holdLastFrame || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
+        (holdLastFrame || ftpPreviewRevealTrigger || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
     final sftpCurrentReadyForReveal =
         isSftpPreview &&
         isCurrent &&
-        (holdLastFrame || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
+        (holdLastFrame || sftpPreviewRevealTrigger || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
     final smbCurrentReadyForReveal =
         isSmbPreview &&
         isCurrent &&
-        (holdLastFrame || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
+        (holdLastFrame || smbPreviewRevealTrigger || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
     final currentReadyForReveal = isCurrent
         ? (isFtpPreview || isSftpPreview || isSmbPreview)
               ? (ftpCurrentReadyForReveal || sftpCurrentReadyForReveal || smbCurrentReadyForReveal)
@@ -319,28 +325,43 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final activeKeepLastFrameVisible = activeController.status == VideoStatus.paused || activeController.status == VideoStatus.completed;
       final activeIsChunkedRemotePreview =
           activeRemoteProtocol == RemoteProtocol.ftp || activeRemoteProtocol == RemoteProtocol.sftp || activeRemoteProtocol == RemoteProtocol.smb;
+      final activeIsFtpPreview = activeRemoteProtocol == RemoteProtocol.ftp;
+      final activeIsSftpPreview = activeRemoteProtocol == RemoteProtocol.sftp;
+      final activeIsSmbPreview = activeRemoteProtocol == RemoteProtocol.smb;
       final isActiveRemotePreviewCandidate = isActiveRemoteManagedEntry && !activeController.isPlaying;
       final activeHoldLastFrame = activeKeepLastFrameVisible && activeHasRenderableFrame;
+      final ftpPreviewRevealTrigger =
+          activeIsFtpPreview &&
+          isCurrent &&
+          activeController.status != VideoStatus.error &&
+          (_playRequestedForCurrentFocus || activeController.isPlaying || activeController.isReady);
+      final sftpPreviewRevealTrigger =
+          activeIsSftpPreview &&
+          isCurrent &&
+          activeController.status != VideoStatus.error &&
+          (_playRequestedForCurrentFocus || activeController.isPlaying || activeController.isReady);
+      final smbPreviewRevealTrigger =
+          activeIsSmbPreview &&
+          isCurrent &&
+          activeController.status != VideoStatus.error &&
+          (_playRequestedForCurrentFocus || activeController.isPlaying || activeController.isReady);
       final activeErrorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
       final activeInChunkedErrorCooldown =
           activeIsChunkedRemotePreview &&
           activeErrorCooldownStartedAt != null &&
           DateTime.now().millisecondsSinceEpoch - activeErrorCooldownStartedAt < 4000;
-      final activeIsFtpPreview = activeRemoteProtocol == RemoteProtocol.ftp;
-      final activeIsSftpPreview = activeRemoteProtocol == RemoteProtocol.sftp;
-      final activeIsSmbPreview = activeRemoteProtocol == RemoteProtocol.smb;
       final ftpCurrentReadyForReveal =
           activeIsFtpPreview &&
           isCurrent &&
-          (activeHoldLastFrame || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
+          (activeHoldLastFrame || ftpPreviewRevealTrigger || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
       final sftpCurrentReadyForReveal =
           activeIsSftpPreview &&
           isCurrent &&
-          (activeHoldLastFrame || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
+          (activeHoldLastFrame || sftpPreviewRevealTrigger || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
       final smbCurrentReadyForReveal =
           activeIsSmbPreview &&
           isCurrent &&
-          (activeHoldLastFrame || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
+          (activeHoldLastFrame || smbPreviewRevealTrigger || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
       final currentReadyForReveal = isCurrent
           ? (activeIsFtpPreview || activeIsSftpPreview || activeIsSmbPreview)
                 ? (ftpCurrentReadyForReveal || sftpCurrentReadyForReveal || smbCurrentReadyForReveal)
