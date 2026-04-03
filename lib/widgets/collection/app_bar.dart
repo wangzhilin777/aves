@@ -221,17 +221,30 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
                     actions: (context, maxWidth) => useTvLayout ? [] : _buildActions(context, selection, maxWidth),
                     bottom: Column(
                       children: [
-                        if (_remoteContextLabel != null)
+                        if (_remoteContextInfo != null)
                           Padding(
                             padding: const EdgeInsetsDirectional.only(start: 56, end: 16, top: 2, bottom: 4),
                             child: Align(
                               alignment: AlignmentDirectional.centerStart,
-                              child: Text(
-                                _remoteContextLabel!,
+                              child: Text.rich(
+                                TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: _remoteContextInfo!.$1,
+                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                                    ),
+                                    if (_remoteContextInfo!.$2.isNotEmpty) ...[
+                                      const WidgetSpan(child: SizedBox(width: 8)),
+                                      TextSpan(
+                                        text: _remoteContextInfo!.$2,
+                                        style: Theme.of(context).textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ],
+                                ),
                                 softWrap: false,
                                 overflow: TextOverflow.fade,
                                 maxLines: 1,
-                                style: Theme.of(context).textTheme.bodySmall,
                               ),
                             ),
                           ),
@@ -289,7 +302,7 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
   double get appBarContentHeight {
     final textScaler = MediaQuery.textScalerOf(context);
     double height = textScaler.scale(kToolbarHeight);
-    if (_remoteContextLabel != null) {
+    if (_remoteContextInfo != null) {
       height += _remoteContextLineHeight;
     }
     if (settings.useTvLayout) {
@@ -367,7 +380,7 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
     }
   }
 
-  String? get _remoteContextLabel {
+  (String, String)? get _remoteContextInfo {
     final remoteFilter = collection.filters.whereType<RemoteAlbumFilter>().firstOrNull;
     final routeArgs = ModalRoute.of(context)?.settings.arguments;
     final routeMap = routeArgs is Map ? routeArgs : null;
@@ -392,8 +405,8 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
     final routeTitle = routeMap?['remoteTitle'];
     final rawLabel = routeTitle is String && routeTitle.isNotEmpty ? routeTitle : (remoteFilter?.title ?? leaf);
     final numericOnly = RegExp(r'^-?\d+$').hasMatch(rawLabel.trim());
-    final label = numericOnly ? leaf : rawLabel;
-    return '$label  $remotePath';
+    final label = numericOnly || rawLabel.contains(':') ? leaf : rawLabel;
+    return (label, remotePath);
   }
 
   List<Widget> _buildActions(BuildContext context, Selection<AvesEntry> selection, double maxWidth) {

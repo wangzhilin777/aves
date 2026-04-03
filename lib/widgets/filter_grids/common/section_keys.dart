@@ -45,6 +45,18 @@ class AlbumImportanceSectionKey extends ChipSectionKey {
   Widget get leading => Icon(importance.getIcon());
 }
 
+class RemoteAlbumSectionKey extends ChipSectionKey {
+  RemoteAlbumSectionKey(BuildContext context) : super(title: _titleForLocale(context));
+
+  static String _titleForLocale(BuildContext context) {
+    final languageCode = Localizations.localeOf(context).languageCode.toLowerCase();
+    return languageCode.startsWith('zh') ? '远程' : 'Remote';
+  }
+
+  @override
+  Widget get leading => const Icon(AIcons.storageMain);
+}
+
 class MimeTypeSectionKey extends ChipSectionKey {
   final AlbumMimeType mimeType;
 

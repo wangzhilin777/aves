@@ -38,6 +38,8 @@ import 'package:provider/provider.dart';
 class FilterNavigationPage<T extends CollectionFilter, CSAD extends ChipSetActionDelegate<T>> extends StatefulWidget {
   final CollectionSource source;
   final String title;
+  final String? remoteContextLabel;
+  final String? remoteContextPath;
   final ChipSortFactor sortFactor;
   final bool showHeaders;
   final CSAD actionDelegate;
@@ -49,6 +51,8 @@ class FilterNavigationPage<T extends CollectionFilter, CSAD extends ChipSetActio
     super.key,
     required this.source,
     required this.title,
+    this.remoteContextLabel,
+    this.remoteContextPath,
     required this.sortFactor,
     this.showHeaders = false,
     required this.actionDelegate,
@@ -155,6 +159,8 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
               appBar: FilterGridAppBar<T, CSAD>(
                 source: widget.source,
                 title: widget.title,
+                remoteContextLabel: widget.remoteContextLabel,
+                remoteContextPath: widget.remoteContextPath,
                 actionDelegate: widget.actionDelegate,
                 isEmpty: widget.filterSections.isEmpty,
                 appBarHeightNotifier: _appBarHeightNotifier,
@@ -331,6 +337,8 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
           builder: (context) => FilterNavigationPage<AlbumBaseFilter, AlbumChipSetActionDelegate>(
             source: widget.source,
             title: filter.title,
+            remoteContextLabel: filter.title,
+            remoteContextPath: filter.path,
             sortFactor: settings.albumSortFactor,
             actionDelegate: AlbumChipSetActionDelegate(gridItems),
             filterSections: {

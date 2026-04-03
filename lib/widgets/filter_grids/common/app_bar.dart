@@ -42,6 +42,8 @@ typedef ActionsBuilder<T extends CollectionFilter, CSAD extends ChipSetActionDel
 class FilterGridAppBar<T extends CollectionFilter, CSAD extends ChipSetActionDelegate<T>> extends StatefulWidget {
   final CollectionSource source;
   final String title;
+  final String? remoteContextLabel;
+  final String? remoteContextPath;
   final CSAD actionDelegate;
   final ActionsBuilder<T, CSAD>? actionsBuilder;
   final bool isEmpty;
@@ -52,6 +54,8 @@ class FilterGridAppBar<T extends CollectionFilter, CSAD extends ChipSetActionDel
     super.key,
     required this.source,
     required this.title,
+    this.remoteContextLabel,
+    this.remoteContextPath,
     required this.actionDelegate,
     this.actionsBuilder,
     required this.isEmpty,
@@ -90,6 +94,8 @@ class _FilterGridAppBarState<T extends CollectionFilter, CSAD extends ChipSetAct
   late final Listenable _queryFocusRequestNotifier;
 
   CollectionSource get source => widget.source;
+
+  static const double _remoteContextLineHeight = 20;
 
   static const browsingQuickActions = [
     ChipSetAction.search,
@@ -181,6 +187,33 @@ class _FilterGridAppBarState<T extends CollectionFilter, CSAD extends ChipSetAct
             actions: (context, maxWidth) => useTvLayout ? [] : actionsBuilder(context, appMode, selection, actionDelegate),
             bottom: Column(
               children: [
+                if (_remoteContextInfo != null)
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(start: 56, end: 16, top: 2, bottom: 4),
+                    child: Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(
+                              text: _remoteContextInfo!.$1,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                            if (_remoteContextInfo!.$2.isNotEmpty) ...[
+                              const WidgetSpan(child: SizedBox(width: 8)),
+                              TextSpan(
+                                text: _remoteContextInfo!.$2,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ],
+                        ),
+                        softWrap: false,
+                        overflow: TextOverflow.fade,
+                        maxLines: 1,
+                      ),
+                    ),
+                  ),
                 if (useTvLayout)
                   SizedBox(
                     height: CaptionedButton.getTelevisionButtonHeight(context),
@@ -229,6 +262,9 @@ class _FilterGridAppBarState<T extends CollectionFilter, CSAD extends ChipSetAct
   double get appBarContentHeight {
     final textScaler = MediaQuery.textScalerOf(context);
     double height = textScaler.scale(kToolbarHeight);
+    if (_remoteContextInfo != null) {
+      height += _remoteContextLineHeight;
+    }
     if (settings.useTvLayout) {
       height += CaptionedButton.getTelevisionButtonHeight(context);
     }
@@ -239,6 +275,13 @@ class _FilterGridAppBarState<T extends CollectionFilter, CSAD extends ChipSetAct
       height += FilterQueryBar.getPreferredHeight(textScaler);
     }
     return height;
+  }
+
+  (String, String)? get _remoteContextInfo {
+    final label = widget.remoteContextLabel;
+    final path = widget.remoteContextPath;
+    if (label == null || label.isEmpty || path == null || path.isEmpty) return null;
+    return (label, path);
   }
 
   Widget? _buildAppBarLeading({required bool hasDrawer, required bool isSelecting}) {
