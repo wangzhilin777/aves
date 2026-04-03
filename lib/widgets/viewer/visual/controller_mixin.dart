@@ -159,6 +159,74 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     return settings.enableMotionPhotoAutoPlay;
   }
 
+  Future<void> _waitForLocalVideoPriming(AvesVideoController controller, String uri) async {
+    final decoded = controller.decodedVideoSizeNotifier.value;
+    final hasDecodedFrame = decoded != null && decoded.width > 1 && decoded.height > 1;
+    final hasFirstFrame = controller.firstFrameRenderedNotifier.value;
+    final hasPlaybackProgress = controller.currentPosition > 0;
+    if (hasDecodedFrame || hasFirstFrame || hasPlaybackProgress || controller.status == VideoStatus.error) {
+      return;
+    }
+    final completer = Completer<void>();
+    VoidCallback? decodedListener;
+    VoidCallback? firstFrameListener;
+    StreamSubscription<int>? positionSub;
+    StreamSubscription<VideoStatus>? statusSub;
+
+    void complete() {
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
+    }
+
+    try {
+      decodedListener = () {
+        final size = controller.decodedVideoSizeNotifier.value;
+        if (size != null && size.width > 1 && size.height > 1) {
+          complete();
+        }
+      };
+      firstFrameListener = () {
+        if (controller.firstFrameRenderedNotifier.value) {
+          complete();
+        }
+      };
+      controller.decodedVideoSizeNotifier.addListener(decodedListener);
+      controller.firstFrameRenderedNotifier.addListener(firstFrameListener);
+      positionSub = controller.positionStream.listen((position) {
+        if (position > 0) {
+          complete();
+        }
+      });
+      statusSub = controller.statusStream.listen((status) {
+        if (status == VideoStatus.error) {
+          complete();
+        }
+      });
+
+      await completer.future.timeout(const Duration(milliseconds: 320));
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'viewer awaited local video priming before playback',
+          data: {'uri': uri},
+        ),
+      );
+    } catch (_) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'viewer local video priming wait timed out',
+          data: {'uri': uri},
+        ),
+      );
+    }
+    controller.decodedVideoSizeNotifier.removeListener(decodedListener!);
+    controller.firstFrameRenderedNotifier.removeListener(firstFrameListener!);
+    await positionSub?.cancel();
+    await statusSub?.cancel();
+  }
+
   Future<void> _initVideoController(AvesEntry entry) async {
     await remoteMediaService.ensureEntryMetadata(entry, trigger: 'viewer_init');
     await remoteMediaService.prepareEntryForPlayback(
@@ -449,7 +517,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       );
     } else {
       try {
-        await videoController.untilReady.timeout(const Duration(milliseconds: 1200));
+        await videoController.untilReady.timeout(Duration(milliseconds: isRemoteStreamUri ? 1200 : 1500));
       } catch (_) {
         unawaited(
           remoteMediaLogService.log(
@@ -462,6 +530,9 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
             },
           ),
         );
+      }
+      if (!isRemoteStreamUri) {
+        await _waitForLocalVideoPriming(videoController, uri);
       }
     }
 
