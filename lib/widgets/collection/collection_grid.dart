@@ -868,53 +868,75 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       await remoteMediaService.ensureEntryMetadata(entry, trigger: 'collection_focus_next_video_preheat');
 
       final controller = await context.read<VideoConductor>().getOrCreateController(entry, maxControllerCount: 5);
-      try {
-        await controller.untilReady.timeout(const Duration(milliseconds: 700));
-      } catch (_) {}
-
-      final decoded = controller.decodedVideoSizeNotifier.value;
-      final hasDecodedFrame = decoded != null && decoded.width > 1 && decoded.height > 1;
-      final shouldPrimeByMutedPlayback = !hasDecodedFrame && (entry.uri.startsWith('file://') || existingFile == null);
-      if (shouldPrimeByMutedPlayback) {
-        await controller.mute(true);
-        Future<void> waitForPreheatFrame(Duration timeout) async {
-          if (_hasRenderablePreheatFrame(controller)) return;
-          final completer = Completer<void>();
-          late VoidCallback sizeListener;
-          late VoidCallback frameListener;
-          void completeIfReady() {
-            if (completer.isCompleted || !_hasRenderablePreheatFrame(controller)) return;
-            completer.complete();
-          }
-
-          sizeListener = () => completeIfReady();
-          frameListener = () => completeIfReady();
-          controller.decodedVideoSizeNotifier.addListener(sizeListener);
-          controller.firstFrameRenderedNotifier.addListener(frameListener);
-          try {
-            await completer.future.timeout(timeout);
-          } catch (_) {
-            // best-effort preheat
-          } finally {
-            controller.decodedVideoSizeNotifier.removeListener(sizeListener);
-            controller.firstFrameRenderedNotifier.removeListener(frameListener);
-          }
+      Future<void> waitForPreheatFrame(AvesVideoController controller, Duration timeout) async {
+        if (_hasRenderablePreheatFrame(controller)) return;
+        final completer = Completer<void>();
+        late VoidCallback sizeListener;
+        late VoidCallback frameListener;
+        StreamSubscription<int>? positionSub;
+        void completeIfReady() {
+          if (completer.isCompleted || !_hasRenderablePreheatFrame(controller)) return;
+          completer.complete();
         }
 
+        sizeListener = () => completeIfReady();
+        frameListener = () => completeIfReady();
+        controller.decodedVideoSizeNotifier.addListener(sizeListener);
+        controller.firstFrameRenderedNotifier.addListener(frameListener);
+        positionSub = controller.positionStream.listen((position) {
+          if (position > 0 && !completer.isCompleted) {
+            completer.complete();
+          }
+        });
+        try {
+          await completer.future.timeout(timeout);
+        } catch (_) {
+          // best-effort preheat
+        } finally {
+          controller.decodedVideoSizeNotifier.removeListener(sizeListener);
+          controller.firstFrameRenderedNotifier.removeListener(frameListener);
+          await positionSub.cancel();
+        }
+      }
+
+      Future<AvesVideoController> primeController(AvesVideoController controller, {required bool isRemoteNoCache}) async {
+        try {
+          await controller.untilReady.timeout(const Duration(milliseconds: 700));
+        } catch (_) {}
+
+        final decoded = controller.decodedVideoSizeNotifier.value;
+        final hasDecodedFrame = decoded != null && decoded.width > 1 && decoded.height > 1;
+        final shouldPrimeByMutedPlayback = !hasDecodedFrame && (entry.uri.startsWith('file://') || existingFile == null);
+        if (!shouldPrimeByMutedPlayback) {
+          return controller;
+        }
+
+        await controller.mute(true);
         try {
           await controller.play();
-          await waitForPreheatFrame(existingFile == null ? const Duration(milliseconds: 1800) : const Duration(milliseconds: 500));
+          await waitForPreheatFrame(controller, isRemoteNoCache ? const Duration(milliseconds: 2200) : const Duration(milliseconds: 600));
         } catch (_) {}
         await controller.pause();
         try {
           await controller.seekTo(0);
         } catch (_) {}
         try {
-          await controller.untilReady.timeout(const Duration(milliseconds: 400));
+          await controller.untilReady.timeout(const Duration(milliseconds: 450));
         } catch (_) {}
+        return controller;
       }
 
-      final refreshedSize = controller.decodedVideoSizeNotifier.value;
+      var activeController = await primeController(controller, isRemoteNoCache: existingFile == null);
+      if (existingFile == null && !_hasRenderablePreheatFrame(activeController)) {
+        await remoteMediaService.prepareInitialStreamPlaybackForEntry(
+          entry,
+          trigger: 'collection_focus_next_video_warmup_retry',
+        );
+        activeController = await context.read<VideoConductor>().recreateController(entry);
+        activeController = await primeController(activeController, isRemoteNoCache: true);
+      }
+
+      final refreshedSize = activeController.decodedVideoSizeNotifier.value;
       if (refreshedSize != null && refreshedSize.width > 1 && refreshedSize.height > 1) {
         entry.width = refreshedSize.width.round();
         entry.height = refreshedSize.height.round();

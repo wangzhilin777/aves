@@ -539,20 +539,23 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         final localDecoded = videoController.decodedVideoSizeNotifier.value;
         final hasLocalFrame = localPrimed || (localDecoded != null && localDecoded.width > 1 && localDecoded.height > 1) || videoController.firstFrameRenderedNotifier.value || videoController.currentPosition > 0;
         final localRecoveryAttempts = _localErrorRecoveryAttempts[uri] ?? 0;
-        if (!hasLocalFrame && videoController.status != VideoStatus.error && localRecoveryAttempts < 1) {
+        if (!hasLocalFrame && videoController.status != VideoStatus.error && localRecoveryAttempts < 2) {
           _localErrorRecoveryAttempts[uri] = localRecoveryAttempts + 1;
           unawaited(
             remoteMediaLogService.log(
               'autoplay',
               'viewer requested local controller recreation before playback after priming timeout without frame',
-              data: {'uri': uri},
+              data: {
+                'uri': uri,
+                'attempt': localRecoveryAttempts + 1,
+              },
             ),
           );
           final recreatedController = await context.read<VideoConductor>().recreateController(controllerEntry as AvesEntry);
           if (!mounted) return;
           setState(() {});
           if (token == _autoPlayRequestToken && isCurrent()) {
-            await Future.delayed(const Duration(milliseconds: 140) * timeDilation);
+            await Future.delayed(const Duration(milliseconds: 90) * timeDilation);
             if (token == _autoPlayRequestToken && isCurrent()) {
               await _autoPlayVideo(recreatedController, isCurrent, resumeTimeMillis: resumeTimeMillis);
             }
@@ -750,20 +753,23 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       final hasVideoFrame = decoded != null && decoded.width > 1 && decoded.height > 1;
       final hasPlaybackProgress = videoController.currentPosition > 0;
       final localRecoveryAttempts = _localErrorRecoveryAttempts[uri] ?? 0;
-      if (!hasVideoFrame && !hasPlaybackProgress && localRecoveryAttempts < 2) {
+      if (!hasVideoFrame && !hasPlaybackProgress && localRecoveryAttempts < 3) {
         _localErrorRecoveryAttempts[uri] = localRecoveryAttempts + 1;
         unawaited(
           remoteMediaLogService.log(
             'autoplay',
             'viewer requested local controller recreation after early error without frame',
-            data: {'uri': uri},
+            data: {
+              'uri': uri,
+              'attempt': localRecoveryAttempts + 1,
+            },
           ),
         );
         final recreatedController = await context.read<VideoConductor>().recreateController(controllerEntry);
         if (!mounted) return;
         setState(() {});
         if (token == _autoPlayRequestToken && isCurrent()) {
-          await Future.delayed(const Duration(milliseconds: 180) * timeDilation);
+          await Future.delayed(const Duration(milliseconds: 120) * timeDilation);
           if (token == _autoPlayRequestToken && isCurrent()) {
             await _autoPlayVideo(recreatedController, isCurrent, resumeTimeMillis: resumeTimeMillis);
             return;
