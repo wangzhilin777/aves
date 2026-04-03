@@ -225,9 +225,8 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
 
   Widget _buildPinnedFolderTile(RemoteServer server, RemotePinnedFolder folder) {
     final key = '${server.id}|${folder.path}';
-    unawaited(_refreshPinnedFolderCacheBytes(server: server, folderPath: folder.path));
     final cacheBytes = _cacheBytesByPinnedFolder[key];
-    final cacheText = cacheBytes == null ? _tr(context, 'Loading cache size…', '正在加载缓存大小…') : formatFileSize(context.locale, cacheBytes, round: 1);
+    final cacheText = cacheBytes == null ? _tr(context, 'Tap refresh to check cache size', '点击刷新后再检查缓存大小') : formatFileSize(context.locale, cacheBytes, round: 1);
     return Padding(
       padding: const EdgeInsetsDirectional.only(start: 20),
       child: ListTile(

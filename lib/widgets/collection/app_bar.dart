@@ -6,6 +6,7 @@ import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/filters/container/dynamic_album.dart';
 import 'package:aves/model/filters/container/set_and.dart';
 import 'package:aves/model/filters/covered/remote_album.dart';
+import 'package:aves/model/filters/covered/stored_album.dart';
 import 'package:aves/model/filters/filters.dart';
 import 'package:aves/model/filters/query.dart';
 import 'package:aves/model/filters/trash.dart';
@@ -44,6 +45,7 @@ import 'package:aves/widgets/dialogs/tile_view_dialog.dart';
 import 'package:aves/widgets/search/collection_search_delegate.dart';
 import 'package:aves/widgets/viewer/controls/notifications.dart';
 import 'package:aves_model/aves_model.dart';
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
@@ -80,7 +82,12 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
 
   CollectionSource get source => collection.source;
 
-  Set<CollectionFilter> get visibleFilters => collection.filters.where((v) => !(v is QueryFilter && v.live) && v is! TrashFilter && v is! RemoteAlbumFilter).toSet();
+  Set<CollectionFilter> get visibleFilters {
+    final filters = collection.filters.where((v) => !(v is QueryFilter && v.live) && v is! TrashFilter && v is! RemoteAlbumFilter).toSet();
+    final suppressedFilter = _suppressedRemoteGeneratedFilter(filters);
+    return suppressedFilter == null ? filters : {...filters}
+      ..remove(suppressedFilter);
+  }
 
   bool get showFilterBar => visibleFilters.isNotEmpty;
 
@@ -385,6 +392,19 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
     final routeArgs = ModalRoute.of(context)?.settings.arguments;
     final routeMap = routeArgs is Map ? routeArgs : null;
 
+    var remotePath = _resolveRemoteContextPath(routeMap, remoteFilter);
+    if (remotePath.isEmpty) return null;
+
+    final parts = remotePath.split('/').where((v) => v.isNotEmpty).toList();
+    final leaf = parts.isEmpty ? '/' : parts.last;
+    final routeTitle = routeMap?['remoteTitle'];
+    final rawLabel = routeTitle is String && routeTitle.isNotEmpty ? routeTitle : (remoteFilter?.title ?? leaf);
+    final numericOnly = RegExp(r'^-?\d+$').hasMatch(rawLabel.trim());
+    final label = numericOnly || rawLabel.contains(':') ? leaf : rawLabel;
+    return (label, remotePath);
+  }
+
+  String _resolveRemoteContextPath(Map? routeMap, RemoteAlbumFilter? remoteFilter) {
     var remotePath = collection.remotePathHint ?? remoteFilter?.path ?? '';
     if (remotePath.isEmpty && routeMap?['remotePath'] is String) {
       remotePath = routeMap!['remotePath'] as String;
@@ -398,15 +418,36 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
         }
       }
     }
-    if (remotePath.isEmpty) return null;
+    if (remotePath.isEmpty) {
+      final firstRemoteEntry = collection.sortedEntries.firstWhereOrNull((entry) => remoteMediaService.hasVirtualRemoteRef(entry.uri));
+      if (firstRemoteEntry != null) {
+        final path = remoteMediaService.getVirtualRemoteRef(firstRemoteEntry.uri)?.$2.path;
+        if (path != null && path.isNotEmpty) {
+          remotePath = path;
+        }
+      }
+    }
+    if (remotePath.isEmpty) {
+      final loneFilter = collection.filters.where((v) => !(v is QueryFilter && v.live) && v is! TrashFilter).singleOrNull;
+      if (loneFilter is StoredAlbumFilter) {
+        remotePath = loneFilter.album;
+      }
+    }
+    return remotePath;
+  }
 
-    final parts = remotePath.split('/').where((v) => v.isNotEmpty).toList();
-    final leaf = parts.isEmpty ? '/' : parts.last;
-    final routeTitle = routeMap?['remoteTitle'];
-    final rawLabel = routeTitle is String && routeTitle.isNotEmpty ? routeTitle : (remoteFilter?.title ?? leaf);
-    final numericOnly = RegExp(r'^-?\d+$').hasMatch(rawLabel.trim());
-    final label = numericOnly || rawLabel.contains(':') ? leaf : rawLabel;
-    return (label, remotePath);
+  CollectionFilter? _suppressedRemoteGeneratedFilter(Set<CollectionFilter> filters) {
+    if (_remoteContextInfo == null || filters.length != 1) return null;
+    final filter = filters.first;
+    final label = filter.universalLabel.trim();
+    final isNumericOnly = RegExp(r'^-?\d+$').hasMatch(label);
+    if (filter is RemoteAlbumFilter || isNumericOnly) {
+      return filter;
+    }
+    if (filter is StoredAlbumFilter && collection.sortedEntries.any((entry) => remoteMediaService.hasVirtualRemoteRef(entry.uri))) {
+      return filter;
+    }
+    return null;
   }
 
   List<Widget> _buildActions(BuildContext context, Selection<AvesEntry> selection, double maxWidth) {
