@@ -873,15 +873,19 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
 
       final decoded = controller.decodedVideoSizeNotifier.value;
       final hasDecodedFrame = decoded != null && decoded.width > 1 && decoded.height > 1;
-      if (!hasDecodedFrame && entry.uri.startsWith('file://')) {
+      final shouldPrimeByMutedPlayback = !hasDecodedFrame && (entry.uri.startsWith('file://') || existingFile == null);
+      if (shouldPrimeByMutedPlayback) {
         await controller.mute(true);
         try {
           await controller.play();
-          await Future.delayed(const Duration(milliseconds: 120));
+          await Future.delayed(Duration(milliseconds: existingFile == null ? 260 : 120));
         } catch (_) {}
         await controller.pause();
         try {
           await controller.seekTo(0);
+        } catch (_) {}
+        try {
+          await controller.untilReady.timeout(const Duration(milliseconds: 400));
         } catch (_) {}
       }
 
