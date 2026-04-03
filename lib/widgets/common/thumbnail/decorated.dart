@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/props.dart';
@@ -150,7 +149,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   bool _playRequestedForCurrentFocus = false;
   String? _lastAutoPlayUri;
   String? _lastDecisionKey;
-  String? _lastSmbFallbackAttemptUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
   final Map<String, int> _lastAutoPlayErrorAtMillisByUri = {};
@@ -332,11 +330,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     }
     try {
       final usage = await storageService.getDataUsage();
-      final internalCacheDetails = await _describeDirectoryChildren(Directory.systemTemp);
-      final externalCacheRoot = await storageService.getExternalCacheDirectory();
-      final externalCacheDetails = externalCacheRoot.isNotEmpty
-          ? await _describeDirectoryChildren(Directory(externalCacheRoot))
-          : const <String, int>{};
+      final details = await storageService.getDataUsageDetails();
       await remoteMediaLogService.log(
         'local_cache_probe',
         'sampled local media cache usage',
@@ -349,8 +343,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           'flutterBytes': usage['flutter'],
           'databaseBytes': usage['database'],
           'miscBytes': usage['miscData'],
-          'internalCacheChildren': internalCacheDetails,
-          'externalCacheChildren': externalCacheDetails,
+          'usageDetails': details,
         },
       );
     } catch (error) {
@@ -366,38 +359,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         ),
       );
     }
-  }
-
-  Future<Map<String, int>> _describeDirectoryChildren(Directory directory) async {
-    try {
-      if (!await directory.exists()) return const <String, int>{};
-      final result = <String, int>{};
-      await for (final entity in directory.list(followLinks: false)) {
-        final name = entity.uri.pathSegments.isNotEmpty ? entity.uri.pathSegments.where((v) => v.isNotEmpty).last : entity.path;
-        result[name] = await _computeEntitySize(entity);
-      }
-      return result;
-    } catch (_) {
-      return const <String, int>{};
-    }
-  }
-
-  Future<int> _computeEntitySize(FileSystemEntity entity) async {
-    try {
-      if (entity is File) {
-        return await entity.length();
-      }
-      if (entity is Directory) {
-        var total = 0;
-        await for (final child in entity.list(recursive: true, followLinks: false)) {
-          if (child is File) {
-            total += await child.length();
-          }
-        }
-        return total;
-      }
-    } catch (_) {}
-    return 0;
   }
 
   Future<void> _onCurrentChanged() async {
@@ -452,7 +413,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             ),
           );
         }
-        _lastSmbFallbackAttemptUri = null;
         _playRequestedForCurrentFocus = false;
         return;
       }
@@ -549,12 +509,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         ),
       );
 
-      final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
-      final nowAfterControllerReady = DateTime.now().millisecondsSinceEpoch;
-      if (errorCooldownStartedAt != null && nowAfterControllerReady - errorCooldownStartedAt < 4000) {
-        return;
-      }
-
       try {
         await controller.untilReady.timeout(const Duration(milliseconds: 1000));
         unawaited(
@@ -621,94 +575,15 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         await controller.play();
       } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error) {
         final failedUri = entry.uri;
-        var recovered = false;
-        try {
-          final fallbackController = await conductor.getOrCreateController(entry, maxControllerCount: 2);
-          if (mounted && token == _playToken && isCurrent) {
-            _setController(fallbackController);
-            setState(() {});
-            try {
-              await fallbackController.untilReady.timeout(const Duration(milliseconds: 1500));
-            } catch (_) {}
-            await conductor.pauseOthers(fallbackController);
-            await fallbackController.mute(_shouldMute(settings));
-            await fallbackController.play();
-            recovered = true;
-            unawaited(
-              remoteMediaLogService.log(
-                'autoplay',
-                'grid preview recovered by controller recreate',
-                data: {
-                  'uri': entry.uri,
-                  'protocol': remoteProtocol?.name,
-                },
-              ),
-            );
-          }
-        } catch (error) {
-          unawaited(
-            remoteMediaLogService.log(
-              'autoplay',
-              'grid preview controller recreate failed',
-              data: {
-                'uri': entry.uri,
-                'protocol': remoteProtocol?.name,
-                'error': '$error',
-              },
-            ),
-          );
-        }
-
-        final canTrySmbFallback = remoteProtocol == RemoteProtocol.smb && _lastSmbFallbackAttemptUri != failedUri;
-        if (!recovered && canTrySmbFallback) {
-          _lastSmbFallbackAttemptUri = failedUri;
-          try {
-            await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview_error_retry');
-            final fallbackController = await conductor.getOrCreateController(entry, maxControllerCount: 2);
-            if (mounted && token == _playToken && isCurrent) {
-              _setController(fallbackController);
-              setState(() {});
-              try {
-                await fallbackController.untilReady.timeout(const Duration(milliseconds: 1800));
-              } catch (_) {}
-              await conductor.pauseOthers(fallbackController);
-              await fallbackController.mute(_shouldMute(settings));
-              await fallbackController.play();
-              recovered = true;
-              unawaited(
-                remoteMediaLogService.log(
-                  'autoplay',
-                  'grid preview recovered with smb stream retry',
-                  data: {
-                    'uri': entry.uri,
-                  },
-                ),
-              );
-            }
-          } catch (error) {
-            unawaited(
-              remoteMediaLogService.log(
-                'autoplay',
-                'grid preview smb stream retry failed',
-                data: {
-                  'uri': entry.uri,
-                  'error': '$error',
-                },
-              ),
-            );
-          }
-        }
-        if (!recovered) {
-          _playRequestedForCurrentFocus = false;
-          _lastAutoPlayErrorAtMillisByUri[failedUri] = DateTime.now().millisecondsSinceEpoch;
-          unawaited(
-            remoteMediaLogService.log(
-              'autoplay',
-              'grid preview stream failed with error status',
-              data: {'uri': failedUri},
-            ),
-          );
-        }
+        _playRequestedForCurrentFocus = false;
+        _lastAutoPlayErrorAtMillisByUri[failedUri] = DateTime.now().millisecondsSinceEpoch;
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'grid preview stream failed with error status',
+            data: {'uri': failedUri, 'protocol': remoteProtocol?.name},
+          ),
+        );
       }
     } finally {
       _autoPlayInFlight = false;
@@ -733,14 +608,14 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
             final isChunkedRemotePreview = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
             final isRemoteManagedEntry = remoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
-            final remoteForceVisible = isRemoteManagedEntry &&
-                isCurrent &&
+            final remoteForceVisible = isCurrent &&
                 _playRequestedForCurrentFocus &&
-                (!isChunkedRemotePreview
-                    ? hasRenderableFrame
-                    : ((controller.isPlaying && hasPreviewFrame) || (keepLastFrameVisible && hasRenderableFrame)));
+                isChunkedRemotePreview &&
+                controller.status != VideoStatus.error;
             final show = _videoSurfaceVisible ||
-                (isRemoteManagedEntry ? (keepLastFrameVisible && hasRenderableFrame) : (keepLastFrameVisible || hasDecodedFrame)) ||
+                (isChunkedRemotePreview
+                    ? keepLastFrameVisible
+                    : (isRemoteManagedEntry ? (keepLastFrameVisible && hasRenderableFrame) : (keepLastFrameVisible || hasDecodedFrame))) ||
                 remoteForceVisible ||
                 (!isCurrent &&
                     isRemoteManagedEntry &&

@@ -89,6 +89,7 @@ class _VideoViewState extends State<VideoView> {
             final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
             final isRemoteManagedEntry = remoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
             final isChunkedRemoteProtocol = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
+            final isChunkedRemotePreview = isChunkedRemoteProtocol && !widget.preferStableRemoteInit;
             final hasStableDetailFrame = controller.isPlaying && currentPosition > 0 && (hasFirstFrameRendered || hasDecodedFrame);
             final gainedPlaybackProgress = currentPosition > 0 && !_hadPlaybackProgress;
             if (gainedPlaybackProgress && widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol) {
@@ -142,6 +143,9 @@ class _VideoViewState extends State<VideoView> {
               return const ColoredBox(color: Colors.transparent);
             }
             if (status == VideoStatus.error) {
+              if (isChunkedRemotePreview) {
+                return const ColoredBox(color: Colors.black);
+              }
               if (canRenderDespiteError) {
                 if (!_loggedSoftErrorRender) {
                   _loggedSoftErrorRender = true;
@@ -168,7 +172,7 @@ class _VideoViewState extends State<VideoView> {
             }
             _loggedSoftErrorRender = false;
             if (status == VideoStatus.idle) return const SizedBox();
-            if (!widget.preferStableRemoteInit && isChunkedRemoteProtocol) {
+            if (isChunkedRemotePreview) {
               return controller.buildPlayerWidget(context);
             }
             if (!widget.preferStableRemoteInit && isRemoteManagedEntry && !hasRemotePreviewFrame) {

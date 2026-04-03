@@ -25,6 +25,7 @@ class StorageHandler(private val context: Context) : MethodCallHandler {
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "getDataUsage" -> ioScope.launch { safe(call, result, ::getDataUsage) }
+            "getDataUsageDetails" -> ioScope.launch { safe(call, result, ::getDataUsageDetails) }
             "getStorageVolumes" -> ioScope.launch { safe(call, result, ::getStorageVolumes) }
             "getCacheDirectory" -> ioScope.launch { safe(call, result, ::getCacheDirectory) }
             "getUntrackedTrashPaths" -> ioScope.launch { safe(call, result, ::getUntrackedTrashPaths) }
@@ -69,6 +70,47 @@ class StorageHandler(private val context: Context) : MethodCallHandler {
                 "miscData" to miscData,
                 "internalCache" to internalCache,
                 "externalCache" to externalCache,
+            )
+        )
+    }
+
+    private fun getDataUsageDetails(@Suppress("unused_parameter") call: MethodCall, result: MethodChannel.Result) {
+        fun describeDirectory(dir: File?): Map<String, Any?> {
+            if (dir == null) return hashMapOf(
+                "path" to null,
+                "exists" to false,
+                "bytes" to 0L,
+                "children" to emptyMap<String, Long>(),
+            )
+            val children = try {
+                dir.listFiles()
+                    ?.associate { child -> child.name to getFolderSize(child) }
+                    ?.toSortedMap()
+                    ?: emptyMap()
+            } catch (_: Exception) {
+                emptyMap()
+            }
+            return hashMapOf(
+                "path" to dir.path,
+                "exists" to dir.exists(),
+                "bytes" to getFolderSize(dir),
+                "children" to children,
+            )
+        }
+
+        val externalCacheDirs = context.externalCacheDirs.filterNotNull().map { dir ->
+            describeDirectory(dir)
+        }
+
+        result.success(
+            hashMapOf(
+                "cacheDir" to describeDirectory(context.cacheDir),
+                "codeCacheDir" to describeDirectory(context.codeCacheDir),
+                "flutterDataDir" to describeDirectory(File(PathUtils.getDataDirectory(context))),
+                "databasesDir" to describeDirectory(File(context.dataDir, "databases")),
+                "filesDir" to describeDirectory(context.filesDir),
+                "noBackupFilesDir" to describeDirectory(context.noBackupFilesDir),
+                "externalCacheDirs" to externalCacheDirs,
             )
         )
     }

@@ -10,6 +10,8 @@ import 'package:flutter/services.dart';
 abstract class StorageService {
   Future<Map<String, int>> getDataUsage();
 
+  Future<Map<String, Object?>> getDataUsageDetails();
+
   Future<Set<StorageVolume>> getStorageVolumes();
 
   Future<String> getExternalCacheDirectory();
@@ -67,6 +69,17 @@ class PlatformStorageService implements StorageService {
     try {
       final result = await _platform.invokeMethod('getDataUsage');
       if (result is Map) return result.cast<String, int>();
+    } on PlatformException catch (e, stack) {
+      await reportService.recordError(e, stack);
+    }
+    return {};
+  }
+
+  @override
+  Future<Map<String, Object?>> getDataUsageDetails() async {
+    try {
+      final result = await _platform.invokeMethod('getDataUsageDetails');
+      if (result is Map) return result.cast<String, Object?>();
     } on PlatformException catch (e, stack) {
       await reportService.recordError(e, stack);
     }

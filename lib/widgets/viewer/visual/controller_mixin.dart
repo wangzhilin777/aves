@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:aves/app_mode.dart';
@@ -171,11 +170,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     }
     try {
       final usage = await storageService.getDataUsage();
-      final internalCacheDetails = await _describeDirectoryChildren(Directory.systemTemp);
-      final externalCacheRoot = await storageService.getExternalCacheDirectory();
-      final externalCacheDetails = externalCacheRoot.isNotEmpty
-          ? await _describeDirectoryChildren(Directory(externalCacheRoot))
-          : const <String, int>{};
+      final details = await storageService.getDataUsageDetails();
       await remoteMediaLogService.log(
         'local_cache_probe',
         'sampled local viewer cache usage',
@@ -188,8 +183,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
           'flutterBytes': usage['flutter'],
           'databaseBytes': usage['database'],
           'miscBytes': usage['miscData'],
-          'internalCacheChildren': internalCacheDetails,
-          'externalCacheChildren': externalCacheDetails,
+          'usageDetails': details,
         },
       );
     } catch (error) {
@@ -203,38 +197,6 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         },
       );
     }
-  }
-
-  Future<Map<String, int>> _describeDirectoryChildren(Directory directory) async {
-    try {
-      if (!await directory.exists()) return const <String, int>{};
-      final result = <String, int>{};
-      await for (final entity in directory.list(followLinks: false)) {
-        final name = entity.uri.pathSegments.isNotEmpty ? entity.uri.pathSegments.where((v) => v.isNotEmpty).last : entity.path;
-        result[name] = await _computeEntitySize(entity);
-      }
-      return result;
-    } catch (_) {
-      return const <String, int>{};
-    }
-  }
-
-  Future<int> _computeEntitySize(FileSystemEntity entity) async {
-    try {
-      if (entity is File) {
-        return await entity.length();
-      }
-      if (entity is Directory) {
-        var total = 0;
-        await for (final child in entity.list(recursive: true, followLinks: false)) {
-          if (child is File) {
-            total += await child.length();
-          }
-        }
-        return total;
-      }
-    } catch (_) {}
-    return 0;
   }
 
   Future<bool> _waitForLocalVideoPriming(AvesVideoController controller, String uri) async {
