@@ -166,6 +166,8 @@ class SettingKeys {
   static const remotePinnedFoldersKey = 'remote_pinned_folders';
   static const remotePinAtTopKey = 'remote_pin_at_top';
   static const remoteCacheInSmartCollectionsKey = 'remote_cache_in_smart_collections';
+  static const remoteStandaloneFavouriteModeKey = 'remote_standalone_favourite_mode';
+  static const remoteStandaloneFavouritePathsKey = 'remote_standalone_favourite_paths';
   static const remoteGridVideoAutoPlayKey = 'remote_grid_video_auto_play';
   static const remoteGridVideoSoundOnKey = 'remote_grid_video_sound_on';
   static const remoteAutoDownloadImageMaxBytesKey = 'remote_auto_download_image_max_bytes';

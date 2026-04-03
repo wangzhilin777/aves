@@ -440,6 +440,7 @@ class Settings
           case SettingKeys.remoteWifiOnlyDownloadKey:
           case SettingKeys.remotePinAtTopKey:
           case SettingKeys.remoteCacheInSmartCollectionsKey:
+          case SettingKeys.remoteStandaloneFavouriteModeKey:
           case SettingKeys.remoteGridVideoAutoPlayKey:
           case SettingKeys.remoteGridVideoSoundOnKey:
           case SettingKeys.showPinchGestureAlternativesKey:
@@ -505,6 +506,7 @@ class Settings
           case SettingKeys.customMapStylesKey:
           case SettingKeys.remoteServersKey:
           case SettingKeys.remotePinnedFoldersKey:
+          case SettingKeys.remoteStandaloneFavouritePathsKey:
           case SettingKeys.homeCustomCollectionKey:
           case SettingKeys.drawerTypeBookmarksKey:
           case SettingKeys.drawerAlbumBookmarksKey:

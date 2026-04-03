@@ -14,6 +14,7 @@ import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/entry/origins.dart';
 import 'package:aves/model/settings/enums/remote_stream_mode.dart';
 import 'package:aves/model/settings/settings.dart';
+import 'package:aves/model/source/events.dart';
 import 'package:aves/ref/mime_types.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/services/runtime_collection_source.dart';
@@ -452,7 +453,8 @@ class RemoteMediaService {
     AvesEntry entry, {
     String trigger = 'favourite_add',
   }) async {
-    if (!settings.remoteCacheInSmartCollections) return null;
+    final allowStandaloneFavourite = trigger.startsWith('favourite') && settings.remoteStandaloneFavouriteMode;
+    if (!settings.remoteCacheInSmartCollections && !allowStandaloneFavourite) return null;
 
     final ref = _virtualRemoteRefs[entry.uri];
     if (ref == null) return null;
@@ -475,6 +477,7 @@ class RemoteMediaService {
       server: ref.$1,
       node: ref.$2,
       cacheFile: cacheFile,
+      forceIndexForStandaloneFavourite: allowStandaloneFavourite && !settings.remoteCacheInSmartCollections,
     );
 
     final source = runtimeCollectionSource;
@@ -3428,8 +3431,9 @@ class RemoteMediaService {
     required RemoteServer server,
     required RemoteBrowseNode node,
     required File cacheFile,
+    bool forceIndexForStandaloneFavourite = false,
   }) async {
-    if (!settings.remoteCacheInSmartCollections) return;
+    if (!settings.remoteCacheInSmartCollections && !forceIndexForStandaloneFavourite) return;
     final mimeType = inferMimeType(node);
     try {
       await _attachIndexedRemoteCacheEntryToRuntimeSource(
@@ -3463,6 +3467,115 @@ class RemoteMediaService {
       );
       await reportService.recordError(error, stack);
     }
+  }
+
+  Future<void> syncStandaloneFavouriteMode({
+    String trigger = 'settings_update',
+  }) async {
+    if (settings.remoteCacheInSmartCollections) {
+      settings.remoteStandaloneFavouritePaths = {};
+      await _notifyStandaloneFavouriteVisibilityChanged();
+      return;
+    }
+
+    if (!settings.remoteStandaloneFavouriteMode) {
+      final paths = settings.remoteStandaloneFavouritePaths;
+      settings.remoteStandaloneFavouritePaths = {};
+      await _removeStandaloneIndexedEntries(paths, trigger: '${trigger}_disable');
+      await _notifyStandaloneFavouriteVisibilityChanged();
+      return;
+    }
+
+    final protectedPaths = await _loadProtectedRemoteCachePaths();
+    settings.remoteStandaloneFavouritePaths = protectedPaths;
+    await _notifyStandaloneFavouriteVisibilityChanged();
+  }
+
+  Future<void> registerStandaloneFavouritePaths(
+    Set<String> paths, {
+    String trigger = 'favourite_add',
+  }) async {
+    if (settings.remoteCacheInSmartCollections || !settings.remoteStandaloneFavouriteMode || paths.isEmpty) return;
+    final next = {
+      ...settings.remoteStandaloneFavouritePaths,
+      ...paths,
+    };
+    settings.remoteStandaloneFavouritePaths = next;
+    await remoteMediaLogService.log(
+      'remote_load',
+      'registered standalone remote favourite paths',
+      data: {
+        'trigger': trigger,
+        'count': paths.length,
+      },
+    );
+    await _notifyStandaloneFavouriteVisibilityChanged();
+  }
+
+  Future<void> unregisterStandaloneFavouritePaths(
+    Set<String> paths, {
+    String trigger = 'favourite_remove',
+  }) async {
+    if (paths.isEmpty) return;
+    final next = {
+      ...settings.remoteStandaloneFavouritePaths,
+    }..removeAll(paths);
+    settings.remoteStandaloneFavouritePaths = next;
+
+    if (!settings.remoteCacheInSmartCollections) {
+      await _removeStandaloneIndexedEntries(paths, trigger: trigger);
+    }
+
+    await remoteMediaLogService.log(
+      'remote_load',
+      'unregistered standalone remote favourite paths',
+      data: {
+        'trigger': trigger,
+        'count': paths.length,
+      },
+    );
+    await _notifyStandaloneFavouriteVisibilityChanged();
+  }
+
+  Future<void> _removeStandaloneIndexedEntries(
+    Set<String> paths, {
+    required String trigger,
+  }) async {
+    if (paths.isEmpty) return;
+
+    final source = runtimeCollectionSource;
+    final runtimeEntries = source?.allEntries.where((entry) => entry.path != null && paths.contains(entry.path)).toSet() ?? const <AvesEntry>{};
+    final dbEntries = await localMediaDb.loadEntries();
+    final matchedDbEntries = dbEntries.where((entry) => entry.path != null && paths.contains(entry.path)).toSet();
+    final uris = {
+      ...runtimeEntries.map((entry) => entry.uri),
+      ...matchedDbEntries.map((entry) => entry.uri),
+    };
+    final ids = matchedDbEntries.map((entry) => entry.id).toSet();
+
+    if (uris.isNotEmpty && source != null) {
+      await source.removeEntries(uris, includeTrash: false);
+    } else if (ids.isNotEmpty) {
+      await localMediaDb.removeIds(ids);
+    }
+
+    await remoteMediaLogService.log(
+      'remote_load',
+      'removed standalone indexed remote favourite entries',
+      data: {
+        'trigger': trigger,
+        'pathCount': paths.length,
+        'uriCount': uris.length,
+        'entryCount': ids.length,
+      },
+    );
+  }
+
+  Future<void> _notifyStandaloneFavouriteVisibilityChanged() async {
+    final source = runtimeCollectionSource;
+    if (source == null) return;
+    source.invalidateEntries();
+    source.eventBus.fire(EntryRefreshedEvent(source.allEntries));
   }
 
   Future<void> _attachIndexedRemoteCacheEntryToRuntimeSource({

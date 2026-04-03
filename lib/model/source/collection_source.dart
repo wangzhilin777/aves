@@ -154,7 +154,13 @@ abstract class CollectionSource with SourceBase, AlbumMixin, CountryMixin, Place
       TrashFilter.instance,
       ..._getAppHiddenFilters(),
     };
-    return entries.where((entry) => !hiddenFilters.any((filter) => filter.test(entry)));
+    final standaloneRemoteFavouritePaths = settings.remoteStandaloneFavouritePaths;
+    return entries.where((entry) {
+      if (standaloneRemoteFavouritePaths.contains(entry.path)) {
+        return false;
+      }
+      return !hiddenFilters.any((filter) => filter.test(entry));
+    });
   }
 
   Iterable<AvesEntry> _applyTrashFilter(Iterable<AvesEntry> entries) {

@@ -29,6 +29,14 @@ mixin RemoteMediaSettings on SettingsAccess {
 
   set remoteCacheInSmartCollections(bool newValue) => set(SettingKeys.remoteCacheInSmartCollectionsKey, newValue);
 
+  bool get remoteStandaloneFavouriteMode => getBool(SettingKeys.remoteStandaloneFavouriteModeKey) ?? SettingsDefaults.remoteStandaloneFavouriteMode;
+
+  set remoteStandaloneFavouriteMode(bool newValue) => set(SettingKeys.remoteStandaloneFavouriteModeKey, newValue);
+
+  Set<String> get remoteStandaloneFavouritePaths => (getStringList(SettingKeys.remoteStandaloneFavouritePathsKey) ?? const []).toSet();
+
+  set remoteStandaloneFavouritePaths(Set<String> newValue) => set(SettingKeys.remoteStandaloneFavouritePathsKey, newValue.toList());
+
   bool get remoteGridVideoAutoPlay => getBool(SettingKeys.remoteGridVideoAutoPlayKey) ?? SettingsDefaults.remoteGridVideoAutoPlay;
 
   set remoteGridVideoAutoPlay(bool newValue) => set(SettingKeys.remoteGridVideoAutoPlayKey, newValue);

@@ -43,6 +43,12 @@ class RemoteMediaConfigPage extends StatelessWidget {
             ),
             _RemoteCacheInSmartCollectionsTile(),
             SettingsSwitchListTile(
+              selector: (context, s) => s.remoteStandaloneFavouriteMode,
+              onChanged: (v) => unawaited(_applyStandaloneFavouriteMode(context, v)),
+              title: _tr(context, 'Remote favorites independent from media/video sets', '远程收藏不受媒体/视频合集开关控制'),
+              subtitle: _tr(context, 'Allow only favorited remote media to appear in Favorites without adding all remote cache to media/video sets', '允许仅收藏的远程媒体进入收藏夹，而不把全部远程缓存加入媒体/视频合集'),
+            ),
+            SettingsSwitchListTile(
               selector: (context, s) => s.remoteStreamMode == RemoteStreamMode.streamOnly,
               onChanged: (v) {
                 settings.remoteStreamMode = v ? RemoteStreamMode.streamOnly : RemoteStreamMode.streamWithDownloadFallback;
@@ -61,6 +67,23 @@ class RemoteMediaConfigPage extends StatelessWidget {
             _RemoteAutoDownloadVideoMaxTile(),
             _RemoteCacheMaxTile(),
           ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _applyStandaloneFavouriteMode(BuildContext context, bool enabled) async {
+    settings.remoteStandaloneFavouriteMode = enabled;
+    await remoteMediaService.syncStandaloneFavouriteMode(trigger: 'settings_remote_standalone_favourite_mode');
+    if (!context.mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text(
+          _tr(
+            context,
+            enabled ? 'Remote favorites standalone mode enabled' : 'Remote favorites standalone mode disabled',
+            enabled ? '已开启远程收藏独立模式' : '已关闭远程收藏独立模式',
+          ),
         ),
       ),
     );

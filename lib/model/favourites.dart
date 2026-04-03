@@ -1,5 +1,6 @@
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/props.dart';
+import 'package:aves/model/settings/settings.dart';
 import 'package:aves/model/source/collection_source.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/services/runtime_collection_source.dart';
@@ -33,6 +34,10 @@ class Favourites with ChangeNotifier {
   Future<void> add(Set<AvesEntry> entries) async {
     await _materializeRemoteVideoAliases(entries);
     final expandedEntries = await _expandEntriesWithRemoteCacheAliases(entries);
+    await remoteMediaService.registerStandaloneFavouritePaths(
+      expandedEntries.where((entry) => entry.isRemoteCachedMedia).map((entry) => entry.path).nonNulls.toSet(),
+      trigger: 'favourite_add',
+    );
     final newRows = expandedEntries.map(_entryToRow).toSet();
 
     await localMediaDb.addFavourites(newRows);
@@ -57,6 +62,10 @@ class Favourites with ChangeNotifier {
 
   Future<void> removeEntries(Set<AvesEntry> entries) async {
     final expandedEntries = await _expandEntriesWithRemoteCacheAliases(entries);
+    await remoteMediaService.unregisterStandaloneFavouritePaths(
+      expandedEntries.where((entry) => entry.isRemoteCachedMedia).map((entry) => entry.path).nonNulls.toSet(),
+      trigger: 'favourite_remove',
+    );
     await removeIds(expandedEntries.map((entry) => entry.id).toSet());
     await remoteMediaService.enforceAllConnectionCacheLimits(trigger: 'favourite_remove');
   }
@@ -71,6 +80,10 @@ class Favourites with ChangeNotifier {
   }
 
   Future<void> clear() async {
+    await remoteMediaService.unregisterStandaloneFavouritePaths(
+      settings.remoteStandaloneFavouritePaths,
+      trigger: 'favourites_clear',
+    );
     await localMediaDb.clearFavourites();
     _rows.clear();
 

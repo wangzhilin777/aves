@@ -207,9 +207,20 @@ class CollectionLens with ChangeNotifier {
   }
 
   void _applyFilters() {
-    final entries = fixedSelection ?? (filters.contains(TrashFilter.instance) ? source.trashedEntries : source.visibleEntries);
+    final includeStandaloneRemoteFavourites = filters.contains(FavouriteFilter.instance);
+    final standaloneRemoteFavouritePaths = includeStandaloneRemoteFavourites ? settings.remoteStandaloneFavouritePaths : const <String>{};
+    final baseEntries = fixedSelection ??
+        (filters.contains(TrashFilter.instance)
+            ? source.trashedEntries
+            : {
+                ...source.visibleEntries,
+                if (includeStandaloneRemoteFavourites)
+                  ...source.allEntries.where(
+                    (entry) => !entry.trashed && entry.path != null && standaloneRemoteFavouritePaths.contains(entry.path),
+                  ),
+              });
     _disposeSyntheticEntries();
-    _filteredSortedEntries = List.of(filters.isEmpty ? entries : entries.where((entry) => filters.every((filter) => filter.test(entry))));
+    _filteredSortedEntries = List.of(filters.isEmpty ? baseEntries : baseEntries.where((entry) => filters.every((filter) => filter.test(entry))));
 
     if (stackBursts) {
       _stackBursts();

@@ -123,6 +123,7 @@ class SettingsDefaults {
   static const remoteWifiOnlyDownload = false;
   static const remotePinAtTop = true;
   static const remoteCacheInSmartCollections = false;
+  static const remoteStandaloneFavouriteMode = true;
   static const remoteGridVideoAutoPlay = true;
   static const remoteGridVideoSoundOn = false;
   static const remoteAutoDownloadImageMaxBytes = 8 * 1024 * 1024;
