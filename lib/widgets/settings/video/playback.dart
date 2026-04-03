@@ -12,12 +12,8 @@ class VideoPlaybackPage extends StatelessWidget {
 
   const VideoPlaybackPage({super.key});
 
-  void _syncPreviewAutoPlay(VideoAutoPlayMode value) {
+  void _updateVideoAutoPlay(VideoAutoPlayMode value) {
     settings.videoAutoPlayMode = value;
-    settings.gridVideoAutoPlay = value != VideoAutoPlayMode.disabled;
-    if (value != VideoAutoPlayMode.disabled) {
-      settings.gridVideoSoundOn = value == VideoAutoPlayMode.playWithSound;
-    }
   }
 
   @override
@@ -40,7 +36,7 @@ class VideoPlaybackPage extends StatelessWidget {
               values: VideoAutoPlayMode.values,
               getName: (context, v) => v.getName(context),
               selector: (context, s) => s.videoAutoPlayMode,
-              onSelection: _syncPreviewAutoPlay,
+              onSelection: _updateVideoAutoPlay,
               tileTitle: context.l10n.settingsVideoAutoPlay,
             ),
             SettingsSelectionListTile<VideoLoopMode>(

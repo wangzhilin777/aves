@@ -140,7 +140,9 @@ class SettingsTileViewerGridVideoAutoPlay extends SettingsTile {
 
   void _syncGlobalAutoPlay(bool enabled) {
     settings.gridVideoAutoPlay = enabled;
-    settings.videoAutoPlayMode = enabled ? (settings.gridVideoSoundOn ? VideoAutoPlayMode.playWithSound : VideoAutoPlayMode.playMuted) : VideoAutoPlayMode.disabled;
+    if (enabled) {
+      settings.videoAutoPlayMode = settings.gridVideoSoundOn ? VideoAutoPlayMode.playWithSound : VideoAutoPlayMode.playMuted;
+    }
   }
 
   @override
