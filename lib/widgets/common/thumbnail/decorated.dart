@@ -645,20 +645,27 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             final hasPreviewFrame = hasDecodedFrame || hasFirstFrameRendered;
             final hasRenderableFrame = hasDecodedFrame || hasFirstFrameRendered || _hasPlaybackProgress || controller.currentPosition > 0;
             final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+            final isWebdavPreview = remoteProtocol == RemoteProtocol.webdav;
             final isChunkedRemotePreview = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
             final isRemoteManagedEntry = remoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
             final remoteForceVisible = isCurrent &&
                 _playRequestedForCurrentFocus &&
-                isChunkedRemotePreview &&
+                (isChunkedRemotePreview || isWebdavPreview) &&
                 controller.status != VideoStatus.error;
             final show = _videoSurfaceVisible ||
                 (isChunkedRemotePreview
                     ? keepLastFrameVisible
+                    : isWebdavPreview
+                        ? (keepLastFrameVisible || hasDecodedFrame || (isCurrent && controller.status != VideoStatus.error && (controller.isPlaying || controller.isReady || _playRequestedForCurrentFocus)))
                     : (isRemoteManagedEntry ? (keepLastFrameVisible && hasRenderableFrame) : (keepLastFrameVisible || hasDecodedFrame))) ||
                 remoteForceVisible ||
                 (!isCurrent &&
                     isRemoteManagedEntry &&
-                    (isChunkedRemotePreview ? (keepLastFrameVisible && hasPreviewFrame) : (keepLastFrameVisible && hasRenderableFrame)));
+                    (isChunkedRemotePreview
+                        ? (keepLastFrameVisible && hasPreviewFrame)
+                        : isWebdavPreview
+                            ? (keepLastFrameVisible || hasPreviewFrame)
+                            : (keepLastFrameVisible && hasRenderableFrame)));
             final tileHeight = widget.tileExtent;
             final decodedSize = controller.decodedVideoSizeNotifier.value;
             final displaySize = decodedSize ?? entry.displaySize;
