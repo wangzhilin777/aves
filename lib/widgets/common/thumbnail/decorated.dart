@@ -245,7 +245,10 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     if (!mounted || controller == null) return;
     final isViewerActive = _viewerEntryNotifier?.value != null;
     final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
-    final isChunkedRemotePreview = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
+    final isFtpPreview = remoteProtocol == RemoteProtocol.ftp;
+    final isSftpPreview = remoteProtocol == RemoteProtocol.sftp;
+    final isSmbPreview = remoteProtocol == RemoteProtocol.smb;
+    final isChunkedRemotePreview = isFtpPreview || isSftpPreview || isSmbPreview;
     final isRemoteManagedEntry = remoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
     final hasDecodedFrame = _hasDecodedFrame(controller);
     final hasFirstFrameRendered = controller.firstFrameRenderedNotifier.value;
@@ -259,7 +262,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final holdLastFrame = keepLastFrameVisible && hasRenderableFrame;
     final currentReadyForReveal = isCurrent
         ? isChunkedRemotePreview
-              ? (holdLastFrame || (controller.isPlaying && hasPreviewFrame))
+              ? (holdLastFrame || controller.isPlaying)
               : isRemoteManagedEntry
                   ? (holdLastFrame || hasRenderableFrame)
                   : (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame)
@@ -295,7 +298,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final activeHoldLastFrame = activeKeepLastFrameVisible && activeHasRenderableFrame;
       final currentReadyForReveal = isCurrent
           ? activeIsChunkedRemotePreview
-                ? (activeHoldLastFrame || (activeController.isPlaying && activeHasPreviewFrame))
+                ? (activeHoldLastFrame || activeController.isPlaying)
                 : isActiveRemoteManagedEntry
                     ? (activeHoldLastFrame || activeHasRenderableFrame)
                     : (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame)
