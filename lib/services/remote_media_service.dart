@@ -3432,29 +3432,27 @@ class RemoteMediaService {
     if (!settings.remoteCacheInSmartCollections) return;
     final mimeType = inferMimeType(node);
     try {
-      final uri = await mediaStoreService.scanFile(cacheFile.path, mimeType);
       await _attachIndexedRemoteCacheEntryToRuntimeSource(
         server: server,
         node: node,
         cacheFile: cacheFile,
         mimeType: mimeType,
-        scannedUri: uri,
+        scannedUri: null,
       );
       await remoteMediaLogService.log(
         'remote_load',
-        'scanned remote cache file for smart collections',
+        'indexed remote cache file for smart collections without system media scan',
         data: {
           'server': server.name,
           'path': node.path,
           'file': cacheFile.path,
           'mimeType': mimeType,
-          'uri': uri?.toString(),
         },
       );
     } catch (error, stack) {
       await remoteMediaLogService.log(
         'remote_load',
-        'failed to scan remote cache file',
+        'failed to index remote cache file',
         data: {
           'server': server.name,
           'path': node.path,
