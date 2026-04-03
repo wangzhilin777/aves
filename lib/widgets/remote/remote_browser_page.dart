@@ -156,23 +156,22 @@ class _RemoteBrowserPageState extends State<RemoteBrowserPage> with FeedbackMixi
         body: SafeArea(
           child: Column(
             children: [
-              if (!widget.nativeAlbumMode)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                  child: TextField(
-                    controller: _queryController,
-                    decoration: InputDecoration(
-                      prefixIcon: const Icon(AIcons.search),
-                      hintText: tr('Search this level', '搜索当前层级'),
-                      suffixIcon: _queryController.text.isNotEmpty
-                          ? IconButton(
-                              onPressed: _queryController.clear,
-                              icon: const Icon(AIcons.clear),
-                            )
-                          : null,
-                    ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                child: TextField(
+                  controller: _queryController,
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(AIcons.search),
+                    hintText: tr('Search this level', '搜索当前层级'),
+                    suffixIcon: _queryController.text.isNotEmpty
+                        ? IconButton(
+                            onPressed: _queryController.clear,
+                            icon: const Icon(AIcons.clear),
+                          )
+                        : null,
                   ),
                 ),
+              ),
               if (!widget.nativeAlbumMode)
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,

@@ -1,5 +1,6 @@
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/filters/filters.dart';
+import 'package:aves/services/common/services.dart';
 import 'package:aves/theme/colors.dart';
 import 'package:aves/theme/icons.dart';
 import 'package:aves/utils/file_utils.dart';
@@ -71,8 +72,27 @@ class QueryFilter extends CollectionFilter {
       upQuery = matches.first.group(1)!;
     }
 
-    // default to title search
-    bool testTitle(AvesEntry entry) => entry.bestTitle?.toUpperCase().contains(upQuery) == true;
+    // default to current collection item search:
+    // - title
+    // - file name
+    // - path fragments
+    bool testTitle(AvesEntry entry) {
+      final bestTitle = entry.bestTitle?.toUpperCase();
+      if (bestTitle?.contains(upQuery) == true) return true;
+
+      final path = entry.path;
+      if (path != null && path.isNotEmpty) {
+        final upperPath = path.toUpperCase();
+        if (upperPath.contains(upQuery)) return true;
+
+        final basename = pContext.basename(path).toUpperCase();
+        if (basename.contains(upQuery)) return true;
+      }
+
+      final uri = entry.uri.toUpperCase();
+      return uri.contains(upQuery);
+    }
+
     _test = not ? (entry) => !testTitle(entry) : testTitle;
   }
 
