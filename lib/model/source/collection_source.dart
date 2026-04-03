@@ -537,6 +537,21 @@ abstract class CollectionSource with SourceBase, AlbumMixin, CountryMixin, Place
           'sampleRemotePaths': remoteCacheEntries.take(3).map((entry) => entry.path ?? entry.uri).toList(),
         },
       );
+      var skippedAutomaticService = false;
+      if (startAnalysisService && !force) {
+        await remoteMediaLogService.log(
+          'analysis',
+          'skip automatic analysis service for non-force pass',
+          data: {
+            'entryCount': todoEntries.length,
+            'catalogTodoCount': catalogTodoCount,
+            'locateTodoCount': locateTodoCount,
+            'remoteCacheCount': remoteCacheEntries.length,
+          },
+        );
+        startAnalysisService = false;
+        skippedAutomaticService = true;
+      }
       if (startAnalysisService) {
         final lifecycleState = AvesApp.lifecycleStateNotifier.value;
         switch (lifecycleState) {
@@ -559,13 +574,15 @@ abstract class CollectionSource with SourceBase, AlbumMixin, CountryMixin, Place
           default:
             unawaited(reportService.log('analysis service not started because app is in state=$lifecycleState'));
         }
-      } else {
+      } else if (!skippedAutomaticService) {
         // explicit GC before cataloguing multiple items
         await deviceService.requestGarbageCollection();
         await catalogEntries(_analysisController, todoEntries);
         updateDerivedFilters(todoEntries);
         await locateEntries(_analysisController, todoEntries);
         updateDerivedFilters(todoEntries);
+      } else {
+        unawaited(reportService.log('skip inline analysis because automatic service was suppressed for non-force pass'));
       }
     }
     defaultAnalysisController.dispose();
