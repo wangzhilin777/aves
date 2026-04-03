@@ -45,6 +45,18 @@ mixin RemoteMediaSettings on SettingsAccess {
 
   set remoteGridVideoSoundOn(bool newValue) => set(SettingKeys.remoteGridVideoSoundOnKey, newValue);
 
+  bool get remotePreviewPreheatEnabled => getBool(SettingKeys.remotePreviewPreheatEnabledKey) ?? SettingsDefaults.remotePreviewPreheatEnabled;
+
+  set remotePreviewPreheatEnabled(bool newValue) => set(SettingKeys.remotePreviewPreheatEnabledKey, newValue);
+
+  int get remotePreviewImageCount => getInt(SettingKeys.remotePreviewImageCountKey) ?? SettingsDefaults.remotePreviewImageCount;
+
+  set remotePreviewImageCount(int newValue) => set(SettingKeys.remotePreviewImageCountKey, newValue);
+
+  int get remotePreviewVideoCount => getInt(SettingKeys.remotePreviewVideoCountKey) ?? SettingsDefaults.remotePreviewVideoCount;
+
+  set remotePreviewVideoCount(int newValue) => set(SettingKeys.remotePreviewVideoCountKey, newValue);
+
   int get remoteAutoDownloadImageMaxBytes => getInt(SettingKeys.remoteAutoDownloadImageMaxBytesKey) ?? SettingsDefaults.remoteAutoDownloadImageMaxBytes;
 
   set remoteAutoDownloadImageMaxBytes(int newValue) => set(SettingKeys.remoteAutoDownloadImageMaxBytesKey, newValue);

@@ -377,6 +377,8 @@ class Settings
           case SettingKeys.remoteAutoDownloadImageMaxBytesKey:
           case SettingKeys.remoteAutoDownloadVideoMaxBytesKey:
           case SettingKeys.remoteCacheMaxBytesKey:
+          case SettingKeys.remotePreviewImageCountKey:
+          case SettingKeys.remotePreviewVideoCountKey:
           case SettingKeys.screenSaverIntervalKey:
           case SettingKeys.slideshowIntervalKey:
             if (newValue is int) {
@@ -443,6 +445,7 @@ class Settings
           case SettingKeys.remoteStandaloneFavouriteModeKey:
           case SettingKeys.remoteGridVideoAutoPlayKey:
           case SettingKeys.remoteGridVideoSoundOnKey:
+          case SettingKeys.remotePreviewPreheatEnabledKey:
           case SettingKeys.showPinchGestureAlternativesKey:
           case SettingKeys.screenSaverFillScreenKey:
           case SettingKeys.screenSaverAnimatedZoomEffectKey:

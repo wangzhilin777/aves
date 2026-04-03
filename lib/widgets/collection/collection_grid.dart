@@ -350,6 +350,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   DateTime? _initialFocusLockUntil;
   String? _initialFocusLockedUri;
   double? _initialFocusLockOffset;
+  DateTime _lastVideoPreheatAt = DateTime.fromMillisecondsSinceEpoch(0);
+  String? _lastVideoPreheatSignature;
   ScrollDirection _lastScrollIntentDirection = ScrollDirection.idle;
   DateTime _lastScrollIntentAt = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -749,6 +751,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
 
   Future<void> _prefetchRemoteWindow(AvesEntry? anchor) async {
     if (anchor == null || !mounted) return;
+    if (!settings.remotePreviewPreheatEnabled) return;
     final now = DateTime.now();
     final fastScrollRecently = widget.isScrollingNotifier.value && _lastScrollSpeedPxPerSecond >= 1400 && now.difference(_lastSlowScrollAt).inMilliseconds < 420;
     if (fastScrollRecently) {
@@ -781,53 +784,126 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     }
 
     final candidates = <AvesEntry>[];
-    final upperBound = min(focusIndex + 4, entries.length);
+    final imagePreheatCount = max(0, settings.remotePreviewImageCount);
+    final upperBound = min(focusIndex + max(1, imagePreheatCount), entries.length);
     for (var i = focusIndex; i < upperBound; i++) {
       final entry = entries[i];
       if (!entry.isImage) continue;
       if (!remoteMediaService.hasVirtualRemoteRef(entry.uri)) continue;
       candidates.add(entry);
+      if (candidates.length >= imagePreheatCount) break;
     }
-    if (candidates.isEmpty) return;
     final signature = '$focusIndex:${candidates.map((e) => e.uri).join('|')}';
     final duplicated = signature == _lastPrefetchSignature && now.difference(_lastPrefetchAt).inMilliseconds < 1500;
-    if (duplicated) return;
-    _lastPrefetchSignature = signature;
-    _lastPrefetchAt = now;
+    if (!duplicated && candidates.isNotEmpty) {
+      _lastPrefetchSignature = signature;
+      _lastPrefetchAt = now;
 
-    await remoteMediaLogService.log(
-      'lazy_load',
-      'trigger remote image lazy download window',
-      data: {
-        'focusUri': anchor.uri,
-        'focusIndex': focusIndex,
-        'count': candidates.length,
-        'uris': candidates.map((e) => e.uri).toList(),
-      },
-    );
-
-    for (final entry in candidates) {
-      final file = await remoteMediaService.ensureDownloadedForEntry(
-        entry,
-        trigger: 'collection_focus_image_window',
+      await remoteMediaLogService.log(
+        'lazy_load',
+        'trigger remote image lazy download window',
+        data: {
+          'focusUri': anchor.uri,
+          'focusIndex': focusIndex,
+          'count': candidates.length,
+          'uris': candidates.map((e) => e.uri).toList(),
+        },
       );
-      if (file != null) {
-        collection.source.onAspectRatioChanged();
+
+      for (final entry in candidates) {
+        final file = await remoteMediaService.ensureDownloadedForEntry(
+          entry,
+          trigger: 'collection_focus_image_window',
+        );
+        if (file != null) {
+          collection.source.onAspectRatioChanged();
+        }
       }
     }
 
-    AvesEntry? nextVideo;
+    final nextVideos = <AvesEntry>[];
+    final nextVideoPreheatCount = max(0, settings.remotePreviewVideoCount);
+    if (nextVideoPreheatCount <= 0) return;
     for (var i = focusIndex + 1; i < entries.length; i++) {
       final candidate = entries[i];
       if (!candidate.isVideo) continue;
       if (!remoteMediaService.hasVirtualRemoteRef(candidate.uri)) continue;
-      nextVideo = candidate;
-      break;
+      nextVideos.add(candidate);
+      if (nextVideos.length >= nextVideoPreheatCount) break;
     }
-    if (nextVideo != null) {
+    if (nextVideos.isEmpty) return;
+    final videoSignature = '$focusIndex:${nextVideos.map((e) => e.uri).join('|')}';
+    if (_lastVideoPreheatSignature == videoSignature && now.difference(_lastVideoPreheatAt).inMilliseconds < 1800) {
+      return;
+    }
+    _lastVideoPreheatSignature = videoSignature;
+    _lastVideoPreheatAt = now;
+    for (final nextVideo in nextVideos) {
+      await _preheatNextRemoteVideo(nextVideo, anchor);
+    }
+  }
+
+  Future<void> _preheatNextRemoteVideo(AvesEntry entry, AvesEntry focusAnchor) async {
+    try {
       await remoteMediaService.prepareInitialStreamPlaybackForEntry(
-        nextVideo,
+        entry,
         trigger: 'collection_focus_next_video_warmup',
+      );
+      final existingFile = await remoteMediaService.prepareEntryForPlayback(
+        entry,
+        trigger: 'collection_focus_next_video_preheat',
+        allowDownload: false,
+      );
+      await remoteMediaService.ensureEntryMetadata(entry, trigger: 'collection_focus_next_video_preheat');
+
+      final controller = await context.read<VideoConductor>().getOrCreateController(entry, maxControllerCount: 5);
+      try {
+        await controller.untilReady.timeout(const Duration(milliseconds: 700));
+      } catch (_) {}
+
+      final decoded = controller.decodedVideoSizeNotifier.value;
+      final hasDecodedFrame = decoded != null && decoded.width > 1 && decoded.height > 1;
+      if (!hasDecodedFrame && entry.uri.startsWith('file://')) {
+        await controller.mute(true);
+        try {
+          await controller.play();
+          await Future.delayed(const Duration(milliseconds: 120));
+        } catch (_) {}
+        await controller.pause();
+        try {
+          await controller.seekTo(0);
+        } catch (_) {}
+      }
+
+      final refreshedSize = controller.decodedVideoSizeNotifier.value;
+      if (refreshedSize != null && refreshedSize.width > 1 && refreshedSize.height > 1) {
+        entry.width = refreshedSize.width.round();
+        entry.height = refreshedSize.height.round();
+        entry.visualChangeNotifier.notify();
+        collection.source.onAspectRatioChanged();
+      }
+
+      await remoteMediaLogService.log(
+        'stream',
+        'prepared next remote video preview preheat',
+        data: {
+          'focusUri': focusAnchor.uri,
+          'uri': entry.uri,
+          'usedCachedFile': existingFile != null || entry.uri.startsWith('file://'),
+          'hasDecodedFrame': refreshedSize != null && refreshedSize.width > 1 && refreshedSize.height > 1,
+          'width': refreshedSize?.width.round(),
+          'height': refreshedSize?.height.round(),
+        },
+      );
+    } catch (error) {
+      await remoteMediaLogService.log(
+        'stream',
+        'failed next remote video preview preheat',
+        data: {
+          'focusUri': focusAnchor.uri,
+          'uri': entry.uri,
+          'error': '$error',
+        },
       );
     }
   }

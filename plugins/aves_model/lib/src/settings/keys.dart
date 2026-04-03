@@ -170,6 +170,9 @@ class SettingKeys {
   static const remoteStandaloneFavouritePathsKey = 'remote_standalone_favourite_paths';
   static const remoteGridVideoAutoPlayKey = 'remote_grid_video_auto_play';
   static const remoteGridVideoSoundOnKey = 'remote_grid_video_sound_on';
+  static const remotePreviewPreheatEnabledKey = 'remote_preview_preheat_enabled';
+  static const remotePreviewImageCountKey = 'remote_preview_image_count';
+  static const remotePreviewVideoCountKey = 'remote_preview_video_count';
   static const remoteAutoDownloadImageMaxBytesKey = 'remote_auto_download_image_max_bytes';
   static const remoteAutoDownloadVideoMaxBytesKey = 'remote_auto_download_video_max_bytes';
   static const remoteCacheMaxBytesKey = 'remote_cache_max_bytes';

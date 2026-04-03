@@ -126,6 +126,9 @@ class SettingsDefaults {
   static const remoteStandaloneFavouriteMode = true;
   static const remoteGridVideoAutoPlay = true;
   static const remoteGridVideoSoundOn = false;
+  static const remotePreviewPreheatEnabled = true;
+  static const remotePreviewImageCount = 4;
+  static const remotePreviewVideoCount = 1;
   static const remoteAutoDownloadImageMaxBytes = 8 * 1024 * 1024;
   static const remoteAutoDownloadVideoMaxBytes = 30 * 1024 * 1024;
   static const remoteCacheMaxBytes = 1024 * 1024 * 1024;

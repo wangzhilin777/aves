@@ -41,6 +41,7 @@ class RemoteMediaConfigPage extends StatelessWidget {
               onChanged: (v) => settings.remotePinAtTop = v,
               title: _tr(context, 'Pin remote album entry at top', '\u8fdc\u7a0b\u76f8\u518c\u5165\u53e3\u7f6e\u9876'),
             ),
+            _RemotePreviewPreheatTile(),
             _RemoteCacheInSmartCollectionsTile(),
             SettingsSwitchListTile(
               selector: (context, s) => s.remoteStandaloneFavouriteMode,
@@ -86,6 +87,88 @@ class RemoteMediaConfigPage extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _RemotePreviewPreheatTile extends StatelessWidget {
+  static const _imageValues = [0, 1, 2, 3, 4, 6];
+  static const _videoValues = [0, 1, 2, 3];
+
+  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<Settings, (bool, int, int)>(
+      selector: (context, s) => (s.remotePreviewPreheatEnabled, s.remotePreviewImageCount, s.remotePreviewVideoCount),
+      builder: (context, state, child) {
+        final (enabled, imageCount, videoCount) = state;
+        return ExpansionTile(
+          title: Text(_tr(context, 'Preview preheat', '预览预热')),
+          subtitle: Text(
+            enabled
+                ? _tr(
+                    context,
+                    'Images: $imageCount, next videos: $videoCount',
+                    '图片：$imageCount 张，下一个视频：$videoCount 个',
+                  )
+                : _tr(context, 'Disabled', '已关闭'),
+          ),
+          children: [
+            SwitchListTile(
+              value: enabled,
+              onChanged: (v) => settings.remotePreviewPreheatEnabled = v,
+              title: Text(_tr(context, 'Enable automatic preview preheat', '开启自动预热')),
+            ),
+            ListTile(
+              enabled: enabled,
+              title: Text(_tr(context, 'Preheat images ahead', '预热图片数量')),
+              subtitle: Text(_tr(context, '$imageCount items', '$imageCount 张')),
+              onTap: !enabled
+                  ? null
+                  : () => showSelectionDialog<int>(
+                        context: context,
+                        builder: (context) => AvesSingleSelectionDialog<int>(
+                          initialValue: imageCount,
+                          options: Map.fromEntries(
+                            _imageValues.map(
+                              (value) => MapEntry(
+                                value,
+                                value == 0 ? _tr(context, 'Off', '关闭') : _tr(context, '$value items', '$value 张'),
+                              ),
+                            ),
+                          ),
+                          title: _tr(context, 'Preheat images ahead', '预热图片数量'),
+                        ),
+                        onSelection: (v) => settings.remotePreviewImageCount = v,
+                      ),
+            ),
+            ListTile(
+              enabled: enabled,
+              title: Text(_tr(context, 'Preheat next videos', '预热后续视频数量')),
+              subtitle: Text(_tr(context, '$videoCount items', '$videoCount 个')),
+              onTap: !enabled
+                  ? null
+                  : () => showSelectionDialog<int>(
+                        context: context,
+                        builder: (context) => AvesSingleSelectionDialog<int>(
+                          initialValue: videoCount,
+                          options: Map.fromEntries(
+                            _videoValues.map(
+                              (value) => MapEntry(
+                                value,
+                                value == 0 ? _tr(context, 'Off', '关闭') : _tr(context, '$value items', '$value 个'),
+                              ),
+                            ),
+                          ),
+                          title: _tr(context, 'Preheat next videos', '预热后续视频数量'),
+                        ),
+                        onSelection: (v) => settings.remotePreviewVideoCount = v,
+                      ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
