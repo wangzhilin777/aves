@@ -386,45 +386,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     }
   }
 
-  Duration? _chunkedPreviewPrimingTimeout(RemoteProtocol? remoteProtocol) {
-    if (remoteProtocol == RemoteProtocol.ftp) return const Duration(milliseconds: 650);
-    if (remoteProtocol == RemoteProtocol.sftp) return const Duration(milliseconds: 850);
-    if (remoteProtocol == RemoteProtocol.smb) return const Duration(milliseconds: 1000);
-    return null;
-  }
-
-  Future<bool> _primeChunkedPreviewFrame(
-    AvesVideoController controller,
-    Settings settings,
-    RemoteProtocol? remoteProtocol,
-  ) async {
-    final timeout = _chunkedPreviewPrimingTimeout(remoteProtocol);
-    if (timeout == null) return false;
-
-    if (_hasDecodedFrame(controller) || controller.firstFrameRenderedNotifier.value || controller.currentPosition > 0) {
-      return true;
-    }
-
-    await controller.mute(true);
-    if (!controller.isPlaying) {
-      await controller.play();
-    }
-
-    final deadline = DateTime.now().add(timeout);
-    while (DateTime.now().isBefore(deadline)) {
-      if (_playToken == 0 || !mounted || !isCurrent) return false;
-      if (controller.status == VideoStatus.error) return false;
-      if (_hasDecodedFrame(controller) || controller.firstFrameRenderedNotifier.value || controller.currentPosition > 0) {
-        await controller.mute(_shouldMute(settings));
-        return true;
-      }
-      await Future.delayed(const Duration(milliseconds: 50));
-    }
-
-    await controller.mute(_shouldMute(settings));
-    return _hasDecodedFrame(controller) || controller.firstFrameRenderedNotifier.value || controller.currentPosition > 0;
-  }
-
   Future<void> _onCurrentChanged() async {
     if (_autoPlayInFlight) return;
     _autoPlayInFlight = true;
@@ -537,23 +498,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
 
       AvesVideoController controller;
       try {
-        final existingController = conductor.getController(entry);
-        final shouldRecreateChunkedController = isChunkedRemotePreview && existingController?.status == VideoStatus.error;
-        controller = shouldRecreateChunkedController
-            ? await conductor.recreateController(entry, maxControllerCount: 2)
-            : await conductor.getOrCreateController(entry, maxControllerCount: 2);
-        if (shouldRecreateChunkedController) {
-          unawaited(
-            remoteMediaLogService.log(
-              'autoplay',
-              'recreated chunked remote preview controller after previous error',
-              data: {
-                'uri': entry.uri,
-                'protocol': remoteProtocol?.name,
-              },
-            ),
-          );
-        }
+        controller = await conductor.getOrCreateController(entry, maxControllerCount: 2);
       } catch (error) {
         unawaited(
           remoteMediaLogService.log(
@@ -657,7 +602,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         final failedUri = entry.uri;
         _playRequestedForCurrentFocus = false;
         _lastAutoPlayErrorAtMillisByUri[failedUri] = DateTime.now().millisecondsSinceEpoch;
-        unawaited(conductor.disposeControllerForEntry(entry));
         unawaited(
           remoteMediaLogService.log(
             'autoplay',
@@ -684,37 +628,12 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         }
         unawaited(remoteMediaService.warmupVideoCacheForEntry(entry, trigger: 'grid_preview'));
       }
-      // For FTP/SFTP/SMB current preview, prime the first frame while muted before we
-      // let the tile reveal or audio through. This reduces the visible white flash loop.
       final isFtpPreview = remoteProtocol == RemoteProtocol.ftp;
       final isSftpPreview = remoteProtocol == RemoteProtocol.sftp;
       final isSmbPreview = remoteProtocol == RemoteProtocol.smb;
       if (isFtpPreview || isSftpPreview || isSmbPreview) {
-        final primed = await _primeChunkedPreviewFrame(controller, settings, remoteProtocol);
-        if (!mounted || token != _playToken || !isCurrent) return;
-        if (controller.status == VideoStatus.error) {
-          final failedUri = entry.uri;
-          _playRequestedForCurrentFocus = false;
-          _lastChunkedPlayRequestedAtMillis = 0;
-          _lastAutoPlayErrorAtMillisByUri[failedUri] = DateTime.now().millisecondsSinceEpoch;
-          unawaited(conductor.disposeControllerForEntry(entry));
-          unawaited(
-            remoteMediaLogService.log(
-              'autoplay',
-              'aborted chunked remote preview autoplay because controller failed during muted priming',
-              data: {
-                'uri': failedUri,
-                'protocol': remoteProtocol?.name,
-                'primed': primed,
-              },
-            ),
-          );
-          return;
-        }
-        if (!controller.isPlaying) {
-          await controller.play();
-        }
         await controller.mute(_shouldMute(settings));
+        await controller.play();
         _playRequestedForCurrentFocus = true;
         _lastChunkedPlayRequestedAtMillis = DateTime.now().millisecondsSinceEpoch;
         unawaited(
@@ -726,7 +645,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
               'isRemoteCached': entry.isRemoteCachedMedia,
               'muted': controller.isMuted,
               'protocol': remoteProtocol?.name,
-              'primed': primed,
             },
           ),
         );
@@ -762,9 +680,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         _playRequestedForCurrentFocus = false;
         _lastChunkedPlayRequestedAtMillis = 0;
         _lastAutoPlayErrorAtMillisByUri[failedUri] = DateTime.now().millisecondsSinceEpoch;
-        if (isChunkedRemotePreview) {
-          unawaited(conductor.disposeControllerForEntry(entry));
-        }
         unawaited(
           remoteMediaLogService.log(
             'autoplay',
