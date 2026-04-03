@@ -86,6 +86,7 @@ class _VideoViewState extends State<VideoView> {
             final hasFirstFrameRendered = controller.firstFrameRenderedNotifier.value;
             final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
             final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+            final isRemoteManagedEntry = remoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
             final isChunkedRemoteProtocol = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
             final hasStableDetailFrame = controller.isPlaying && currentPosition > 0 && (hasFirstFrameRendered || hasDecodedFrame);
             final gainedPlaybackProgress = currentPosition > 0 && !_hadPlaybackProgress;
@@ -95,6 +96,7 @@ class _VideoViewState extends State<VideoView> {
             _hadPlaybackProgress = currentPosition > 0;
             final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
             final hasLocalRecoverableFrame = !isRemoteStream && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+            final hasRemotePreviewFrame = hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0;
             final canRenderDespiteError = isChunkedRemoteProtocol
                 ? widget.preferStableRemoteInit
                       ? hasStableDetailFrame
@@ -161,6 +163,9 @@ class _VideoViewState extends State<VideoView> {
             }
             _loggedSoftErrorRender = false;
             if (status == VideoStatus.idle) return const SizedBox();
+            if (!widget.preferStableRemoteInit && isRemoteManagedEntry && !hasRemotePreviewFrame) {
+              return const ColoredBox(color: Colors.transparent);
+            }
             if (shouldKeepLocalPlayerHiddenUntilFrame) {
               return const ColoredBox(color: Colors.transparent);
             }

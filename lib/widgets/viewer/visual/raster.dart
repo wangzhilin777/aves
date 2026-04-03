@@ -116,6 +116,14 @@ class _RasterImageViewState extends State<RasterImageView> {
 
   @override
   Widget build(BuildContext context) {
+    final updatedDisplaySize = entry.displaySize;
+    if (!updatedDisplaySize.isEmpty && updatedDisplaySize != _displaySize) {
+      _displaySize = updatedDisplaySize;
+      _useTiles = entry.useTiles;
+      _isTilingInitialized = false;
+      _fullImageLoaded.value = false;
+      _unregisterFullImage();
+    }
     return ValueListenableBuilder<ViewState>(
       valueListenable: viewStateNotifier,
       builder: (context, viewState, child) {

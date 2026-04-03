@@ -102,6 +102,13 @@ class _VectorImageViewState extends State<VectorImageView> {
 
   @override
   Widget build(BuildContext context) {
+    final updatedDisplaySize = entry.displaySize;
+    if (!updatedDisplaySize.isEmpty && updatedDisplaySize != _displaySize) {
+      _displaySize = updatedDisplaySize;
+      _isTilingInitialized = false;
+      _fullImageLoaded.value = false;
+      _unregisterFullImage();
+    }
     if (_displaySize == Size.zero) return widget.errorBuilder(context, 'Not sized', null);
 
     final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
