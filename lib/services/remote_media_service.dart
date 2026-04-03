@@ -436,8 +436,14 @@ class RemoteMediaService {
     if (ref == null || !entry.isVideo) return null;
 
     final server = ref.$1;
-    if (server.protocol == RemoteProtocol.webdav) {
-      return bindExistingCacheFileForEntry(entry, trigger: '${trigger}_bind_existing');
+    final node = ref.$2;
+    final totalLength = node.sizeBytes ?? entry.sizeBytes ?? 0;
+    if (totalLength > 0) {
+      await _tryMergeCompleteChunkCache(
+        server: server,
+        node: node,
+        totalLength: totalLength,
+      );
     }
 
     final existing = await bindExistingCacheFileForEntry(entry, trigger: '${trigger}_bind_existing');
@@ -717,7 +723,11 @@ class RemoteMediaService {
 
     final server = ref.$1;
     final node = ref.$2;
-    if (server.protocol == RemoteProtocol.webdav || !_shouldPreferStreamOverCachedFile(server, node)) {
+    final existingCache = await _getExistingCacheFile(server, node);
+    if (existingCache != null) {
+      return;
+    }
+    if (!_shouldPreferStreamOverCachedFile(server, node) && server.protocol != RemoteProtocol.webdav) {
       return;
     }
 
@@ -1871,6 +1881,33 @@ class RemoteMediaService {
       throw StateError('Invalid WebDAV target URI');
     }
 
+    final totalLength = node.sizeBytes ?? await (() async {
+      final metadata = await _fetchWebDavFileMetadata(server: server, node: node);
+      return metadata['sizeBytes'] as int?;
+    })() ?? 0;
+    if (totalLength > 0) {
+      await remoteMediaLogService.log(
+        'stream',
+        'proxying remote stream through chunked backend',
+        data: {
+          'server': server.name,
+          'protocol': server.protocol.name,
+          'path': node.path,
+          'method': request.method,
+          'range': request.rangeHeader,
+          'sizeBytes': totalLength,
+        },
+      );
+      return _proxyChunkedRemote(
+        server: server,
+        node: node,
+        request: request,
+        totalLength: totalLength,
+        lastModified: _millisToDateTime(node.modifiedMillis),
+        fetchChunk: (chunkRange) => _fetchWebDavChunk(server: server, targetUri: targetUri, path: node.path, range: chunkRange),
+      );
+    }
+
     await remoteMediaLogService.log(
       'stream',
       'serve webdav stream through direct passthrough proxy',
@@ -1932,6 +1969,61 @@ class RemoteMediaService {
       lastModified: _parseHeaderHttpDate(upstreamResponse.headers[HttpHeaders.lastModifiedHeader]),
       acceptRanges: (upstreamResponse.headers[HttpHeaders.acceptRangesHeader] ?? '').toLowerCase() == 'bytes',
     );
+  }
+
+  Future<List<int>> _fetchWebDavChunk({
+    required RemoteServer server,
+    required Uri targetUri,
+    required String path,
+    required RemoteByteRange range,
+  }) async {
+    final headers = <String, String>{
+      HttpHeaders.rangeHeader: 'bytes=${range.start}-${range.endInclusive}',
+    };
+    final username = server.username;
+    final password = server.password;
+    if (username != null && password != null) {
+      final token = base64Encode(utf8.encode('$username:$password'));
+      headers[HttpHeaders.authorizationHeader] = 'Basic $token';
+    }
+
+    await remoteMediaLogService.log(
+      'stream',
+      'requesting webdav stream chunk',
+      data: {
+        'server': server.name,
+        'path': path,
+        'start': range.start,
+        'end': range.endInclusive,
+      },
+    );
+
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', targetUri)..headers.addAll(headers);
+      final response = await client.send(request);
+      if (response.statusCode != HttpStatus.partialContent && response.statusCode != HttpStatus.ok) {
+        throw StateError('WebDAV chunk request failed status=${response.statusCode}');
+      }
+      final bytes = await response.stream.toBytes();
+      if (bytes.length != range.contentLength) {
+        throw StateError('WebDAV chunk length mismatch expected=${range.contentLength} actual=${bytes.length}');
+      }
+      await remoteMediaLogService.log(
+        'stream',
+        'received webdav stream chunk',
+        data: {
+          'server': server.name,
+          'path': path,
+          'start': range.start,
+          'end': range.endInclusive,
+          'bytes': bytes.length,
+        },
+      );
+      return bytes;
+    } finally {
+      client.close();
+    }
   }
 
   Future<RemoteProxyResponse> _proxySftp({
