@@ -281,6 +281,17 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
 
       final settings = context.read<Settings>();
       final isViewerActive = _viewerEntryNotifier?.value != null;
+      final conductor = context.read<VideoConductor>();
+      final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+      if (!isViewerActive && !isCurrent && remoteProtocol != null) {
+        final preheatedController = conductor.getController(entry);
+        if (preheatedController != null) {
+          _setController(preheatedController);
+          if (mounted) {
+            setState(() {});
+          }
+        }
+      }
       if (!_isAutoPlayEnabled(settings) || !isCurrent || isViewerActive) {
         final reason = !_isAutoPlayEnabled(settings)
             ? 'autoplay_disabled_by_setting'
@@ -331,8 +342,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _lastAutoPlayUri = entry.uri;
       _lastAutoPlayAttemptMillis = nowMillis;
 
-      final conductor = context.read<VideoConductor>();
-      final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
       if (entry.isVideo && remoteProtocol != null) {
         final existingCacheFile = await remoteMediaService.prepareEntryForPlayback(
           entry,
