@@ -229,15 +229,16 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     if (!mounted || controller == null) return;
     final isViewerActive = _viewerEntryNotifier?.value != null;
     final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+    final isRemoteManagedEntry = remoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
     final hasDecodedFrame = _hasDecodedFrame(controller);
     if (hasDecodedFrame) {
       _lastDecodedFrameAtMillisByUri[entry.uri] = DateTime.now().millisecondsSinceEpoch;
     }
     final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
-    final isRemotePreviewCandidate = (entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri)) && !controller.isPlaying;
+    final isRemotePreviewCandidate = isRemoteManagedEntry && !controller.isPlaying;
     final currentReadyForReveal = isCurrent
-        ? remoteProtocol != null
-            ? (keepLastFrameVisible || hasDecodedFrame)
+        ? isRemoteManagedEntry
+            ? (keepLastFrameVisible || (controller.isPlaying && hasDecodedFrame))
             : (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame)
         : false;
     final canReveal =
@@ -258,13 +259,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final activeController = _controller;
       if (!mounted || activeController == null) return;
       final activeRemoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+      final isActiveRemoteManagedEntry = activeRemoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
       final activeHasDecodedFrame = _hasDecodedFrame(activeController);
       final activeKeepLastFrameVisible = activeController.status == VideoStatus.paused || activeController.status == VideoStatus.completed;
-      final isActiveRemotePreviewCandidate =
-          (entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri)) && !activeController.isPlaying;
+      final isActiveRemotePreviewCandidate = isActiveRemoteManagedEntry && !activeController.isPlaying;
       final currentReadyForReveal = isCurrent
-          ? activeRemoteProtocol != null
-              ? (activeKeepLastFrameVisible || activeHasDecodedFrame)
+          ? isActiveRemoteManagedEntry
+              ? (activeKeepLastFrameVisible || (activeController.isPlaying && activeHasDecodedFrame))
               : (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame)
           : false;
       final shouldReveal =
@@ -653,8 +654,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
             final hasDecodedFrame = _hasDecodedFrame(controller);
             final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
-            final remoteForceVisible = remoteProtocol != null && isCurrent && _playRequestedForCurrentFocus && (keepLastFrameVisible || hasDecodedFrame);
-            final show = _videoSurfaceVisible || keepLastFrameVisible || remoteForceVisible || (!isCurrent && hasDecodedFrame && keepLastFrameVisible);
+            final isRemoteManagedEntry = remoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
+            final remoteForceVisible = isRemoteManagedEntry && isCurrent && _playRequestedForCurrentFocus && controller.isPlaying && hasDecodedFrame;
+            final show = _videoSurfaceVisible || keepLastFrameVisible || remoteForceVisible || (!isCurrent && isRemoteManagedEntry && hasDecodedFrame && keepLastFrameVisible);
             final tileHeight = widget.tileExtent;
             final decodedSize = controller.decodedVideoSizeNotifier.value;
             final displaySize = decodedSize ?? entry.displaySize;

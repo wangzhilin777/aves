@@ -96,18 +96,22 @@ class _VideoViewState extends State<VideoView> {
             }
             _hadPlaybackProgress = currentPosition > 0;
             final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
-            final hasLocalRecoverableFrame = !isRemoteStream && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+            final hasLocalRecoverableFrame = !isRemoteManagedEntry && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
             final hasRemotePreviewFrame = hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0;
-            final canRenderDespiteError = isChunkedRemoteProtocol
-                ? widget.preferStableRemoteInit
-                      ? hasStableDetailFrame
-                      : controller.isPlaying || controller.isReady || hasDecodedFrame
+            final canRenderDespiteError = isRemoteManagedEntry
+                ? isChunkedRemoteProtocol
+                    ? widget.preferStableRemoteInit
+                          ? hasStableDetailFrame
+                          : controller.isPlaying || hasRemotePreviewFrame
+                    : widget.preferStableRemoteInit
+                        ? hasStableDetailFrame
+                        : controller.isPlaying || hasRemotePreviewFrame
                 : controller.isPlaying || controller.isReady || hasLocalRecoverableFrame || (hasDecodedFrame && allowDecodedFrameRenderOnError);
             final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
             final withinChunkedProgressRevealGrace = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressRevealDeadline != null && DateTime.now().isBefore(_chunkedProgressRevealDeadline!);
             final shouldKeepPlayerHiddenDuringChunkedInit = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && (!hasStableDetailFrame || withinChunkedProgressRevealGrace);
-            final shouldKeepLocalPlayerHiddenUntilFrame = !isRemoteStream && !hasLocalRecoverableFrame;
-            if (!isRemoteStream && settings.remoteLogEnabled) {
+            final shouldKeepLocalPlayerHiddenUntilFrame = !isRemoteManagedEntry && !hasLocalRecoverableFrame;
+            if (!isRemoteManagedEntry && settings.remoteLogEnabled) {
               final decision = status == VideoStatus.error
                   ? (canRenderDespiteError ? 'local_error_render_player' : 'local_error_hide_player')
                   : status == VideoStatus.idle

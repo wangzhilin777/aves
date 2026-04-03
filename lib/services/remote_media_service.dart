@@ -602,7 +602,30 @@ class RemoteMediaService {
     if (entry.isVideo || !entry.isDecodingSupported) return false;
     if (entry.width > 1 && entry.height > 1) return true;
 
-    final ref = _virtualRemoteRefs[entry.uri];
+    final localPath = entry.path;
+    if (localPath != null) {
+      final localFile = File(localPath);
+      if (await localFile.exists()) {
+        await _refreshEntryMetadataFromLocalFile(entry, Uri.file(localPath).toString());
+        entry.visualChangeNotifier.notify();
+        if (entry.width > 1 && entry.height > 1) {
+          await remoteMediaLogService.log(
+            'metadata',
+            'resolved remote image display metadata from current local file',
+            data: {
+              'trigger': trigger,
+              'uri': entry.uri,
+              'path': entry.path,
+              'width': entry.width,
+              'height': entry.height,
+            },
+          );
+          return true;
+        }
+      }
+    }
+
+    final ref = _virtualRemoteRefs[entry.uri] ?? (localPath != null ? _virtualRemoteRefs[Uri.file(localPath).toString()] : null);
     if (ref == null) return false;
 
     final key = '${ref.$1.id}|${ref.$2.path}';
