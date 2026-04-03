@@ -292,7 +292,10 @@ class MediaStoreSource extends CollectionSource {
             if (analysisIds != null) {
               // not only visible entries, as hidden and vault items may be analyzed
               analysisEntries = allEntries.where((entry) => analysisIds.contains(entry.id)).toSet();
+            } else {
+              analysisEntries = allEntries.toSet();
             }
+            analysisEntries.removeWhere(_isRemoteCacheEntry);
             await analyze(analysisController, entries: analysisEntries);
 
             // the home page may not reflect the current derived filters
@@ -403,7 +406,8 @@ class MediaStoreSource extends CollectionSource {
       }
 
       addEntries(newEntries);
-      await analyze(analysisController, entries: newEntries);
+      final analysisEntries = newEntries.where((entry) => !_isRemoteCacheEntry(entry)).toSet();
+      await analyze(analysisController, entries: analysisEntries);
     }
 
     if (entriesToRefresh.isNotEmpty) {
