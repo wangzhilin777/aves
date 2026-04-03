@@ -386,42 +386,10 @@ class _CollectionAppBarState extends State<CollectionAppBar> with RouteAware, Si
     if (remotePath.isEmpty && routeMap?['remotePath'] is String) {
       remotePath = routeMap!['remotePath'] as String;
     }
-    if (remotePath.isEmpty) {
-      final fixedFirst = collection.fixedSelection?.firstOrNull;
-      if (fixedFirst != null) {
-        final path = remoteMediaService.getVirtualRemoteRef(fixedFirst.uri)?.$2.path;
-        if (path != null && path.isNotEmpty) {
-          remotePath = path;
-        }
-      }
-    }
-    if (remotePath.isEmpty) {
-      final firstRemoteEntry = collection.sortedEntries.firstWhereOrNull((entry) => remoteMediaService.hasVirtualRemoteRef(entry.uri));
-      if (firstRemoteEntry != null) {
-        final path = remoteMediaService.getVirtualRemoteRef(firstRemoteEntry.uri)?.$2.path;
-        if (path != null && path.isNotEmpty) {
-          remotePath = path;
-        }
-      }
-    }
-    if (remotePath.isEmpty) {
-      final loneFilter = collection.filters.where((v) => !(v is QueryFilter && v.live) && v is! TrashFilter).singleOrNull;
-      if (loneFilter is StoredAlbumFilter) {
-        remotePath = loneFilter.album;
-      }
-    }
     return remotePath;
   }
 
   String? _resolveRemoteServerId() {
-    final fixedFirst = collection.fixedSelection?.firstOrNull;
-    final fixedServerId = fixedFirst != null ? remoteMediaService.getVirtualRemoteRef(fixedFirst.uri)?.$1.id : null;
-    if (fixedServerId != null && fixedServerId.isNotEmpty) return fixedServerId;
-
-    final firstRemoteEntry = collection.sortedEntries.firstWhereOrNull((entry) => remoteMediaService.hasVirtualRemoteRef(entry.uri));
-    final serverId = firstRemoteEntry != null ? remoteMediaService.getVirtualRemoteRef(firstRemoteEntry.uri)?.$1.id : null;
-    if (serverId != null && serverId.isNotEmpty) return serverId;
-
     return null;
   }
 
