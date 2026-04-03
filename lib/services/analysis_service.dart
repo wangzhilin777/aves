@@ -38,6 +38,15 @@ class AnalysisService {
     unawaited(Permission.notification.request());
 
     await reportService.log('Start analysis service${entryIds != null ? ' for ${entryIds.length} items' : ''}');
+    await remoteMediaLogService.log(
+      'analysis',
+      'platform analysis service requested',
+      data: {
+        'force': force,
+        'entryIdsCount': entryIds?.length,
+        'sampleEntryIds': entryIds?.take(8).toList(),
+      },
+    );
     try {
       await _platform.invokeMethod('startAnalysis', <String, Object?>{
         'entryIds': entryIds,

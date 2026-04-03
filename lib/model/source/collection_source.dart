@@ -5,6 +5,7 @@ import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/catalog.dart';
 import 'package:aves/model/entry/extensions/keys.dart';
 import 'package:aves/model/entry/extensions/location.dart';
+import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/entry/sort.dart';
 import 'package:aves/model/favourites.dart';
 import 'package:aves/model/filters/container/album_group.dart';
@@ -507,26 +508,50 @@ abstract class CollectionSource with SourceBase, AlbumMixin, CountryMixin, Place
     final force = _analysisController.force;
     if (!_analysisController.isStopping) {
       var startAnalysisService = false;
+      final remoteCacheEntries = todoEntries.where((entry) => entry.isRemoteCachedMedia).toSet();
+      final catalogTodoCount = (force ? todoEntries : todoEntries.where(TagMixin.catalogEntriesTest)).length;
+      final locateTodoCount = await availability.canLocatePlaces ? (force ? todoEntries.where((entry) => entry.hasGps) : todoEntries.where(LocationMixin.locatePlacesTest)).length : 0;
       if (_analysisController.canStartService && settings.canUseAnalysisService) {
         // cataloguing
         if (!startAnalysisService) {
-          final opCount = (force ? todoEntries : todoEntries.where(TagMixin.catalogEntriesTest)).length;
-          startAnalysisService = opCount > TagMixin.commitCountThreshold;
+          startAnalysisService = catalogTodoCount > TagMixin.commitCountThreshold;
         }
         // ignore locating countries
         // locating places
         if (!startAnalysisService && await availability.canLocatePlaces) {
-          final opCount = (force ? todoEntries.where((entry) => entry.hasGps) : todoEntries.where(LocationMixin.locatePlacesTest)).length;
-          startAnalysisService = opCount > LocationMixin.commitCountThreshold;
+          startAnalysisService = locateTodoCount > LocationMixin.commitCountThreshold;
         }
       }
 
       debugPrint('analyze ${todoEntries.length} entries, force=$force, starting service=$startAnalysisService');
+      await remoteMediaLogService.log(
+        'analysis',
+        'evaluate analysis start',
+        data: {
+          'force': force,
+          'entryCount': todoEntries.length,
+          'catalogTodoCount': catalogTodoCount,
+          'locateTodoCount': locateTodoCount,
+          'remoteCacheCount': remoteCacheEntries.length,
+          'willStartService': startAnalysisService,
+          'sampleRemotePaths': remoteCacheEntries.take(3).map((entry) => entry.path ?? entry.uri).toList(),
+        },
+      );
       if (startAnalysisService) {
         final lifecycleState = AvesApp.lifecycleStateNotifier.value;
         switch (lifecycleState) {
           case .resumed:
           case .inactive:
+            await remoteMediaLogService.log(
+              'analysis',
+              'starting analysis service',
+              data: {
+                'force': force,
+                'entryIdsCount': entries?.length,
+                'remoteCacheCount': remoteCacheEntries.length,
+                'sampleEntryPaths': todoEntries.take(5).map((entry) => entry.path ?? entry.uri).toList(),
+              },
+            );
             await AnalysisService.startService(
               force: force,
               entryIds: entries?.map((entry) => entry.id).toList(),
