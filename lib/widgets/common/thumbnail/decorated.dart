@@ -259,7 +259,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final holdLastFrame = keepLastFrameVisible && hasRenderableFrame;
     final currentReadyForReveal = isCurrent
         ? isChunkedRemotePreview
-              ? (holdLastFrame || controller.isPlaying)
+              ? (holdLastFrame || (controller.isPlaying && hasPreviewFrame))
               : isRemoteManagedEntry
                   ? (holdLastFrame || hasRenderableFrame)
                   : (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame)
@@ -295,7 +295,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final activeHoldLastFrame = activeKeepLastFrameVisible && activeHasRenderableFrame;
       final currentReadyForReveal = isCurrent
           ? activeIsChunkedRemotePreview
-                ? (activeHoldLastFrame || activeController.isPlaying)
+                ? (activeHoldLastFrame || (activeController.isPlaying && activeHasPreviewFrame))
                 : isActiveRemoteManagedEntry
                     ? (activeHoldLastFrame || activeHasRenderableFrame)
                     : (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame)
@@ -650,7 +650,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             final isRemoteManagedEntry = remoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
             final remoteForceVisible = isCurrent &&
                 _playRequestedForCurrentFocus &&
-                (isChunkedRemotePreview || isWebdavPreview) &&
+                isWebdavPreview &&
                 controller.status != VideoStatus.error;
             final show = _videoSurfaceVisible ||
                 (isChunkedRemotePreview
