@@ -51,6 +51,7 @@ import 'package:aves/widgets/common/tile_extent_controller.dart';
 import 'package:aves/widgets/navigation/nav_bar/nav_bar.dart';
 import 'package:aves/widgets/viewer/entry_viewer_page.dart';
 import 'package:aves/widgets/viewer/video/conductor.dart';
+import 'package:aves_video/aves_video.dart';
 import 'package:aves_model/aves_model.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -876,9 +877,33 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       final shouldPrimeByMutedPlayback = !hasDecodedFrame && (entry.uri.startsWith('file://') || existingFile == null);
       if (shouldPrimeByMutedPlayback) {
         await controller.mute(true);
+        Future<void> waitForPreheatFrame(Duration timeout) async {
+          if (_hasRenderablePreheatFrame(controller)) return;
+          final completer = Completer<void>();
+          late VoidCallback sizeListener;
+          late VoidCallback frameListener;
+          void completeIfReady() {
+            if (completer.isCompleted || !_hasRenderablePreheatFrame(controller)) return;
+            completer.complete();
+          }
+
+          sizeListener = () => completeIfReady();
+          frameListener = () => completeIfReady();
+          controller.decodedVideoSizeNotifier.addListener(sizeListener);
+          controller.firstFrameRenderedNotifier.addListener(frameListener);
+          try {
+            await completer.future.timeout(timeout);
+          } catch (_) {
+            // best-effort preheat
+          } finally {
+            controller.decodedVideoSizeNotifier.removeListener(sizeListener);
+            controller.firstFrameRenderedNotifier.removeListener(frameListener);
+          }
+        }
+
         try {
           await controller.play();
-          await Future.delayed(Duration(milliseconds: existingFile == null ? 260 : 120));
+          await waitForPreheatFrame(existingFile == null ? const Duration(milliseconds: 1800) : const Duration(milliseconds: 500));
         } catch (_) {}
         await controller.pause();
         try {
@@ -920,6 +945,11 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
         },
       );
     }
+  }
+
+  bool _hasRenderablePreheatFrame(AvesVideoController controller) {
+    final size = controller.decodedVideoSizeNotifier.value;
+    return controller.firstFrameRenderedNotifier.value || (size != null && size.width > 1 && size.height > 1) || controller.currentPosition > 0;
   }
 }
 
