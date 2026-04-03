@@ -554,6 +554,24 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       }
 
       if (!mounted || token != _playToken || !isCurrent) return;
+      if (isChunkedRemotePreview && controller.status == VideoStatus.error) {
+        final failedUri = entry.uri;
+        _playRequestedForCurrentFocus = false;
+        _lastAutoPlayErrorAtMillisByUri[failedUri] = DateTime.now().millisecondsSinceEpoch;
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'aborted chunked remote preview autoplay because controller stayed in error after readiness wait',
+            data: {
+              'uri': failedUri,
+              'protocol': remoteProtocol?.name,
+            },
+          ),
+        );
+        return;
+      }
+
+      if (!mounted || token != _playToken || !isCurrent) return;
       await conductor.pauseOthers(controller);
       await remoteMediaService.ensureEntryMetadata(entry, trigger: 'grid_preview');
       final isStreamingEntry = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
@@ -602,6 +620,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             data: {'uri': failedUri, 'protocol': remoteProtocol?.name},
           ),
         );
+        if (isChunkedRemotePreview) {
+          return;
+        }
       }
     } finally {
       _autoPlayInFlight = false;
