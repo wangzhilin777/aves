@@ -98,7 +98,6 @@ class _VideoViewState extends State<VideoView> {
             final isChunkedRemoteProtocol = isFtpProtocol || isSftpProtocol || isSmbProtocol;
             final isChunkedRemotePreview = isChunkedRemoteProtocol && !widget.preferStableRemoteInit;
             final hasStableDetailFrame = controller.isPlaying && currentPosition > 0 && (hasFirstFrameRendered || hasDecodedFrame);
-            final hasChunkedVisualFrame = hasDecodedFrame || hasFirstFrameRendered;
             final gainedPlaybackProgress = currentPosition > 0 && !_hadPlaybackProgress;
             if (gainedPlaybackProgress && widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol) {
               _chunkedProgressRevealDeadline = DateTime.now().add(_chunkedRemoteProgressRevealGrace);
@@ -159,22 +158,13 @@ class _VideoViewState extends State<VideoView> {
             }
             if (status == VideoStatus.error) {
               if (isChunkedRemotePreview && isFtpProtocol) {
-                if (hasChunkedVisualFrame) {
-                  return controller.buildPlayerWidget(context);
-                }
-                return const ColoredBox(color: Colors.transparent);
+                return controller.buildPlayerWidget(context);
               }
               if (isChunkedRemotePreview && isSftpProtocol) {
-                if (hasChunkedVisualFrame) {
-                  return controller.buildPlayerWidget(context);
-                }
-                return const ColoredBox(color: Colors.transparent);
+                return controller.buildPlayerWidget(context);
               }
               if (isChunkedRemotePreview && isSmbProtocol) {
-                if (hasChunkedVisualFrame) {
-                  return controller.buildPlayerWidget(context);
-                }
-                return const ColoredBox(color: Colors.transparent);
+                return controller.buildPlayerWidget(context);
               }
               if (canRenderDespiteError) {
                 if (!_loggedSoftErrorRender) {
@@ -203,19 +193,19 @@ class _VideoViewState extends State<VideoView> {
             _loggedSoftErrorRender = false;
             if (status == VideoStatus.idle) return const SizedBox();
             if (isChunkedRemotePreview && isFtpProtocol) {
-              if (withinChunkedFirstFrameRevealGrace || !hasChunkedVisualFrame) {
+              if (withinChunkedFirstFrameRevealGrace) {
                 return const ColoredBox(color: Colors.transparent);
               }
               return controller.buildPlayerWidget(context);
             }
             if (isChunkedRemotePreview && isSftpProtocol) {
-              if (withinChunkedFirstFrameRevealGrace || !hasChunkedVisualFrame) {
+              if (withinChunkedFirstFrameRevealGrace) {
                 return const ColoredBox(color: Colors.transparent);
               }
               return controller.buildPlayerWidget(context);
             }
             if (isChunkedRemotePreview && isSmbProtocol) {
-              if (withinChunkedFirstFrameRevealGrace || !hasChunkedVisualFrame) {
+              if (withinChunkedFirstFrameRevealGrace) {
                 return const ColoredBox(color: Colors.transparent);
               }
               return controller.buildPlayerWidget(context);
