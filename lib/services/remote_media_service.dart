@@ -478,7 +478,7 @@ class RemoteMediaService {
     );
 
     final source = runtimeCollectionSource;
-    final indexedEntries = source?.allEntries ?? await localMediaDb.loadEntries(origin: EntryOrigins.mediaStoreContent);
+    final indexedEntries = source?.allEntries ?? await localMediaDb.loadEntries();
     final indexedEntry = indexedEntries.firstWhereOrNull((candidate) => candidate.path == cacheFile!.path);
     await remoteMediaLogService.log(
       'remote_load',
@@ -3481,7 +3481,7 @@ class RemoteMediaService {
     );
     if (existingRuntimeEntry != null) return;
 
-    final indexedEntries = await localMediaDb.loadEntries(origin: EntryOrigins.mediaStoreContent);
+    final indexedEntries = await localMediaDb.loadEntries();
     var indexedEntry = indexedEntries.firstWhereOrNull(
       (entry) => entry.path == cacheFile.path || (scannedUriString != null && entry.uri == scannedUriString),
     );
@@ -3504,7 +3504,7 @@ class RemoteMediaService {
       }
 
       fetchedEntry.id = localMediaDb.nextId;
-      fetchedEntry.origin = EntryOrigins.mediaStoreContent;
+      fetchedEntry.origin = EntryOrigins.file;
       fetchedEntry.path = cacheFile.path;
       fetchedEntry.sizeBytes ??= await cacheFile.length();
       await localMediaDb.insertEntries({fetchedEntry});

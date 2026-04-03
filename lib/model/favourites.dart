@@ -1,6 +1,5 @@
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/props.dart';
-import 'package:aves/model/entry/origins.dart';
 import 'package:aves/model/source/collection_source.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/services/runtime_collection_source.dart';
@@ -91,7 +90,7 @@ class Favourites with ChangeNotifier {
       aliases.addAll(runtimeSource.allEntries.where((entry) => entry.path != null && remoteCachedPaths.contains(entry.path)));
     }
 
-    final scannedEntries = await localMediaDb.loadEntries(origin: EntryOrigins.mediaStoreContent);
+    final scannedEntries = await localMediaDb.loadEntries();
     aliases.addAll(scannedEntries.where((entry) => entry.path != null && remoteCachedPaths.contains(entry.path)));
     return {
       ...entries,

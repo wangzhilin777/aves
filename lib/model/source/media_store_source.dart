@@ -111,6 +111,10 @@ class MediaStoreSource extends CollectionSource {
 
     debugPrint('$runtimeType load ${stopwatch.elapsed} fetch known entries');
     final knownEntries = await localMediaDb.loadEntries(origin: EntryOrigins.mediaStoreContent, directory: scopeDirectory);
+    if (scopeDirectory == null && settings.remoteCacheInSmartCollections) {
+      final remoteCacheEntries = (await localMediaDb.loadEntries(origin: EntryOrigins.file)).where(_isRemoteCacheEntry).toSet();
+      knownEntries.addAll(remoteCacheEntries);
+    }
     final filteredKnownRemoteEntries = _takeRemoteCacheEntries(knownEntries);
     if (filteredKnownRemoteEntries.isNotEmpty) {
       knownEntries.removeAll(filteredKnownRemoteEntries);
