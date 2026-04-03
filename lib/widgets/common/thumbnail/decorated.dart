@@ -243,7 +243,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final canReveal =
         !isViewerActive &&
         ((currentReadyForReveal) ||
-            (!isCurrent && isRemotePreviewCandidate && hasDecodedFrame));
+            (!isCurrent && isRemotePreviewCandidate && hasDecodedFrame && keepLastFrameVisible));
     if (!canReveal) {
       _videoSurfaceRevealTimer?.cancel();
       _videoSurfaceRevealTimer = null;
@@ -270,7 +270,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final shouldReveal =
           (_viewerEntryNotifier?.value == null) &&
           ((currentReadyForReveal) ||
-              (!isCurrent && isActiveRemotePreviewCandidate && activeHasDecodedFrame));
+              (!isCurrent && isActiveRemotePreviewCandidate && activeHasDecodedFrame && activeKeepLastFrameVisible));
       if (!shouldReveal || _videoSurfaceVisible) return;
       setState(() => _videoSurfaceVisible = true);
     });
@@ -654,7 +654,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             final hasDecodedFrame = _hasDecodedFrame(controller);
             final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
             final remoteForceVisible = remoteProtocol != null && isCurrent && _playRequestedForCurrentFocus && (keepLastFrameVisible || hasDecodedFrame);
-            final show = _videoSurfaceVisible || keepLastFrameVisible || remoteForceVisible || (!isCurrent && hasDecodedFrame);
+            final show = _videoSurfaceVisible || keepLastFrameVisible || remoteForceVisible || (!isCurrent && hasDecodedFrame && keepLastFrameVisible);
             final tileHeight = widget.tileExtent;
             final decodedSize = controller.decodedVideoSizeNotifier.value;
             final displaySize = decodedSize ?? entry.displaySize;

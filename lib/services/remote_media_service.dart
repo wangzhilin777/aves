@@ -146,6 +146,7 @@ class RemoteMediaService {
   final Set<String> _proxyLoggedUris = {};
   final Map<String, Future<File>> _streamChunkInFlight = {};
   final Set<String> _loggedInitialChunkSignatures = {};
+  final Map<String, Future<bool>> _imageMetadataInFlight = {};
 
   RemoteMediaService() {
     remoteStreamProxyService.remoteRequestHandler = _handleProxyRequest;
@@ -591,6 +592,76 @@ class RemoteMediaService {
           'durationMillis': entry.durationMillis,
         },
       );
+    }
+  }
+
+  Future<bool> ensureViewerImageDisplayMetadata(
+    AvesEntry entry, {
+    String trigger = 'viewer_image_metadata',
+  }) async {
+    if (entry.isVideo || !entry.isDecodingSupported) return false;
+    if (entry.width > 1 && entry.height > 1) return true;
+
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref == null) return false;
+
+    final key = '${ref.$1.id}|${ref.$2.path}';
+    final inFlight = _imageMetadataInFlight[key];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    Future<bool> run() async {
+      await ensureEntryMetadata(entry, trigger: trigger);
+      if (entry.width > 1 && entry.height > 1) {
+        return true;
+      }
+
+      final existingFile = await bindExistingCacheFileForEntry(
+        entry,
+        trigger: '${trigger}_bind_existing',
+      );
+      if (existingFile != null && entry.width > 1 && entry.height > 1) {
+        await remoteMediaLogService.log(
+          'metadata',
+          'resolved remote image display metadata from existing cache',
+          data: {
+            'trigger': trigger,
+            'uri': entry.uri,
+            'path': entry.path,
+            'width': entry.width,
+            'height': entry.height,
+          },
+        );
+        return true;
+      }
+
+      final downloadedFile = await ensureDownloadedForEntry(
+        entry,
+        trigger: '${trigger}_download',
+      );
+      final resolved = downloadedFile != null && entry.width > 1 && entry.height > 1;
+      await remoteMediaLogService.log(
+        'metadata',
+        resolved ? 'resolved remote image display metadata from download' : 'failed to resolve remote image display metadata',
+        data: {
+          'trigger': trigger,
+          'uri': entry.uri,
+          'path': entry.path,
+          'width': entry.width,
+          'height': entry.height,
+          'downloadedFile': downloadedFile?.path,
+        },
+      );
+      return resolved;
+    }
+
+    final task = Future<bool>(run);
+    _imageMetadataInFlight[key] = task;
+    try {
+      return await task;
+    } finally {
+      _imageMetadataInFlight.remove(key);
     }
   }
 

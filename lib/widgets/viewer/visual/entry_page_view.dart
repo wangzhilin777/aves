@@ -60,6 +60,7 @@ class _EntryPageViewState extends State<EntryPageView> with TickerProviderStateM
   final Set<StreamSubscription> _subscriptions = {};
   final ValueNotifier<Widget?> _actionFeedbackChildNotifier = ValueNotifier(null);
   OverlayEntry? _actionFeedbackOverlayEntry;
+  bool _resolvingRemoteImageMetadata = false;
 
   AvesEntry get mainEntry => widget.mainEntry;
 
@@ -100,6 +101,7 @@ class _EntryPageViewState extends State<EntryPageView> with TickerProviderStateM
     if (entry.isVideo) {
       _subscriptions.add(mediaSessionService.mediaCommands.listen(_onMediaCommand));
     }
+    unawaited(_ensureRemoteImageDisplayMetadata());
     viewerController.startAutopilotAnimation(
       vsync: this,
       onUpdate: ({required scaleLevel}) {
@@ -134,6 +136,17 @@ class _EntryPageViewState extends State<EntryPageView> with TickerProviderStateM
           } else if (entry.isDecodingSupported) {
             child = _buildRasterView();
           }
+        } else if (_isPendingRemoteImageMetadata) {
+          child = ColoredBox(
+            color: EntryViewerPage.getBackground(context),
+            child: const Center(
+              child: SizedBox(
+                width: 26,
+                height: 26,
+                child: CircularProgressIndicator(strokeWidth: 2.2),
+              ),
+            ),
+          );
         }
 
         child ??= ErrorView(
@@ -165,6 +178,29 @@ class _EntryPageViewState extends State<EntryPageView> with TickerProviderStateM
     }
 
     return child;
+  }
+
+  bool get _isPendingRemoteImageMetadata {
+    return !entry.isVideo &&
+        !entry.isSvg &&
+        entry.isDecodingSupported &&
+        entry.displaySize.isEmpty &&
+        (entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri));
+  }
+
+  Future<void> _ensureRemoteImageDisplayMetadata() async {
+    if (!_isPendingRemoteImageMetadata || _resolvingRemoteImageMetadata) return;
+    _resolvingRemoteImageMetadata = true;
+    try {
+      await remoteMediaService.ensureViewerImageDisplayMetadata(
+        entry,
+        trigger: 'viewer_image_metadata',
+      );
+      if (!mounted) return;
+      setState(() {});
+    } finally {
+      _resolvingRemoteImageMetadata = false;
+    }
   }
 
   Widget _buildRasterView() {

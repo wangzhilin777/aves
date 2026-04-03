@@ -736,6 +736,10 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       return;
     }
 
+    if (target == null && current != null && now.difference(_lastFocusChangeAt) < const Duration(milliseconds: 360)) {
+      return;
+    }
+
     if (target == null && isScrolling && current != null) {
       final currentUri = current.uri;
       final sameUri = _lastKeepFocusLogUri == currentUri;
