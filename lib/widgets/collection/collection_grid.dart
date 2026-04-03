@@ -272,7 +272,7 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
     // as a workaround for the hero pop/push diversion animation issue
     // (cf `ThumbnailImage` `Hero` usage)
     if (viewerEntryNotifier.value == entry) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) => viewerEntryNotifier.value = entry);
+    viewerEntryNotifier.value = entry;
 
     final selection = context.read<Selection<AvesEntry>>();
     await Navigator.maybeOf(context)?.push(

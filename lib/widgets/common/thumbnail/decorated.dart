@@ -9,6 +9,7 @@ import 'package:aves/theme/icons.dart';
 import 'package:aves/widgets/common/extensions/build_context.dart';
 import 'package:aves/widgets/common/fx/borders.dart';
 import 'package:aves/widgets/common/grid/overlay.dart';
+import 'package:aves/widgets/common/providers/viewer_entry_provider.dart';
 import 'package:aves/widgets/common/grid/sections/mosaic/section_layout_builder.dart';
 import 'package:aves/widgets/common/thumbnail/image.dart';
 import 'package:aves/widgets/common/thumbnail/notifications.dart';
@@ -155,6 +156,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   final Map<String, int> _lastDecodedFrameAtMillisByUri = {};
   StreamSubscription<VideoStatus>? _statusSubscription;
   Timer? _videoSurfaceRevealTimer;
+  ViewerEntryNotifier? _viewerEntryNotifier;
 
   bool _hasDecodedFrame(AvesVideoController? controller) {
     final decodedSize = controller?.decodedVideoSizeNotifier.value;
@@ -165,6 +167,8 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   void initState() {
     super.initState();
     widget.isCurrentNotifier.addListener(_onCurrentChanged);
+    _viewerEntryNotifier = context.read<ViewerEntryNotifier>();
+    _viewerEntryNotifier?.addListener(_onCurrentChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _onCurrentChanged());
   }
 
@@ -187,6 +191,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   @override
   void dispose() {
     widget.isCurrentNotifier.removeListener(_onCurrentChanged);
+    _viewerEntryNotifier?.removeListener(_onCurrentChanged);
     _playToken++;
     _videoSurfaceRevealTimer?.cancel();
     _statusSubscription?.cancel();
@@ -222,12 +227,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   void _onControllerVisualStateChanged() {
     final controller = _controller;
     if (!mounted || controller == null) return;
+    final isViewerActive = _viewerEntryNotifier?.value != null;
     final hasDecodedFrame = _hasDecodedFrame(controller);
     if (hasDecodedFrame) {
       _lastDecodedFrameAtMillisByUri[entry.uri] = DateTime.now().millisecondsSinceEpoch;
     }
     final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
-    final canReveal = isCurrent && (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame);
+    final canReveal = !isViewerActive && isCurrent && (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame);
     if (!canReveal) {
       _videoSurfaceRevealTimer?.cancel();
       _videoSurfaceRevealTimer = null;
@@ -243,7 +249,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       if (!mounted || activeController == null) return;
       final activeHasDecodedFrame = _hasDecodedFrame(activeController);
       final activeKeepLastFrameVisible = activeController.status == VideoStatus.paused || activeController.status == VideoStatus.completed;
-      final shouldReveal = isCurrent && (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame);
+      final shouldReveal = (_viewerEntryNotifier?.value == null) && isCurrent && (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame);
       if (!shouldReveal || _videoSurfaceVisible) return;
       setState(() => _videoSurfaceVisible = true);
     });
@@ -265,8 +271,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       if (!mounted) return;
 
       final settings = context.read<Settings>();
-      if (!_isAutoPlayEnabled(settings) || !isCurrent) {
-        final reason = !_isAutoPlayEnabled(settings) ? 'autoplay_disabled_by_setting' : 'not_current_focus_item';
+      final isViewerActive = _viewerEntryNotifier?.value != null;
+      if (!_isAutoPlayEnabled(settings) || !isCurrent || isViewerActive) {
+        final reason = !_isAutoPlayEnabled(settings)
+            ? 'autoplay_disabled_by_setting'
+            : isViewerActive
+                ? 'viewer_active'
+                : 'not_current_focus_item';
         final decisionKey = '$reason:${entry.uri}';
         if (_lastDecisionKey != decisionKey) {
           _lastDecisionKey = decisionKey;
