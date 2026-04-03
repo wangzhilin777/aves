@@ -322,26 +322,6 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _lastAutoPlayUri = entry.uri;
       _lastAutoPlayAttemptMillis = nowMillis;
 
-      final existingController = _controller;
-      final decodedFrameAt = _lastDecodedFrameAtMillisByUri[entry.uri];
-      final hasRecentDecodedFrame = decodedFrameAt != null && nowMillis - decodedFrameAt < 4000;
-      if (existingController != null && hasRecentDecodedFrame) {
-        _playRequestedForCurrentFocus = true;
-        unawaited(
-          remoteMediaLogService.log(
-            'autoplay',
-            'grid preview skipped replay loop because decoded frame is still fresh',
-            data: {
-              'uri': entry.uri,
-              'status': existingController.status.name,
-              'isPlaying': existingController.isPlaying,
-            },
-          ),
-        );
-        if (mounted) setState(() {});
-        return;
-      }
-
       final conductor = context.read<VideoConductor>();
       final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
       if (entry.isVideo && remoteProtocol != null) {
@@ -385,6 +365,27 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _controller = controller;
       _setController(controller);
       if (controller.isPlaying) {
+        return;
+      }
+      final decodedFrameAt = _lastDecodedFrameAtMillisByUri[entry.uri];
+      final hasRecentDecodedFrame = decodedFrameAt != null && nowMillis - decodedFrameAt < 4000;
+      if (hasRecentDecodedFrame && _hasDecodedFrame(controller)) {
+        await conductor.pauseOthers(controller);
+        await controller.mute(_shouldMute(settings));
+        await controller.play();
+        _playRequestedForCurrentFocus = true;
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'grid preview resumed from preheated decoded frame',
+            data: {
+              'uri': entry.uri,
+              'status': controller.status.name,
+              'isPlaying': controller.isPlaying,
+            },
+          ),
+        );
+        if (mounted) setState(() {});
         return;
       }
       _lastDecisionKey = 'play:${entry.uri}';

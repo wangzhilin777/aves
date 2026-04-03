@@ -352,6 +352,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   double? _initialFocusLockOffset;
   DateTime _lastVideoPreheatAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastVideoPreheatSignature;
+  DateTime _lastEdgeFocusAt = DateTime.fromMillisecondsSinceEpoch(0);
+  String? _lastEdgeFocusUri;
   ScrollDirection _lastScrollIntentDirection = ScrollDirection.idle;
   DateTime _lastScrollIntentAt = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -642,17 +644,25 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
         final candidate = layout.getItemAt(Offset(x, y));
         edgeAnchor ??= candidate;
         if (candidate?.isVideo == true) {
-          unawaited(
-            remoteMediaLogService.log(
-              'focus',
-              'forced preview focus at collection edge',
-              data: {
-                'uri': candidate?.uri,
-                'atTop': forceTop,
-                'atBottom': forceBottom,
-              },
-            ),
-          );
+          final now = DateTime.now();
+          final uri = candidate?.uri;
+          final sameTarget = _lastEdgeFocusUri == uri;
+          final withinCooldown = now.difference(_lastEdgeFocusAt) < const Duration(milliseconds: 600);
+          if (!(sameTarget && withinCooldown)) {
+            _lastEdgeFocusUri = uri;
+            _lastEdgeFocusAt = now;
+            unawaited(
+              remoteMediaLogService.log(
+                'focus',
+                'forced preview focus at collection edge',
+                data: {
+                  'uri': uri,
+                  'atTop': forceTop,
+                  'atBottom': forceBottom,
+                },
+              ),
+            );
+          }
           return candidate;
         }
       }
