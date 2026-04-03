@@ -360,6 +360,16 @@ abstract class ChipSetActionDelegate<T extends CollectionFilter> with FeedbackMi
   }
 
   Future<void> _goToSearch(BuildContext context) async {
+    if (context.currentRouteName == '/remote-folder-filters') {
+      final query = context.read<Query>();
+      if (!query.enabled) {
+        query.enabled = true;
+      } else {
+        query.requestFocus();
+      }
+      return;
+    }
+
     await Navigator.maybeOf(context)?.push(
       SearchPageRoute(
         delegate: CollectionSearchDelegate(

@@ -41,6 +41,8 @@ class Query extends ChangeNotifier {
 
   void toggle() => enabled = !enabled;
 
+  void requestFocus() => _focusRequestNotifier.notifyListeners();
+
   Stream<bool> get enabledStream => _enabledStreamController.stream;
 
   AChangeNotifier get focusRequestNotifier => _focusRequestNotifier;
