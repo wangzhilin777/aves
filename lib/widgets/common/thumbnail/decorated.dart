@@ -146,8 +146,8 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   int _playToken = 0;
   bool _autoPlayInFlight = false;
   bool _videoSurfaceVisible = false;
+  bool _ftpPreviewVisualSettled = false;
   bool _playRequestedForCurrentFocus = false;
-  bool _chunkedCurrentFocusPlaybackStarted = false;
   String? _lastAutoPlayUri;
   String? _lastDecisionKey;
   int _lastAutoPlayAttemptMillis = 0;
@@ -157,9 +157,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   StreamSubscription<VideoStatus>? _statusSubscription;
   StreamSubscription<int>? _positionSubscription;
   Timer? _videoSurfaceRevealTimer;
+  Timer? _ftpPreviewSettleTimer;
   ViewerEntryNotifier? _viewerEntryNotifier;
   bool _hasPlaybackProgress = false;
   final Map<String, int> _lastLocalCacheProbeAtMillisByUri = {};
+  String? _lastSurfaceDecisionKey;
+  String? _lastControllerLifecycleKey;
+  String? _lastTileSurfaceSnapshotKey;
 
   bool _hasDecodedFrame(AvesVideoController? controller) {
     final decodedSize = controller?.decodedVideoSizeNotifier.value;
@@ -186,15 +190,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _unbindController(_controller);
       _controller = null;
       _videoSurfaceVisible = false;
+      _ftpPreviewVisualSettled = false;
       _playRequestedForCurrentFocus = false;
-      _chunkedCurrentFocusPlaybackStarted = false;
       _hasPlaybackProgress = false;
-    }
-    final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
-    final isChunkedRemotePreview =
-        remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
-    if (oldWidget.entry == widget.entry && isChunkedRemotePreview) {
-      return;
     }
     _onCurrentChanged();
   }
@@ -234,7 +232,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     _positionSubscription?.cancel();
     _positionSubscription = null;
     _videoSurfaceRevealTimer?.cancel();
+    _ftpPreviewSettleTimer?.cancel();
     _videoSurfaceRevealTimer = null;
+    _ftpPreviewSettleTimer = null;
     controller?.decodedVideoSizeNotifier.removeListener(_onControllerVisualStateChanged);
     controller?.firstFrameRenderedNotifier.removeListener(_onControllerVisualStateChanged);
     _hasPlaybackProgress = false;
@@ -242,10 +242,147 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
 
   void _setController(AvesVideoController controller) {
     if (identical(_controller, controller)) return;
+    final previousController = _controller;
+    _logControllerLifecycle(
+      event: 'swap_controller',
+      controller: controller,
+      previousController: previousController,
+    );
     _unbindController(_controller);
     _controller = controller;
     _videoSurfaceVisible = false;
     _bindController(controller);
+  }
+
+  void _logControllerLifecycle({
+    required String event,
+    required AvesVideoController? controller,
+    AvesVideoController? previousController,
+    Map<String, Object?> extra = const {},
+  }) {
+    if (!settings.remoteLogEnabled) return;
+    final key =
+        '$event|${entry.uri}|${isCurrent}|${controller?.hashCode}|${previousController?.hashCode}|${controller?.status.name}|${controller?.isPlaying}|${controller?.isReady}|${_viewerEntryNotifier?.value?.uri}|${extra.toString()}';
+    if (_lastControllerLifecycleKey == key) return;
+    _lastControllerLifecycleKey = key;
+    unawaited(
+      remoteMediaLogService.log(
+        'autoplay',
+        'grid preview controller lifecycle',
+        data: {
+          'entryUri': entry.uri,
+          'entryPath': entry.path,
+          'protocol': remoteMediaService.getRemoteProtocolForEntry(entry)?.name,
+          'event': event,
+          'isCurrent': isCurrent,
+          'viewerEntryUri': _viewerEntryNotifier?.value?.uri,
+          'controllerHash': controller?.hashCode,
+          'previousControllerHash': previousController?.hashCode,
+          'controllerStatus': controller?.status.name,
+          'controllerIsPlaying': controller?.isPlaying,
+          'controllerIsReady': controller?.isReady,
+          'controllerPositionMillis': controller?.currentPosition,
+          ...extra,
+        },
+      ),
+    );
+  }
+
+  void _logTileSurfaceSnapshot({
+    required AvesVideoController controller,
+    required RemoteProtocol? remoteProtocol,
+    required bool show,
+    required bool keepLastFrameVisible,
+    required bool hasDecodedFrame,
+    required bool hasFirstFrameRendered,
+    required bool hasPreviewFrame,
+    required bool hasRenderableFrame,
+    required bool inChunkedErrorCooldown,
+    required bool remoteForceVisible,
+    required bool suppressNonCurrentChunkedPreviewSurface,
+  }) {
+    if (!settings.remoteLogEnabled) return;
+    final key =
+        '${entry.uri}|${controller.hashCode}|$show|$_videoSurfaceVisible|$keepLastFrameVisible|$hasDecodedFrame|$hasFirstFrameRendered|$hasPreviewFrame|$hasRenderableFrame|$inChunkedErrorCooldown|$remoteForceVisible|$suppressNonCurrentChunkedPreviewSurface|$isCurrent|${controller.status.name}|${controller.isPlaying}|${controller.isReady}|${controller.currentPosition}';
+    if (_lastTileSurfaceSnapshotKey == key) return;
+    _lastTileSurfaceSnapshotKey = key;
+    unawaited(
+      remoteMediaLogService.log(
+        'autoplay',
+        'grid preview tile surface snapshot',
+        data: {
+          'entryUri': entry.uri,
+          'entryPath': entry.path,
+          'protocol': remoteProtocol?.name,
+          'controllerHash': controller.hashCode,
+          'controllerStatus': controller.status.name,
+          'controllerIsPlaying': controller.isPlaying,
+          'controllerIsReady': controller.isReady,
+          'controllerPositionMillis': controller.currentPosition,
+          'isCurrent': isCurrent,
+          'viewerEntryUri': _viewerEntryNotifier?.value?.uri,
+          'show': show,
+          'surfaceVisibleFlag': _videoSurfaceVisible,
+          'playRequestedForCurrentFocus': _playRequestedForCurrentFocus,
+          'keepLastFrameVisible': keepLastFrameVisible,
+          'hasDecodedFrame': hasDecodedFrame,
+          'hasFirstFrameRendered': hasFirstFrameRendered,
+          'hasPreviewFrame': hasPreviewFrame,
+          'hasRenderableFrame': hasRenderableFrame,
+          'inChunkedErrorCooldown': inChunkedErrorCooldown,
+          'remoteForceVisible': remoteForceVisible,
+          'suppressNonCurrentChunkedPreviewSurface': suppressNonCurrentChunkedPreviewSurface,
+        },
+      ),
+    );
+  }
+
+  void _logSurfaceDecision({
+    required String event,
+    required AvesVideoController controller,
+    required RemoteProtocol? remoteProtocol,
+    required bool hasDecodedFrame,
+    required bool hasFirstFrameRendered,
+    required bool hasRenderableFrame,
+    required bool holdLastFrame,
+    required bool inChunkedErrorCooldown,
+    required bool currentReadyForReveal,
+    required bool canReveal,
+  }) {
+    if (!settings.remoteLogEnabled) return;
+    final key =
+        '$event|${controller.status.name}|${controller.isPlaying}|${controller.isReady}|$hasDecodedFrame|$hasFirstFrameRendered|${_hasPlaybackProgress}|$hasRenderableFrame|$holdLastFrame|$inChunkedErrorCooldown|$currentReadyForReveal|$canReveal|$_videoSurfaceVisible|${_videoSurfaceRevealTimer != null}|$isCurrent|${_viewerEntryNotifier?.value != null}';
+    if (_lastSurfaceDecisionKey == key) return;
+    _lastSurfaceDecisionKey = key;
+    unawaited(
+      remoteMediaLogService.log(
+        'autoplay',
+        'grid preview surface decision',
+        data: {
+          'uri': entry.uri,
+          'path': entry.path,
+          'protocol': remoteProtocol?.name,
+          'event': event,
+          'status': controller.status.name,
+          'isPlaying': controller.isPlaying,
+          'isReady': controller.isReady,
+          'positionMillis': controller.currentPosition,
+          'hasDecodedFrame': hasDecodedFrame,
+          'hasFirstFrameRendered': hasFirstFrameRendered,
+          'hasPlaybackProgress': _hasPlaybackProgress,
+          'hasRenderableFrame': hasRenderableFrame,
+          'holdLastFrame': holdLastFrame,
+          'inChunkedErrorCooldown': inChunkedErrorCooldown,
+          'currentReadyForReveal': currentReadyForReveal,
+          'canReveal': canReveal,
+          'surfaceVisible': _videoSurfaceVisible,
+          'revealTimerPending': _videoSurfaceRevealTimer != null,
+          'isCurrent': isCurrent,
+          'viewerActive': _viewerEntryNotifier?.value != null,
+          'playRequestedForCurrentFocus': _playRequestedForCurrentFocus,
+        },
+      ),
+    );
   }
 
   void _onControllerVisualStateChanged() {
@@ -267,50 +404,88 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     }
     final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
     final isRemotePreviewCandidate = isRemoteManagedEntry && !controller.isPlaying;
-    final holdLastFrame = keepLastFrameVisible && hasRenderableFrame;
-    final ftpPreviewRevealTrigger =
-        isFtpPreview && isCurrent && controller.status != VideoStatus.error && (_playRequestedForCurrentFocus || controller.isPlaying || controller.isReady);
-    final sftpPreviewRevealTrigger =
-        isSftpPreview && isCurrent && controller.status != VideoStatus.error && (_playRequestedForCurrentFocus || controller.isPlaying || controller.isReady);
-    final smbPreviewRevealTrigger =
-        isSmbPreview && isCurrent && controller.status != VideoStatus.error && (_playRequestedForCurrentFocus || controller.isPlaying || controller.isReady);
+    final keepPreviewFrameVisibleOnChunkedError =
+        isCurrent &&
+        isChunkedRemotePreview &&
+        controller.status == VideoStatus.error &&
+        (isFtpPreview ? hasFirstFrameRendered : hasPreviewFrame);
+    final holdLastFrame = (keepLastFrameVisible && hasRenderableFrame) || keepPreviewFrameVisibleOnChunkedError;
     final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
     final inChunkedErrorCooldown =
         isChunkedRemotePreview &&
         errorCooldownStartedAt != null &&
         DateTime.now().millisecondsSinceEpoch - errorCooldownStartedAt < 4000;
-    final ftpCurrentReadyForReveal =
-        isFtpPreview &&
-        isCurrent &&
-        (holdLastFrame || ftpPreviewRevealTrigger || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
-    final sftpCurrentReadyForReveal =
-        isSftpPreview &&
-        isCurrent &&
-        (holdLastFrame || sftpPreviewRevealTrigger || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
-    final smbCurrentReadyForReveal =
-        isSmbPreview &&
-        isCurrent &&
-        (holdLastFrame || smbPreviewRevealTrigger || hasPreviewFrame || (_videoSurfaceVisible && inChunkedErrorCooldown));
     final currentReadyForReveal = isCurrent
-        ? (isFtpPreview || isSftpPreview || isSmbPreview)
-              ? (ftpCurrentReadyForReveal || sftpCurrentReadyForReveal || smbCurrentReadyForReveal)
-              : isRemoteManagedEntry
-                  ? (holdLastFrame || hasRenderableFrame)
-                  : (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame)
+        ? isFtpPreview
+              ? (holdLastFrame || hasFirstFrameRendered || keepPreviewFrameVisibleOnChunkedError)
+              : isSftpPreview
+                  ? (holdLastFrame || hasPreviewFrame || keepPreviewFrameVisibleOnChunkedError)
+                  : isSmbPreview
+                      ? (holdLastFrame || hasPreviewFrame || keepPreviewFrameVisibleOnChunkedError)
+                      : remoteProtocol == RemoteProtocol.webdav
+                          ? (holdLastFrame || hasRenderableFrame)
+                          : isRemoteManagedEntry
+                              ? (holdLastFrame || hasRenderableFrame)
+                              : (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame)
         : false;
     final canReveal =
         !isViewerActive &&
         ((currentReadyForReveal) ||
-            (!isCurrent && isRemotePreviewCandidate && holdLastFrame && (isChunkedRemotePreview ? hasPreviewFrame : hasRenderableFrame)));
+            (!isCurrent &&
+                isRemotePreviewCandidate &&
+                !isChunkedRemotePreview &&
+                holdLastFrame &&
+                hasRenderableFrame));
     if (!canReveal) {
+      _logSurfaceDecision(
+        event: _videoSurfaceVisible ? 'hide_surface' : 'cannot_reveal_surface',
+        controller: controller,
+        remoteProtocol: remoteProtocol,
+        hasDecodedFrame: hasDecodedFrame,
+        hasFirstFrameRendered: hasFirstFrameRendered,
+        hasRenderableFrame: hasRenderableFrame,
+        holdLastFrame: holdLastFrame,
+        inChunkedErrorCooldown: inChunkedErrorCooldown,
+        currentReadyForReveal: currentReadyForReveal,
+        canReveal: canReveal,
+      );
       _videoSurfaceRevealTimer?.cancel();
       _videoSurfaceRevealTimer = null;
       if (_videoSurfaceVisible) {
-        setState(() => _videoSurfaceVisible = false);
+        setState(() {
+          _videoSurfaceVisible = false;
+          _ftpPreviewVisualSettled = false;
+        });
       }
       return;
     }
-    if (_videoSurfaceVisible || _videoSurfaceRevealTimer != null) return;
+    if (_videoSurfaceVisible || _videoSurfaceRevealTimer != null) {
+      _logSurfaceDecision(
+        event: _videoSurfaceVisible ? 'surface_already_visible' : 'reveal_timer_already_pending',
+        controller: controller,
+        remoteProtocol: remoteProtocol,
+        hasDecodedFrame: hasDecodedFrame,
+        hasFirstFrameRendered: hasFirstFrameRendered,
+        hasRenderableFrame: hasRenderableFrame,
+        holdLastFrame: holdLastFrame,
+        inChunkedErrorCooldown: inChunkedErrorCooldown,
+        currentReadyForReveal: currentReadyForReveal,
+        canReveal: canReveal,
+      );
+      return;
+    }
+    _logSurfaceDecision(
+      event: 'schedule_reveal_timer',
+      controller: controller,
+      remoteProtocol: remoteProtocol,
+      hasDecodedFrame: hasDecodedFrame,
+      hasFirstFrameRendered: hasFirstFrameRendered,
+      hasRenderableFrame: hasRenderableFrame,
+      holdLastFrame: holdLastFrame,
+      inChunkedErrorCooldown: inChunkedErrorCooldown,
+      currentReadyForReveal: currentReadyForReveal,
+      canReveal: canReveal,
+    );
     _videoSurfaceRevealTimer = Timer(const Duration(milliseconds: 220), () {
       _videoSurfaceRevealTimer = null;
       final activeController = _controller;
@@ -319,65 +494,81 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final isActiveRemoteManagedEntry = activeRemoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
       final activeHasDecodedFrame = _hasDecodedFrame(activeController);
       final activeHasFirstFrameRendered = activeController.firstFrameRenderedNotifier.value;
-      final activeHasPreviewFrame = activeHasDecodedFrame || activeHasFirstFrameRendered;
       final activeHasRenderableFrame =
           activeHasDecodedFrame || activeHasFirstFrameRendered || _hasPlaybackProgress || activeController.currentPosition > 0;
       final activeKeepLastFrameVisible = activeController.status == VideoStatus.paused || activeController.status == VideoStatus.completed;
       final activeIsChunkedRemotePreview =
           activeRemoteProtocol == RemoteProtocol.ftp || activeRemoteProtocol == RemoteProtocol.sftp || activeRemoteProtocol == RemoteProtocol.smb;
-      final activeIsFtpPreview = activeRemoteProtocol == RemoteProtocol.ftp;
-      final activeIsSftpPreview = activeRemoteProtocol == RemoteProtocol.sftp;
-      final activeIsSmbPreview = activeRemoteProtocol == RemoteProtocol.smb;
       final isActiveRemotePreviewCandidate = isActiveRemoteManagedEntry && !activeController.isPlaying;
       final activeHoldLastFrame = activeKeepLastFrameVisible && activeHasRenderableFrame;
-      final ftpPreviewRevealTrigger =
-          activeIsFtpPreview &&
-          isCurrent &&
-          activeController.status != VideoStatus.error &&
-          (_playRequestedForCurrentFocus || activeController.isPlaying || activeController.isReady);
-      final sftpPreviewRevealTrigger =
-          activeIsSftpPreview &&
-          isCurrent &&
-          activeController.status != VideoStatus.error &&
-          (_playRequestedForCurrentFocus || activeController.isPlaying || activeController.isReady);
-      final smbPreviewRevealTrigger =
-          activeIsSmbPreview &&
-          isCurrent &&
-          activeController.status != VideoStatus.error &&
-          (_playRequestedForCurrentFocus || activeController.isPlaying || activeController.isReady);
       final activeErrorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
       final activeInChunkedErrorCooldown =
           activeIsChunkedRemotePreview &&
           activeErrorCooldownStartedAt != null &&
           DateTime.now().millisecondsSinceEpoch - activeErrorCooldownStartedAt < 4000;
-      final ftpCurrentReadyForReveal =
-          activeIsFtpPreview &&
-          isCurrent &&
-          (activeHoldLastFrame || ftpPreviewRevealTrigger || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
-      final sftpCurrentReadyForReveal =
-          activeIsSftpPreview &&
-          isCurrent &&
-          (activeHoldLastFrame || sftpPreviewRevealTrigger || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
-      final smbCurrentReadyForReveal =
-          activeIsSmbPreview &&
-          isCurrent &&
-          (activeHoldLastFrame || smbPreviewRevealTrigger || activeHasPreviewFrame || (_videoSurfaceVisible && activeInChunkedErrorCooldown));
+      final activeIsFtpPreview = activeRemoteProtocol == RemoteProtocol.ftp;
+      final activeIsSftpPreview = activeRemoteProtocol == RemoteProtocol.sftp;
+      final activeIsSmbPreview = activeRemoteProtocol == RemoteProtocol.smb;
       final currentReadyForReveal = isCurrent
-          ? (activeIsFtpPreview || activeIsSftpPreview || activeIsSmbPreview)
-                ? (ftpCurrentReadyForReveal || sftpCurrentReadyForReveal || smbCurrentReadyForReveal)
-                : isActiveRemoteManagedEntry
-                    ? (activeHoldLastFrame || activeHasRenderableFrame)
-                    : (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame)
+          ? activeIsFtpPreview
+                ? (activeHoldLastFrame || activeController.firstFrameRenderedNotifier.value)
+                : activeIsSftpPreview
+                    ? (activeHoldLastFrame || activeHasDecodedFrame || activeHasFirstFrameRendered || _hasPlaybackProgress || activeController.currentPosition > 0)
+                    : activeIsSmbPreview
+                        ? (activeHoldLastFrame || activeHasDecodedFrame || activeHasFirstFrameRendered || _hasPlaybackProgress || activeController.currentPosition > 0)
+                        : activeIsChunkedRemotePreview
+                            ? (activeHoldLastFrame || activeController.isPlaying || (activeInChunkedErrorCooldown && _playRequestedForCurrentFocus))
+                            : isActiveRemoteManagedEntry
+                                ? (activeHoldLastFrame || activeHasRenderableFrame)
+                                : (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame)
           : false;
       final shouldReveal =
           (_viewerEntryNotifier?.value == null) &&
           ((currentReadyForReveal) ||
               (!isCurrent &&
                   isActiveRemotePreviewCandidate &&
+                  !activeIsChunkedRemotePreview &&
                   activeHoldLastFrame &&
-                  (activeIsChunkedRemotePreview ? activeHasPreviewFrame : activeHasRenderableFrame)));
-      if (!shouldReveal || _videoSurfaceVisible) return;
-      setState(() => _videoSurfaceVisible = true);
+                  activeHasRenderableFrame));
+      if (!shouldReveal || _videoSurfaceVisible) {
+        _logSurfaceDecision(
+          event: !shouldReveal ? 'reveal_timer_completed_without_reveal' : 'reveal_timer_completed_but_already_visible',
+          controller: activeController,
+          remoteProtocol: activeRemoteProtocol,
+          hasDecodedFrame: activeHasDecodedFrame,
+          hasFirstFrameRendered: activeHasFirstFrameRendered,
+          hasRenderableFrame: activeHasRenderableFrame,
+          holdLastFrame: activeHoldLastFrame,
+          inChunkedErrorCooldown: activeInChunkedErrorCooldown,
+          currentReadyForReveal: currentReadyForReveal,
+          canReveal: shouldReveal,
+        );
+        return;
+      }
+      _logSurfaceDecision(
+        event: 'reveal_surface',
+        controller: activeController,
+        remoteProtocol: activeRemoteProtocol,
+        hasDecodedFrame: activeHasDecodedFrame,
+        hasFirstFrameRendered: activeHasFirstFrameRendered,
+        hasRenderableFrame: activeHasRenderableFrame,
+        holdLastFrame: activeHoldLastFrame,
+        inChunkedErrorCooldown: activeInChunkedErrorCooldown,
+        currentReadyForReveal: currentReadyForReveal,
+        canReveal: shouldReveal,
+      );
+      final shouldDelayFtpPreviewVisual = activeRemoteProtocol == RemoteProtocol.ftp;
+      _ftpPreviewSettleTimer?.cancel();
+      setState(() {
+        _videoSurfaceVisible = true;
+        _ftpPreviewVisualSettled = !shouldDelayFtpPreviewVisual;
+      });
+      if (shouldDelayFtpPreviewVisual) {
+        _ftpPreviewSettleTimer = Timer(const Duration(milliseconds: 220), () {
+          if (!mounted || !_videoSurfaceVisible) return;
+          setState(() => _ftpPreviewVisualSettled = true);
+        });
+      }
     });
   }
 
@@ -441,9 +632,23 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final isViewerActive = _viewerEntryNotifier?.value != null;
       final conductor = context.read<VideoConductor>();
       final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+      _logControllerLifecycle(
+        event: 'focus_evaluation',
+        controller: _controller,
+        extra: {
+          'token': token,
+          'isViewerActive': isViewerActive,
+          'remoteProtocol': remoteProtocol?.name,
+        },
+      );
       if (!isViewerActive && !isCurrent && remoteProtocol != null) {
         final preheatedController = conductor.getController(entry);
         if (preheatedController != null) {
+          _logControllerLifecycle(
+            event: 'attach_preheated_controller_for_non_current_tile',
+            controller: preheatedController,
+            previousController: _controller,
+          );
           _setController(preheatedController);
           if (mounted) {
             setState(() {});
@@ -481,9 +686,12 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
               data: {'uri': entry.uri},
             ),
           );
+          _logControllerLifecycle(
+            event: 'paused_controller_because_focus_moved_away',
+            controller: _controller,
+          );
         }
         _playRequestedForCurrentFocus = false;
-        _chunkedCurrentFocusPlaybackStarted = false;
         return;
       }
 
@@ -499,83 +707,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _lastAutoPlayAnyAttemptMillis = nowMillis;
       _lastAutoPlayUri = entry.uri;
       _lastAutoPlayAttemptMillis = nowMillis;
-      final isFtpPreview = remoteProtocol == RemoteProtocol.ftp;
-      final isSftpPreview = remoteProtocol == RemoteProtocol.sftp;
-      final isSmbPreview = remoteProtocol == RemoteProtocol.smb;
-      final isChunkedRemotePreview = isFtpPreview || isSftpPreview || isSmbPreview;
-      if (isFtpPreview && _chunkedCurrentFocusPlaybackStarted) {
-        unawaited(
-          remoteMediaLogService.log(
-            'autoplay',
-            'skipped ftp preview autoplay because current focus session already started',
-            data: {
-              'uri': entry.uri,
-              'protocol': remoteProtocol?.name,
-            },
-          ),
-        );
-        return;
-      }
-      if (isSftpPreview && _chunkedCurrentFocusPlaybackStarted) {
-        unawaited(
-          remoteMediaLogService.log(
-            'autoplay',
-            'skipped sftp preview autoplay because current focus session already started',
-            data: {
-              'uri': entry.uri,
-              'protocol': remoteProtocol?.name,
-            },
-          ),
-        );
-        return;
-      }
-      if (isSmbPreview && _chunkedCurrentFocusPlaybackStarted) {
-        unawaited(
-          remoteMediaLogService.log(
-            'autoplay',
-            'skipped smb preview autoplay because current focus session already started',
-            data: {
-              'uri': entry.uri,
-              'protocol': remoteProtocol?.name,
-            },
-          ),
-        );
-        return;
-      }
+      final isChunkedRemotePreview = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
       final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
-      if (isFtpPreview && errorCooldownStartedAt != null && nowMillis - errorCooldownStartedAt < 4000) {
+      if (isChunkedRemotePreview && errorCooldownStartedAt != null && nowMillis - errorCooldownStartedAt < 4000) {
         unawaited(
           remoteMediaLogService.log(
             'autoplay',
-            'skipped ftp preview replay during error cooldown',
-            data: {
-              'uri': entry.uri,
-              'protocol': remoteProtocol?.name,
-              'cooldownRemainingMillis': 4000 - (nowMillis - errorCooldownStartedAt),
-            },
-          ),
-        );
-        return;
-      }
-      if (isSftpPreview && errorCooldownStartedAt != null && nowMillis - errorCooldownStartedAt < 4000) {
-        unawaited(
-          remoteMediaLogService.log(
-            'autoplay',
-            'skipped sftp preview replay during error cooldown',
-            data: {
-              'uri': entry.uri,
-              'protocol': remoteProtocol?.name,
-              'cooldownRemainingMillis': 4000 - (nowMillis - errorCooldownStartedAt),
-            },
-          ),
-        );
-        return;
-      }
-      if (isSmbPreview && errorCooldownStartedAt != null && nowMillis - errorCooldownStartedAt < 4000) {
-        unawaited(
-          remoteMediaLogService.log(
-            'autoplay',
-            'skipped smb preview replay during error cooldown',
+            'skipped chunked remote preview replay during error cooldown',
             data: {
               'uri': entry.uri,
               'protocol': remoteProtocol?.name,
@@ -628,23 +766,25 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         return;
       }
       if (!mounted || token != _playToken || !isCurrent) return;
-      _controller = controller;
+      _logControllerLifecycle(
+        event: 'controller_ready_for_current_focus',
+        controller: controller,
+        previousController: _controller,
+      );
       _setController(controller);
       if (controller.isPlaying) {
+        _logControllerLifecycle(
+          event: 'controller_already_playing_when_attached',
+          controller: controller,
+        );
         return;
       }
       final nowAfterControllerReady = DateTime.now().millisecondsSinceEpoch;
-      if ((isFtpPreview || isSftpPreview || isSmbPreview) &&
-          errorCooldownStartedAt != null &&
-          nowAfterControllerReady - errorCooldownStartedAt < 4000) {
+      if (isChunkedRemotePreview && errorCooldownStartedAt != null && nowAfterControllerReady - errorCooldownStartedAt < 4000) {
         unawaited(
           remoteMediaLogService.log(
             'autoplay',
-            isFtpPreview
-                ? 'skipped ftp preview replay during error cooldown'
-                : isSftpPreview
-                    ? 'skipped sftp preview replay during error cooldown'
-                    : 'skipped smb preview replay during error cooldown',
+            'skipped chunked remote preview replay during error cooldown',
             data: {
               'uri': entry.uri,
               'protocol': remoteProtocol?.name,
@@ -748,39 +888,26 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         }
         unawaited(remoteMediaService.warmupVideoCacheForEntry(entry, trigger: 'grid_preview'));
       }
-      if (isFtpPreview || isSftpPreview || isSmbPreview) {
-        await controller.mute(_shouldMute(settings));
-        await controller.play();
-        _playRequestedForCurrentFocus = true;
-        _chunkedCurrentFocusPlaybackStarted = true;
-        unawaited(
-          remoteMediaLogService.log(
-            'autoplay',
-            'grid preview playback requested',
-            data: {
-              'uri': entry.uri,
-              'isRemoteCached': entry.isRemoteCachedMedia,
-              'muted': controller.isMuted,
-              'protocol': remoteProtocol?.name,
-            },
-          ),
-        );
-      } else {
-        await controller.mute(_shouldMute(settings));
-        await controller.play();
-        _playRequestedForCurrentFocus = true;
-        unawaited(
-          remoteMediaLogService.log(
-            'autoplay',
-            'grid preview playback requested',
-            data: {
-              'uri': entry.uri,
-              'isRemoteCached': entry.isRemoteCachedMedia,
-              'muted': controller.isMuted,
-            },
-          ),
-        );
-      }
+      // SMB preview is more stable when we keep a single controller/source path.
+      // We avoid automatic stream->cache promotion and controller recreation in grid preview.
+      await controller.mute(_shouldMute(settings));
+      await controller.play();
+      _playRequestedForCurrentFocus = true;
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'grid preview playback requested',
+          data: {
+            'uri': entry.uri,
+            'isRemoteCached': entry.isRemoteCachedMedia,
+            'muted': controller.isMuted,
+          },
+        ),
+      );
+      _logControllerLifecycle(
+        event: 'play_requested',
+        controller: controller,
+      );
 
       await Future.delayed(const Duration(milliseconds: 350));
       if (!isStreamingEntry) {
@@ -794,11 +921,8 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         await controller.play();
       } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error) {
         final failedUri = entry.uri;
+        _playRequestedForCurrentFocus = false;
         _lastAutoPlayErrorAtMillisByUri[failedUri] = DateTime.now().millisecondsSinceEpoch;
-        if (!(isFtpPreview || isSftpPreview || isSmbPreview)) {
-          _playRequestedForCurrentFocus = false;
-          _chunkedCurrentFocusPlaybackStarted = false;
-        }
         unawaited(
           remoteMediaLogService.log(
             'autoplay',
@@ -806,7 +930,14 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             data: {'uri': failedUri, 'protocol': remoteProtocol?.name},
           ),
         );
-        if (isFtpPreview || isSftpPreview || isSmbPreview) {
+        _logControllerLifecycle(
+          event: 'chunked_preview_failed_and_entered_cooldown',
+          controller: controller,
+          extra: {
+            'failedUri': failedUri,
+          },
+        );
+        if (isChunkedRemotePreview) {
           return;
         }
       }
@@ -831,56 +962,87 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             final hasPreviewFrame = hasDecodedFrame || hasFirstFrameRendered;
             final hasRenderableFrame = hasDecodedFrame || hasFirstFrameRendered || _hasPlaybackProgress || controller.currentPosition > 0;
             final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
-            final isWebdavPreview = remoteProtocol == RemoteProtocol.webdav;
             final isFtpPreview = remoteProtocol == RemoteProtocol.ftp;
             final isSftpPreview = remoteProtocol == RemoteProtocol.sftp;
             final isSmbPreview = remoteProtocol == RemoteProtocol.smb;
+            final isWebdavPreview = remoteProtocol == RemoteProtocol.webdav;
             final isChunkedRemotePreview = isFtpPreview || isSftpPreview || isSmbPreview;
+            final isViewerActive = _viewerEntryNotifier?.value != null;
             final isRemoteManagedEntry = remoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
+            final suppressNonCurrentChunkedPreviewSurface = isChunkedRemotePreview && !isCurrent;
             final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
             final inChunkedErrorCooldown =
                 isChunkedRemotePreview &&
                 errorCooldownStartedAt != null &&
                 DateTime.now().millisecondsSinceEpoch - errorCooldownStartedAt < 4000;
+            final keepPreviewFrameVisibleOnChunkedError =
+                isCurrent &&
+                isChunkedRemotePreview &&
+                controller.status == VideoStatus.error &&
+                (isFtpPreview ? hasFirstFrameRendered : hasPreviewFrame);
+            final holdLastFrame = (keepLastFrameVisible && hasRenderableFrame) || keepPreviewFrameVisibleOnChunkedError;
             final ftpForceVisible =
-                !isCurrent && isFtpPreview && keepLastFrameVisible && hasPreviewFrame;
-            final sftpForceVisible =
-                !isCurrent && isSftpPreview && keepLastFrameVisible && hasPreviewFrame;
-            final smbForceVisible =
-                !isCurrent && isSmbPreview && keepLastFrameVisible && hasPreviewFrame;
-            final ftpCurrentShow = isCurrent && isFtpPreview && (_videoSurfaceVisible || keepLastFrameVisible || (_videoSurfaceVisible && inChunkedErrorCooldown));
-            final sftpCurrentShow =
-                isCurrent && isSftpPreview && (_videoSurfaceVisible || keepLastFrameVisible || (_videoSurfaceVisible && inChunkedErrorCooldown));
-            final smbCurrentShow =
-                isCurrent && isSmbPreview && (_videoSurfaceVisible || keepLastFrameVisible || (_videoSurfaceVisible && inChunkedErrorCooldown));
-            final ftpCurrentForceVisible =
-                isCurrent && isFtpPreview && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
-            final sftpCurrentForceVisible =
-                isCurrent && isSftpPreview && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
-            final smbCurrentForceVisible =
-                isCurrent && isSmbPreview && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
+                isCurrent &&
+                _playRequestedForCurrentFocus &&
+                hasFirstFrameRendered;
+            final sftpForceVisible = isCurrent && _playRequestedForCurrentFocus && hasPreviewFrame;
+            final smbForceVisible = isCurrent && _playRequestedForCurrentFocus && hasPreviewFrame;
             final webdavForceVisible =
-                isCurrent && isWebdavPreview && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
-            final show = _videoSurfaceVisible ||
-                ((isFtpPreview)
-                    ? (ftpCurrentShow || ftpForceVisible || ftpCurrentForceVisible)
-                    : (isSftpPreview)
-                        ? (sftpCurrentShow || sftpForceVisible || sftpCurrentForceVisible)
-                        : (isSmbPreview)
-                            ? (smbCurrentShow || smbForceVisible || smbCurrentForceVisible)
-                            : isWebdavPreview
-                                ? (keepLastFrameVisible ||
-                                    hasDecodedFrame ||
-                                    (isCurrent && controller.status != VideoStatus.error && (controller.isPlaying || controller.isReady || _playRequestedForCurrentFocus)))
-                                : (isRemoteManagedEntry ? (keepLastFrameVisible && hasRenderableFrame) : (keepLastFrameVisible || hasDecodedFrame))) ||
-                webdavForceVisible ||
-                (!isCurrent &&
-                    isRemoteManagedEntry &&
-                    (isChunkedRemotePreview
-                        ? (keepLastFrameVisible && hasPreviewFrame)
+                isCurrent && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
+            final remoteForceVisible = isFtpPreview
+                ? ftpForceVisible
+                : isSftpPreview
+                    ? sftpForceVisible
+                    : isSmbPreview
+                        ? smbForceVisible
                         : isWebdavPreview
-                            ? (keepLastFrameVisible || hasPreviewFrame)
-                            : (keepLastFrameVisible && hasRenderableFrame)));
+                            ? webdavForceVisible
+                            : false;
+            final currentProtocolShow = isFtpPreview
+                ? holdLastFrame
+                : isSftpPreview
+                    ? holdLastFrame
+                    : isSmbPreview
+                        ? holdLastFrame
+                        : isWebdavPreview
+                            ? (keepLastFrameVisible || hasDecodedFrame || (isCurrent && controller.status != VideoStatus.error && (controller.isPlaying || controller.isReady || _playRequestedForCurrentFocus)))
+                            : isRemoteManagedEntry
+                                ? (keepLastFrameVisible && hasRenderableFrame)
+                                : (keepLastFrameVisible || hasDecodedFrame);
+            final nonCurrentRemoteShow = !isCurrent &&
+                    isRemoteManagedEntry
+                ? (isFtpPreview
+                    ? false
+                    : isSftpPreview
+                        ? false
+                        : isSmbPreview
+                            ? false
+                            : isWebdavPreview
+                                ? (keepLastFrameVisible || hasPreviewFrame)
+                                : (keepLastFrameVisible && hasRenderableFrame))
+                : false;
+            final hideFtpPreviewWhileViewerActive = isViewerActive && isFtpPreview;
+            final hideSftpPreviewWhileViewerActive = isViewerActive && isSftpPreview;
+            final hideSmbPreviewWhileViewerActive = isViewerActive && isSmbPreview;
+            final hideChunkedPreviewWhileViewerActive =
+                hideFtpPreviewWhileViewerActive || hideSftpPreviewWhileViewerActive || hideSmbPreviewWhileViewerActive;
+            final baseShow = _videoSurfaceVisible || currentProtocolShow || remoteForceVisible || nonCurrentRemoteShow;
+            final show = suppressNonCurrentChunkedPreviewSurface || hideChunkedPreviewWhileViewerActive ? false : baseShow;
+            final ftpPreviewOpacityDuration =
+                isFtpPreview ? Duration.zero : const Duration(milliseconds: 180);
+            _logTileSurfaceSnapshot(
+              controller: controller,
+              remoteProtocol: remoteProtocol,
+              show: show,
+              keepLastFrameVisible: keepLastFrameVisible,
+              hasDecodedFrame: hasDecodedFrame,
+              hasFirstFrameRendered: hasFirstFrameRendered,
+              hasPreviewFrame: hasPreviewFrame,
+              hasRenderableFrame: hasRenderableFrame,
+              inChunkedErrorCooldown: inChunkedErrorCooldown,
+              remoteForceVisible: remoteForceVisible,
+              suppressNonCurrentChunkedPreviewSurface: suppressNonCurrentChunkedPreviewSurface,
+            );
             final tileHeight = widget.tileExtent;
             final decodedSize = controller.decodedVideoSizeNotifier.value;
             final displaySize = decodedSize ?? entry.displaySize;
@@ -892,6 +1054,11 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                         MosaicSectionLayoutBuilder.maxThumbnailAspectRatio,
                       )
                 : tileHeight;
+            final ftpPreviewSurfaceReady = !isFtpPreview || _ftpPreviewVisualSettled;
+            final previewVideoOpacity = isFtpPreview
+                ? (_videoSurfaceVisible && _ftpPreviewVisualSettled ? 1.0 : 0.0)
+                : (show ? 1.0 : 0.0);
+            final ftpShouldMountPreviewView = !isFtpPreview || ftpPreviewSurfaceReady;
             return SizedBox(
               width: tileWidth,
               height: tileHeight,
@@ -900,20 +1067,22 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                 children: [
                   IgnorePointer(
                     child: AnimatedOpacity(
-                      opacity: show ? 1 : 0,
-                      duration: const Duration(milliseconds: 180),
+                      opacity: previewVideoOpacity,
+                      duration: ftpPreviewOpacityDuration,
                       curve: Curves.easeOut,
                       child: FittedBox(
                         fit: widget.isMosaic ? BoxFit.cover : BoxFit.contain,
                         clipBehavior: Clip.hardEdge,
-                        child: SizedBox(
-                          width: displaySize.width,
-                          height: displaySize.height,
-                          child: VideoView(
-                            entry: entry,
-                            controller: controller,
-                          ),
-                        ),
+                        child: ftpShouldMountPreviewView
+                            ? SizedBox(
+                                width: displaySize.width,
+                                height: displaySize.height,
+                                child: VideoView(
+                                  entry: entry,
+                                  controller: controller,
+                                ),
+                              )
+                            : const SizedBox.shrink(),
                       ),
                     ),
                   ),
@@ -924,7 +1093,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                       ignoring: !show,
                       child: AnimatedOpacity(
                         opacity: show ? 1 : 0,
-                        duration: const Duration(milliseconds: 180),
+                        duration: ftpPreviewOpacityDuration,
                         curve: Curves.easeOut,
                         child: Material(
                           color: Colors.black45,

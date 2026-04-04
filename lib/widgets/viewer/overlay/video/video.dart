@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:aves/model/entry/entry.dart';
+import 'package:aves/model/remote/remote_protocol.dart';
+import 'package:aves/services/common/services.dart';
 import 'package:aves/view/view.dart';
 import 'package:aves/widgets/common/identity/buttons/overlay_button.dart';
 import 'package:aves/widgets/viewer/overlay/bottom.dart';
@@ -45,8 +47,25 @@ class _VideoControlOverlayState extends State<VideoControlOverlay> with SingleTi
       builder: (context, snapshot) {
         // do not use stream snapshot because it is obsolete when switching between videos
         final status = controller?.status ?? VideoStatus.idle;
+        final remoteProtocol = controller != null ? remoteMediaService.getRemoteProtocolForEntry(entry) : null;
+        final isFtpDetail = remoteProtocol == RemoteProtocol.ftp;
+        final isSftpDetail = remoteProtocol == RemoteProtocol.sftp;
+        final isSmbDetail = remoteProtocol == RemoteProtocol.smb;
+        final hasDecodedFrame = controller != null
+            ? (() {
+                final decoded = controller!.decodedVideoSizeNotifier.value;
+                return decoded != null && decoded.width > 1 && decoded.height > 1;
+              })()
+            : false;
+        final hasFirstFrameRendered = controller?.firstFrameRenderedNotifier.value ?? false;
+        final hasPlaybackProgress = (controller?.currentPosition ?? 0) > 0;
+        final keepFtpControlsDespiteError = isFtpDetail && (hasDecodedFrame || hasFirstFrameRendered || hasPlaybackProgress);
+        final keepSftpControlsDespiteError = isSftpDetail && (hasDecodedFrame || hasFirstFrameRendered || hasPlaybackProgress);
+        final keepSmbControlsDespiteError = isSmbDetail && (hasDecodedFrame || hasFirstFrameRendered || hasPlaybackProgress);
+        final keepChunkedDetailControlsDespiteError =
+            keepFtpControlsDespiteError || keepSftpControlsDespiteError || keepSmbControlsDespiteError;
 
-        if (status == VideoStatus.error) {
+        if (status == VideoStatus.error && !keepChunkedDetailControlsDespiteError) {
           const action = EntryAction.openVideoPlayer;
           return Align(
             alignment: Alignment.centerRight,

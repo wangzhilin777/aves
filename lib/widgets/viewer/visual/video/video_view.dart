@@ -27,7 +27,6 @@ class VideoView extends StatefulWidget {
 class _VideoViewState extends State<VideoView> {
   static const _remoteInitialErrorGrace = Duration(milliseconds: 1400);
   static const _chunkedRemoteProgressRevealGrace = Duration(milliseconds: 180);
-  static const _chunkedRemoteFirstFrameRevealGrace = Duration(milliseconds: 120);
   AvesEntry get entry => widget.entry;
 
   AvesVideoController get controller => widget.controller;
@@ -36,15 +35,13 @@ class _VideoViewState extends State<VideoView> {
   DateTime? _chunkedProgressRevealDeadline;
   bool _hadPlaybackProgress = false;
   String? _lastLocalRenderDecision;
-  String? _lastChunkedRemoteRenderDecision;
-  DateTime? _chunkedFirstFrameRevealDeadline;
+  String? _lastRemoteRenderDecision;
 
   @override
   void initState() {
     super.initState();
     _initialErrorGraceDeadline = DateTime.now().add(_remoteInitialErrorGrace);
     _chunkedProgressRevealDeadline = null;
-    _chunkedFirstFrameRevealDeadline = null;
     _hadPlaybackProgress = false;
     _registerWidget(widget);
   }
@@ -55,9 +52,7 @@ class _VideoViewState extends State<VideoView> {
     if (oldWidget.entry != widget.entry) {
       _initialErrorGraceDeadline = DateTime.now().add(_remoteInitialErrorGrace);
       _chunkedProgressRevealDeadline = null;
-      _chunkedFirstFrameRevealDeadline = null;
       _hadPlaybackProgress = false;
-      _lastChunkedRemoteRenderDecision = null;
     }
     _unregisterWidget(oldWidget);
     _registerWidget(widget);
@@ -77,28 +72,38 @@ class _VideoViewState extends State<VideoView> {
     widget.controller.playCompletedListenable.removeListener(_onPlayCompleted);
   }
 
-  void _logChunkedRemoteRenderDecision({
-    required RemoteProtocol? remoteProtocol,
-    required VideoStatus status,
+  void _logRenderDecision({
     required String decision,
+    required VideoStatus status,
     required int currentPosition,
+    required bool isRemoteManagedEntry,
+    required RemoteProtocol? remoteProtocol,
     required bool hasDecodedFrame,
     required bool hasFirstFrameRendered,
-    required bool withinChunkedFirstFrameRevealGrace,
+    required bool hasStableDetailFrame,
     required bool withinRemoteInitialErrorGrace,
+    required bool withinChunkedProgressRevealGrace,
+    required bool shouldKeepPlayerHiddenDuringChunkedInit,
   }) {
     if (!settings.remoteLogEnabled) return;
-    if (remoteProtocol != RemoteProtocol.ftp && remoteProtocol != RemoteProtocol.sftp && remoteProtocol != RemoteProtocol.smb) return;
-    if (_lastChunkedRemoteRenderDecision == decision) return;
-    _lastChunkedRemoteRenderDecision = decision;
+    final key =
+        '$decision|${status.name}|${controller.isPlaying}|${controller.isReady}|$hasDecodedFrame|$hasFirstFrameRendered|${currentPosition > 0}|$hasStableDetailFrame|$withinRemoteInitialErrorGrace|$withinChunkedProgressRevealGrace|$shouldKeepPlayerHiddenDuringChunkedInit';
+    if (isRemoteManagedEntry) {
+      if (_lastRemoteRenderDecision == key) return;
+      _lastRemoteRenderDecision = key;
+    } else {
+      if (_lastLocalRenderDecision == key) return;
+      _lastLocalRenderDecision = key;
+    }
     unawaited(
       remoteMediaLogService.log(
         'autoplay',
-        'chunked remote video view render decision',
+        'video view render decision',
         data: {
           'uri': entry.uri,
           'path': entry.path,
           'protocol': remoteProtocol?.name,
+          'preferStableRemoteInit': widget.preferStableRemoteInit,
           'decision': decision,
           'status': status.name,
           'isPlaying': controller.isPlaying,
@@ -106,9 +111,10 @@ class _VideoViewState extends State<VideoView> {
           'positionMillis': currentPosition,
           'hasDecodedFrame': hasDecodedFrame,
           'hasFirstFrameRendered': hasFirstFrameRendered,
-          'withinChunkedFirstFrameRevealGrace': withinChunkedFirstFrameRevealGrace,
+          'hasStableDetailFrame': hasStableDetailFrame,
           'withinRemoteInitialErrorGrace': withinRemoteInitialErrorGrace,
-          'preferStableRemoteInit': widget.preferStableRemoteInit,
+          'withinChunkedProgressRevealGrace': withinChunkedProgressRevealGrace,
+          'shouldKeepPlayerHiddenDuringChunkedInit': shouldKeepPlayerHiddenDuringChunkedInit,
         },
       ),
     );
@@ -141,109 +147,233 @@ class _VideoViewState extends State<VideoView> {
             if (gainedPlaybackProgress && widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol) {
               _chunkedProgressRevealDeadline = DateTime.now().add(_chunkedRemoteProgressRevealGrace);
             }
-            if (hasFirstFrameRendered && isChunkedRemotePreview && _chunkedFirstFrameRevealDeadline == null) {
-              _chunkedFirstFrameRevealDeadline = DateTime.now().add(_chunkedRemoteFirstFrameRevealGrace);
-            }
             _hadPlaybackProgress = currentPosition > 0;
             final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
             final hasLocalRecoverableFrame = !isRemoteManagedEntry && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
             final hasRemotePreviewFrame = hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0;
+            final hasFtpPreviewFrame = hasFirstFrameRendered || currentPosition > 0;
+            final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
+            final withinChunkedProgressRevealGrace = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressRevealDeadline != null && DateTime.now().isBefore(_chunkedProgressRevealDeadline!);
+            final allowFtpStableDetailRender =
+                widget.preferStableRemoteInit &&
+                isFtpProtocol &&
+                (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+            final allowSftpStableDetailRender =
+                widget.preferStableRemoteInit &&
+                isSftpProtocol &&
+                (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
+            final allowSmbStableDetailRender =
+                widget.preferStableRemoteInit &&
+                isSmbProtocol &&
+                (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
             final canRenderDespiteError = isRemoteManagedEntry
                 ? isChunkedRemoteProtocol
                     ? widget.preferStableRemoteInit
-                          ? hasStableDetailFrame
+                          ? allowFtpStableDetailRender || allowSftpStableDetailRender || allowSmbStableDetailRender || hasStableDetailFrame
                           : false
                     : widget.preferStableRemoteInit
                         ? hasStableDetailFrame
                         : controller.isPlaying || hasRemotePreviewFrame
                 : controller.isPlaying || controller.isReady || hasLocalRecoverableFrame || (hasDecodedFrame && allowDecodedFrameRenderOnError);
-            final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
-            final withinChunkedProgressRevealGrace = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressRevealDeadline != null && DateTime.now().isBefore(_chunkedProgressRevealDeadline!);
-            final withinChunkedFirstFrameRevealGrace =
-                isChunkedRemotePreview &&
-                _chunkedFirstFrameRevealDeadline != null &&
-                DateTime.now().isBefore(_chunkedFirstFrameRevealDeadline!);
-            final shouldKeepPlayerHiddenDuringChunkedInit = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && (!hasStableDetailFrame || withinChunkedProgressRevealGrace);
+            final shouldKeepPlayerHiddenDuringChunkedInit = widget.preferStableRemoteInit &&
+                isRemoteStream &&
+                isChunkedRemoteProtocol &&
+                ((isFtpProtocol && !allowFtpStableDetailRender) ||
+                    (isSftpProtocol && !allowSftpStableDetailRender) ||
+                    (isSmbProtocol && !allowSmbStableDetailRender));
             final shouldKeepLocalPlayerHiddenUntilFrame = !isRemoteManagedEntry && !hasLocalRecoverableFrame;
-            if (!isRemoteManagedEntry && settings.remoteLogEnabled) {
-              final decision = status == VideoStatus.error
-                  ? (canRenderDespiteError ? 'local_error_render_player' : 'local_error_hide_player')
-                  : status == VideoStatus.idle
-                      ? 'local_idle_hide_player'
-                      : 'local_render_player';
-              if (_lastLocalRenderDecision != decision) {
-                _lastLocalRenderDecision = decision;
-                unawaited(
-                  remoteMediaLogService.log(
-                    'autoplay',
-                    'local video view render decision',
-                    data: {
-                      'uri': entry.uri,
-                      'path': entry.path,
-                      'decision': decision,
-                      'status': status.name,
-                      'isPlaying': controller.isPlaying,
-                      'isReady': controller.isReady,
-                      'positionMillis': currentPosition,
-                      'hasDecodedFrame': hasDecodedFrame,
-                      'hasFirstFrameRendered': hasFirstFrameRendered,
-                    },
-                  ),
-                );
-              }
-            }
-            if (shouldKeepPlayerHiddenDuringChunkedInit) {
-              _logChunkedRemoteRenderDecision(
-                remoteProtocol: remoteProtocol,
+            if (allowFtpStableDetailRender) {
+              _logRenderDecision(
+                decision: 'ftp_detail_render_player_with_preview_frame',
                 status: status,
-                decision: 'stable_init_hide_player',
                 currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
                 hasDecodedFrame: hasDecodedFrame,
                 hasFirstFrameRendered: hasFirstFrameRendered,
-                withinChunkedFirstFrameRevealGrace: withinChunkedFirstFrameRevealGrace,
+                hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+              );
+              return controller.buildPlayerWidget(context);
+            }
+            if (allowSftpStableDetailRender) {
+              _logRenderDecision(
+                decision: 'sftp_detail_render_player_with_preview_frame',
+                status: status,
+                currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
+                hasDecodedFrame: hasDecodedFrame,
+                hasFirstFrameRendered: hasFirstFrameRendered,
+                hasStableDetailFrame: hasStableDetailFrame,
+                withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+              );
+              return controller.buildPlayerWidget(context);
+            }
+            if (allowSmbStableDetailRender) {
+              _logRenderDecision(
+                decision: 'smb_detail_render_player_with_preview_frame',
+                status: status,
+                currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
+                hasDecodedFrame: hasDecodedFrame,
+                hasFirstFrameRendered: hasFirstFrameRendered,
+                hasStableDetailFrame: hasStableDetailFrame,
+                withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+              );
+              return controller.buildPlayerWidget(context);
+            }
+            if (shouldKeepPlayerHiddenDuringChunkedInit) {
+              _logRenderDecision(
+                decision: 'chunked_hide_player_for_stable_init',
+                status: status,
+                currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
+                hasDecodedFrame: hasDecodedFrame,
+                hasFirstFrameRendered: hasFirstFrameRendered,
+                hasStableDetailFrame: hasStableDetailFrame,
+                withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
               );
               return const ColoredBox(color: Colors.transparent);
             }
             if (status == VideoStatus.error) {
-              if (isChunkedRemotePreview && isFtpProtocol) {
-                _logChunkedRemoteRenderDecision(
-                  remoteProtocol: remoteProtocol,
+              if (widget.preferStableRemoteInit && isFtpProtocol && hasFtpPreviewFrame) {
+                _logRenderDecision(
+                  decision: 'ftp_detail_render_player_with_preview_frame',
                   status: status,
-                  decision: 'ftp_error_render_player',
                   currentPosition: currentPosition,
+                  isRemoteManagedEntry: isRemoteManagedEntry,
+                  remoteProtocol: remoteProtocol,
                   hasDecodedFrame: hasDecodedFrame,
                   hasFirstFrameRendered: hasFirstFrameRendered,
-                  withinChunkedFirstFrameRevealGrace: withinChunkedFirstFrameRevealGrace,
+                  hasStableDetailFrame: hasStableDetailFrame,
                   withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                  withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
                 );
                 return controller.buildPlayerWidget(context);
               }
-              if (isChunkedRemotePreview && isSftpProtocol) {
-                _logChunkedRemoteRenderDecision(
-                  remoteProtocol: remoteProtocol,
+              if (widget.preferStableRemoteInit && isSftpProtocol && hasRemotePreviewFrame) {
+                _logRenderDecision(
+                  decision: 'sftp_detail_render_player_with_preview_frame',
                   status: status,
-                  decision: 'sftp_error_render_player',
                   currentPosition: currentPosition,
+                  isRemoteManagedEntry: isRemoteManagedEntry,
+                  remoteProtocol: remoteProtocol,
                   hasDecodedFrame: hasDecodedFrame,
                   hasFirstFrameRendered: hasFirstFrameRendered,
-                  withinChunkedFirstFrameRevealGrace: withinChunkedFirstFrameRevealGrace,
+                  hasStableDetailFrame: hasStableDetailFrame,
                   withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                  withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
                 );
                 return controller.buildPlayerWidget(context);
               }
-              if (isChunkedRemotePreview && isSmbProtocol) {
-                _logChunkedRemoteRenderDecision(
-                  remoteProtocol: remoteProtocol,
+              if (widget.preferStableRemoteInit && isSmbProtocol && hasRemotePreviewFrame) {
+                _logRenderDecision(
+                  decision: 'smb_detail_render_player_with_preview_frame',
                   status: status,
-                  decision: 'smb_error_render_player',
                   currentPosition: currentPosition,
+                  isRemoteManagedEntry: isRemoteManagedEntry,
+                  remoteProtocol: remoteProtocol,
                   hasDecodedFrame: hasDecodedFrame,
                   hasFirstFrameRendered: hasFirstFrameRendered,
-                  withinChunkedFirstFrameRevealGrace: withinChunkedFirstFrameRevealGrace,
+                  hasStableDetailFrame: hasStableDetailFrame,
                   withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                  withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
                 );
                 return controller.buildPlayerWidget(context);
+              }
+              if (isChunkedRemotePreview) {
+                if (hasRemotePreviewFrame) {
+                  _logRenderDecision(
+                    decision: 'chunked_error_render_player_with_preview_frame',
+                    status: status,
+                    currentPosition: currentPosition,
+                    isRemoteManagedEntry: isRemoteManagedEntry,
+                    remoteProtocol: remoteProtocol,
+                    hasDecodedFrame: hasDecodedFrame,
+                    hasFirstFrameRendered: hasFirstFrameRendered,
+                    hasStableDetailFrame: hasStableDetailFrame,
+                    withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                    withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                    shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                  );
+                  return controller.buildPlayerWidget(context);
+                }
+                if (isFtpProtocol) {
+                  _logRenderDecision(
+                    decision: 'ftp_error_hide_until_preview_frame',
+                    status: status,
+                    currentPosition: currentPosition,
+                    isRemoteManagedEntry: isRemoteManagedEntry,
+                    remoteProtocol: remoteProtocol,
+                    hasDecodedFrame: hasDecodedFrame,
+                    hasFirstFrameRendered: hasFirstFrameRendered,
+                    hasStableDetailFrame: hasStableDetailFrame,
+                    withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                    withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                    shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                  );
+                  return const ColoredBox(color: Colors.transparent);
+                }
+                if (isSftpProtocol) {
+                  _logRenderDecision(
+                    decision: 'sftp_error_hide_until_preview_frame',
+                    status: status,
+                    currentPosition: currentPosition,
+                    isRemoteManagedEntry: isRemoteManagedEntry,
+                    remoteProtocol: remoteProtocol,
+                    hasDecodedFrame: hasDecodedFrame,
+                    hasFirstFrameRendered: hasFirstFrameRendered,
+                    hasStableDetailFrame: hasStableDetailFrame,
+                    withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                    withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                    shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                  );
+                  return const ColoredBox(color: Colors.transparent);
+                }
+                if (isSmbProtocol) {
+                  _logRenderDecision(
+                    decision: 'smb_error_hide_until_preview_frame',
+                    status: status,
+                    currentPosition: currentPosition,
+                    isRemoteManagedEntry: isRemoteManagedEntry,
+                    remoteProtocol: remoteProtocol,
+                    hasDecodedFrame: hasDecodedFrame,
+                    hasFirstFrameRendered: hasFirstFrameRendered,
+                    hasStableDetailFrame: hasStableDetailFrame,
+                    withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                    withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                    shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                  );
+                  return const ColoredBox(color: Colors.transparent);
+                }
+                _logRenderDecision(
+                  decision: 'chunked_error_black_fallback',
+                  status: status,
+                  currentPosition: currentPosition,
+                  isRemoteManagedEntry: isRemoteManagedEntry,
+                  remoteProtocol: remoteProtocol,
+                  hasDecodedFrame: hasDecodedFrame,
+                  hasFirstFrameRendered: hasFirstFrameRendered,
+                  hasStableDetailFrame: hasStableDetailFrame,
+                  withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                  withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                );
+                return const ColoredBox(color: Colors.transparent);
               }
               if (canRenderDespiteError) {
                 if (!_loggedSoftErrorRender) {
@@ -262,137 +392,210 @@ class _VideoViewState extends State<VideoView> {
                     ),
                   );
                 }
+                _logRenderDecision(
+                  decision: 'error_render_player_despite_error',
+                  status: status,
+                  currentPosition: currentPosition,
+                  isRemoteManagedEntry: isRemoteManagedEntry,
+                  remoteProtocol: remoteProtocol,
+                  hasDecodedFrame: hasDecodedFrame,
+                  hasFirstFrameRendered: hasFirstFrameRendered,
+                  hasStableDetailFrame: hasStableDetailFrame,
+                  withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                  withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                );
                 return controller.buildPlayerWidget(context);
               }
               if (withinRemoteInitialErrorGrace || (isRemoteStream && isChunkedRemoteProtocol)) {
-                _logChunkedRemoteRenderDecision(
-                  remoteProtocol: remoteProtocol,
+                _logRenderDecision(
+                  decision: 'error_hide_player_during_grace',
                   status: status,
-                  decision: 'error_hide_player',
                   currentPosition: currentPosition,
+                  isRemoteManagedEntry: isRemoteManagedEntry,
+                  remoteProtocol: remoteProtocol,
                   hasDecodedFrame: hasDecodedFrame,
                   hasFirstFrameRendered: hasFirstFrameRendered,
-                  withinChunkedFirstFrameRevealGrace: withinChunkedFirstFrameRevealGrace,
+                  hasStableDetailFrame: hasStableDetailFrame,
                   withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                  withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
                 );
                 return const ColoredBox(color: Colors.transparent);
               }
-              _logChunkedRemoteRenderDecision(
-                remoteProtocol: remoteProtocol,
-                status: status,
+              _logRenderDecision(
                 decision: 'error_hide_player',
+                status: status,
                 currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
                 hasDecodedFrame: hasDecodedFrame,
                 hasFirstFrameRendered: hasFirstFrameRendered,
-                withinChunkedFirstFrameRevealGrace: withinChunkedFirstFrameRevealGrace,
+                hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
               );
               return const ColoredBox(color: Colors.transparent);
             }
             _loggedSoftErrorRender = false;
             if (status == VideoStatus.idle) {
-              _logChunkedRemoteRenderDecision(
-                remoteProtocol: remoteProtocol,
-                status: status,
+              _logRenderDecision(
                 decision: 'idle_hide_player',
+                status: status,
                 currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
                 hasDecodedFrame: hasDecodedFrame,
                 hasFirstFrameRendered: hasFirstFrameRendered,
-                withinChunkedFirstFrameRevealGrace: withinChunkedFirstFrameRevealGrace,
+                hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
               );
               return const SizedBox();
             }
-            if (isChunkedRemotePreview && isFtpProtocol) {
-              if (withinChunkedFirstFrameRevealGrace) {
-                _logChunkedRemoteRenderDecision(
-                  remoteProtocol: remoteProtocol,
-                  status: status,
-                  decision: 'ftp_first_frame_grace_hide_player',
-                  currentPosition: currentPosition,
-                  hasDecodedFrame: hasDecodedFrame,
-                  hasFirstFrameRendered: hasFirstFrameRendered,
-                  withinChunkedFirstFrameRevealGrace: withinChunkedFirstFrameRevealGrace,
-                  withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
-                );
-                return const ColoredBox(color: Colors.transparent);
-              }
-              _logChunkedRemoteRenderDecision(
-                remoteProtocol: remoteProtocol,
+            if (isFtpProtocol && !widget.preferStableRemoteInit && !hasFtpPreviewFrame) {
+              _logRenderDecision(
+                decision: 'ftp_hide_player_until_preview_frame',
                 status: status,
-                decision: 'ftp_render_player',
                 currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
                 hasDecodedFrame: hasDecodedFrame,
                 hasFirstFrameRendered: hasFirstFrameRendered,
-                withinChunkedFirstFrameRevealGrace: withinChunkedFirstFrameRevealGrace,
+                hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
               );
-              return controller.buildPlayerWidget(context);
+              return const ColoredBox(color: Colors.transparent);
             }
-            if (isChunkedRemotePreview && isSftpProtocol) {
-              if (withinChunkedFirstFrameRevealGrace) {
-                _logChunkedRemoteRenderDecision(
-                  remoteProtocol: remoteProtocol,
-                  status: status,
-                  decision: 'sftp_first_frame_grace_hide_player',
-                  currentPosition: currentPosition,
-                  hasDecodedFrame: hasDecodedFrame,
-                  hasFirstFrameRendered: hasFirstFrameRendered,
-                  withinChunkedFirstFrameRevealGrace: withinChunkedFirstFrameRevealGrace,
-                  withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
-                );
-                return const ColoredBox(color: Colors.transparent);
-              }
-              _logChunkedRemoteRenderDecision(
-                remoteProtocol: remoteProtocol,
+            if (isSftpProtocol && !hasRemotePreviewFrame) {
+              _logRenderDecision(
+                decision: 'sftp_hide_player_until_preview_frame',
                 status: status,
-                decision: 'sftp_render_player',
                 currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
                 hasDecodedFrame: hasDecodedFrame,
                 hasFirstFrameRendered: hasFirstFrameRendered,
-                withinChunkedFirstFrameRevealGrace: withinChunkedFirstFrameRevealGrace,
+                hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
               );
-              return controller.buildPlayerWidget(context);
+              return const ColoredBox(color: Colors.transparent);
             }
-            if (isChunkedRemotePreview && isSmbProtocol) {
-              if (withinChunkedFirstFrameRevealGrace) {
-                _logChunkedRemoteRenderDecision(
-                  remoteProtocol: remoteProtocol,
-                  status: status,
-                  decision: 'smb_first_frame_grace_hide_player',
-                  currentPosition: currentPosition,
-                  hasDecodedFrame: hasDecodedFrame,
-                  hasFirstFrameRendered: hasFirstFrameRendered,
-                  withinChunkedFirstFrameRevealGrace: withinChunkedFirstFrameRevealGrace,
-                  withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
-                );
-                return const ColoredBox(color: Colors.transparent);
-              }
-              _logChunkedRemoteRenderDecision(
-                remoteProtocol: remoteProtocol,
+            if (isSmbProtocol && !hasRemotePreviewFrame) {
+              _logRenderDecision(
+                decision: 'smb_hide_player_until_preview_frame',
                 status: status,
-                decision: 'smb_render_player',
                 currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
                 hasDecodedFrame: hasDecodedFrame,
                 hasFirstFrameRendered: hasFirstFrameRendered,
-                withinChunkedFirstFrameRevealGrace: withinChunkedFirstFrameRevealGrace,
+                hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+              );
+              return const ColoredBox(color: Colors.transparent);
+            }
+            if (isChunkedRemotePreview) {
+              _logRenderDecision(
+                decision: 'chunked_render_player',
+                status: status,
+                currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
+                hasDecodedFrame: hasDecodedFrame,
+                hasFirstFrameRendered: hasFirstFrameRendered,
+                hasStableDetailFrame: hasStableDetailFrame,
+                withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
               );
               return controller.buildPlayerWidget(context);
             }
             if (!widget.preferStableRemoteInit && isRemoteManagedEntry && !hasRemotePreviewFrame) {
+              _logRenderDecision(
+                decision: 'remote_hide_player_until_preview_frame',
+                status: status,
+                currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
+                hasDecodedFrame: hasDecodedFrame,
+                hasFirstFrameRendered: hasFirstFrameRendered,
+                hasStableDetailFrame: hasStableDetailFrame,
+                withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+              );
               return const ColoredBox(color: Colors.transparent);
             }
             if (!widget.preferStableRemoteInit && !isRemoteManagedEntry) {
+              _logRenderDecision(
+                decision: 'local_render_player',
+                status: status,
+                currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
+                hasDecodedFrame: hasDecodedFrame,
+                hasFirstFrameRendered: hasFirstFrameRendered,
+                hasStableDetailFrame: hasStableDetailFrame,
+                withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+              );
               return controller.buildPlayerWidget(context);
             }
             if (shouldKeepLocalPlayerHiddenUntilFrame) {
+              _logRenderDecision(
+                decision: 'local_hide_player_until_frame',
+                status: status,
+                currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
+                hasDecodedFrame: hasDecodedFrame,
+                hasFirstFrameRendered: hasFirstFrameRendered,
+                hasStableDetailFrame: hasStableDetailFrame,
+                withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+              );
               return const ColoredBox(color: Colors.transparent);
             }
             if (widget.preferStableRemoteInit && isChunkedRemoteProtocol && !hasStableDetailFrame) {
+              _logRenderDecision(
+                decision: 'chunked_hide_player_until_stable_detail_frame',
+                status: status,
+                currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
+                hasDecodedFrame: hasDecodedFrame,
+                hasFirstFrameRendered: hasFirstFrameRendered,
+                hasStableDetailFrame: hasStableDetailFrame,
+                withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+              );
               return const ColoredBox(color: Colors.transparent);
             }
+            _logRenderDecision(
+              decision: 'render_player',
+              status: status,
+              currentPosition: currentPosition,
+              isRemoteManagedEntry: isRemoteManagedEntry,
+              remoteProtocol: remoteProtocol,
+              hasDecodedFrame: hasDecodedFrame,
+              hasFirstFrameRendered: hasFirstFrameRendered,
+              hasStableDetailFrame: hasStableDetailFrame,
+              withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+              withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+              shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+            );
             return controller.buildPlayerWidget(context);
           },
         );

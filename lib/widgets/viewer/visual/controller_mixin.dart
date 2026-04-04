@@ -29,6 +29,8 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   final Map<AvesEntry, String> _lastBoundEntryUri = {};
   final Map<MultiPageController, Future<void> Function()> _multiPageControllerPageListeners = {};
   final Set<String> _sampledRemoteErrorProbeUris = {};
+  final Set<String> _ftpAudioOnlyFallbackTriedUris = {};
+  final Set<String> _sftpAudioOnlyFallbackTriedUris = {};
   final Set<String> _smbAudioOnlyFallbackTriedUris = {};
   final Map<String, int> _localErrorRecoveryAttempts = {};
   String? _lastAutoPlayUri;
@@ -68,6 +70,8 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     if (entry.isMultiPage) {
       _cleanMultiPageController(entry);
     }
+    _ftpAudioOnlyFallbackTriedUris.remove(entry.uri);
+    _sftpAudioOnlyFallbackTriedUris.remove(entry.uri);
     _smbAudioOnlyFallbackTriedUris.remove(entry.uri);
     _localErrorRecoveryAttempts.remove(entry.uri);
     _lastBoundEntryUri.remove(entry);
@@ -718,6 +722,96 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(controllerEntry);
       final decoded = videoController.decodedVideoSizeNotifier.value;
       final hasVideoFrame = decoded != null && decoded.width > 1 && decoded.height > 1;
+      if (remoteProtocol == RemoteProtocol.ftp && videoController.isPlaying && !hasVideoFrame) {
+        if (_ftpAudioOnlyFallbackTriedUris.contains(uri)) {
+          return;
+        }
+        await Future.delayed(const Duration(milliseconds: 450) * timeDilation);
+        if (token != _autoPlayRequestToken || !isCurrent()) {
+          return;
+        }
+        final decodedAfterDelay = videoController.decodedVideoSizeNotifier.value;
+        final stillNoFrame = decodedAfterDelay == null || decodedAfterDelay.width <= 1 || decodedAfterDelay.height <= 1;
+        if (!stillNoFrame || !videoController.isPlaying) {
+          return;
+        }
+        _ftpAudioOnlyFallbackTriedUris.add(uri);
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'viewer detected ftp audio-only playback, trigger fallback download',
+            data: {
+              'uri': uri,
+            },
+          ),
+        );
+        final fallbackFile = await remoteMediaService.ensureDownloadedForEntry(controllerEntry, trigger: 'viewer_audio_only_fallback');
+        if (fallbackFile != null && token == _autoPlayRequestToken && isCurrent()) {
+          final fallbackController = await context.read<VideoConductor>().getOrCreateController(controllerEntry);
+          await context.read<VideoConductor>().pauseOthers(fallbackController);
+          await fallbackController.mute(shouldAutoPlayVideoMuted);
+          try {
+            await fallbackController.untilReady.timeout(const Duration(milliseconds: 1200));
+          } catch (_) {}
+          await fallbackController.play();
+          unawaited(
+            remoteMediaLogService.log(
+              'autoplay',
+              'viewer switched to downloaded fallback after ftp audio-only detection',
+              data: {
+                'uri': controllerEntry.uri,
+                'file': fallbackFile.path,
+              },
+            ),
+          );
+          return;
+        }
+      }
+      if (remoteProtocol == RemoteProtocol.sftp && videoController.isPlaying && !hasVideoFrame) {
+        if (_sftpAudioOnlyFallbackTriedUris.contains(uri)) {
+          return;
+        }
+        await Future.delayed(const Duration(milliseconds: 450) * timeDilation);
+        if (token != _autoPlayRequestToken || !isCurrent()) {
+          return;
+        }
+        final decodedAfterDelay = videoController.decodedVideoSizeNotifier.value;
+        final stillNoFrame = decodedAfterDelay == null || decodedAfterDelay.width <= 1 || decodedAfterDelay.height <= 1;
+        if (!stillNoFrame || !videoController.isPlaying) {
+          return;
+        }
+        _sftpAudioOnlyFallbackTriedUris.add(uri);
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'viewer detected sftp audio-only playback, trigger fallback download',
+            data: {
+              'uri': uri,
+            },
+          ),
+        );
+        final fallbackFile = await remoteMediaService.ensureDownloadedForEntry(controllerEntry, trigger: 'viewer_audio_only_fallback');
+        if (fallbackFile != null && token == _autoPlayRequestToken && isCurrent()) {
+          final fallbackController = await context.read<VideoConductor>().getOrCreateController(controllerEntry);
+          await context.read<VideoConductor>().pauseOthers(fallbackController);
+          await fallbackController.mute(shouldAutoPlayVideoMuted);
+          try {
+            await fallbackController.untilReady.timeout(const Duration(milliseconds: 1200));
+          } catch (_) {}
+          await fallbackController.play();
+          unawaited(
+            remoteMediaLogService.log(
+              'autoplay',
+              'viewer switched to downloaded fallback after sftp audio-only detection',
+              data: {
+                'uri': controllerEntry.uri,
+                'file': fallbackFile.path,
+              },
+            ),
+          );
+          return;
+        }
+      }
       if (remoteProtocol == RemoteProtocol.smb && videoController.isPlaying && !hasVideoFrame) {
         if (_smbAudioOnlyFallbackTriedUris.contains(uri)) {
           return;

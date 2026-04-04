@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/images.dart';
 import 'package:aves/model/entry/extensions/multipage.dart';
 import 'package:aves/model/remote/remote_protocol.dart';
+import 'package:aves/model/settings/settings.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/theme/durations.dart';
 import 'package:aves/widgets/common/thumbnail/image.dart';
@@ -53,6 +56,7 @@ class _VideoCoverState extends State<VideoCover> {
   DateTime? _chunkedProgressCoverDeadline;
   bool _wasPlaying = false;
   bool _hadPlaybackProgress = false;
+  String? _lastCoverDecisionKey;
 
   AvesMagnifierController get dismissedCoverMagnifierController {
     _dismissedCoverMagnifierController ??= AvesMagnifierController();
@@ -113,6 +117,56 @@ class _VideoCoverState extends State<VideoCover> {
     _videoCoverInfoNotifier.value = null;
   }
 
+  void _logCoverDecision({
+    required VideoStatus status,
+    required int currentPosition,
+    required RemoteProtocol? remoteProtocol,
+    required bool hasDecodedFrame,
+    required bool hasFirstFrameRendered,
+    required bool hasStableDetailFrame,
+    required bool withinRemoteCoverGrace,
+    required bool withinChunkedPlaybackCoverGrace,
+    required bool withinChunkedProgressCoverGrace,
+    required bool keepRemoteCoverUntilPlaying,
+    required bool keepRemoteCoverUntilProgressSettles,
+    required bool showCover,
+    required bool effectiveShowCover,
+    required bool hasCoverVisual,
+    required bool shouldDisplayCoverVisual,
+  }) {
+    final key =
+        '${status.name}|${videoController.isPlaying}|${videoController.isReady}|${currentPosition > 0}|$hasDecodedFrame|$hasFirstFrameRendered|$hasStableDetailFrame|$withinRemoteCoverGrace|$withinChunkedPlaybackCoverGrace|$withinChunkedProgressCoverGrace|$keepRemoteCoverUntilPlaying|$keepRemoteCoverUntilProgressSettles|$showCover|$effectiveShowCover|$hasCoverVisual|$shouldDisplayCoverVisual';
+    if (_lastCoverDecisionKey == key || !settings.remoteLogEnabled) return;
+    _lastCoverDecisionKey = key;
+    unawaited(
+      remoteMediaLogService.log(
+        'autoplay',
+        'video cover decision',
+        data: {
+          'uri': entry.uri,
+          'path': entry.path,
+          'protocol': remoteProtocol?.name,
+          'status': status.name,
+          'isPlaying': videoController.isPlaying,
+          'isReady': videoController.isReady,
+          'positionMillis': currentPosition,
+          'hasDecodedFrame': hasDecodedFrame,
+          'hasFirstFrameRendered': hasFirstFrameRendered,
+          'hasStableDetailFrame': hasStableDetailFrame,
+          'withinRemoteCoverGrace': withinRemoteCoverGrace,
+          'withinChunkedPlaybackCoverGrace': withinChunkedPlaybackCoverGrace,
+          'withinChunkedProgressCoverGrace': withinChunkedProgressCoverGrace,
+          'keepRemoteCoverUntilPlaying': keepRemoteCoverUntilPlaying,
+          'keepRemoteCoverUntilProgressSettles': keepRemoteCoverUntilProgressSettles,
+          'showCover': showCover,
+          'effectiveShowCover': effectiveShowCover,
+          'hasCoverVisual': hasCoverVisual,
+          'shouldDisplayCoverVisual': shouldDisplayCoverVisual,
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // fade out image to ease transition with the player
@@ -148,9 +202,58 @@ class _VideoCoverState extends State<VideoCover> {
                 _hadPlaybackProgress = currentPosition > 0;
                 final withinChunkedPlaybackCoverGrace = isRemoteStream && isChunkedRemoteProtocol && _chunkedPlaybackCoverDeadline != null && DateTime.now().isBefore(_chunkedPlaybackCoverDeadline!);
                 final withinChunkedProgressCoverGrace = isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressCoverDeadline != null && DateTime.now().isBefore(_chunkedProgressCoverDeadline!);
-                final keepRemoteCoverUntilPlaying = isRemoteStream && (isChunkedRemoteProtocol ? (!hasStableDetailFrame || withinChunkedPlaybackCoverGrace) : !videoController.isPlaying);
-                final keepRemoteCoverUntilProgressSettles = isRemoteStream && isChunkedRemoteProtocol && withinChunkedProgressCoverGrace;
-                final showCover = !videoController.isReady || !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) || keepRemoteCoverUntilPlaying || status == VideoStatus.error && isRemoteStream || withinRemoteCoverGrace;
+                final hasFtpRenderableVisual =
+                    remoteProtocol == RemoteProtocol.ftp && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final allowFtpDetailCoverDismiss = hasFtpRenderableVisual;
+                final allowSftpDetailCoverDismiss =
+                    remoteProtocol == RemoteProtocol.sftp && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final allowSmbDetailCoverDismiss =
+                    remoteProtocol == RemoteProtocol.smb && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final keepRemoteCoverUntilPlaying = isRemoteStream &&
+                    (isChunkedRemoteProtocol
+                        ? (remoteProtocol == RemoteProtocol.ftp
+                            ? (!allowFtpDetailCoverDismiss && withinChunkedPlaybackCoverGrace)
+                            : remoteProtocol == RemoteProtocol.sftp
+                                ? (!allowSftpDetailCoverDismiss && withinChunkedPlaybackCoverGrace)
+                                : remoteProtocol == RemoteProtocol.smb
+                                    ? (!allowSmbDetailCoverDismiss && withinChunkedPlaybackCoverGrace)
+                                    : (!hasStableDetailFrame || withinChunkedPlaybackCoverGrace))
+                        : !videoController.isPlaying);
+                final keepRemoteCoverUntilProgressSettles = isRemoteStream &&
+                    isChunkedRemoteProtocol &&
+                    (remoteProtocol == RemoteProtocol.ftp
+                        ? (withinChunkedProgressCoverGrace && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0))
+                        : remoteProtocol == RemoteProtocol.sftp
+                            ? (withinChunkedProgressCoverGrace && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0))
+                            : remoteProtocol == RemoteProtocol.smb
+                                ? (withinChunkedProgressCoverGrace && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0))
+                                : withinChunkedProgressCoverGrace);
+                final shouldShowFtpErrorCover =
+                    remoteProtocol == RemoteProtocol.ftp && status == VideoStatus.error && isRemoteStream && !hasFtpRenderableVisual;
+                final shouldShowSftpErrorCover =
+                    remoteProtocol == RemoteProtocol.sftp && status == VideoStatus.error && isRemoteStream && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final shouldShowSmbErrorCover =
+                    remoteProtocol == RemoteProtocol.smb && status == VideoStatus.error && isRemoteStream && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final shouldShowGenericRemoteErrorCover = status == VideoStatus.error && isRemoteStream && !isChunkedRemoteProtocol;
+                final shouldShowFtpNotReadyCover =
+                    remoteProtocol == RemoteProtocol.ftp && !videoController.isReady && !hasFtpRenderableVisual;
+                final shouldShowSftpNotReadyCover =
+                    remoteProtocol == RemoteProtocol.sftp && !videoController.isReady && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final shouldShowSmbNotReadyCover =
+                    remoteProtocol == RemoteProtocol.smb && !videoController.isReady && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final shouldShowGenericNotReadyCover =
+                    !videoController.isReady && !isChunkedRemoteProtocol;
+                final showCover = shouldShowFtpNotReadyCover ||
+                    shouldShowSftpNotReadyCover ||
+                    shouldShowSmbNotReadyCover ||
+                    shouldShowGenericNotReadyCover ||
+                    !hasDecodedFrame && (videoController.isPlaying || isRemoteStream) ||
+                    keepRemoteCoverUntilPlaying ||
+                    shouldShowFtpErrorCover ||
+                    shouldShowSftpErrorCover ||
+                    shouldShowSmbErrorCover ||
+                    shouldShowGenericRemoteErrorCover ||
+                    withinRemoteCoverGrace;
                 final effectiveShowCover = showCover || keepRemoteCoverUntilProgressSettles;
                 if (withinRemoteCoverGrace || withinChunkedPlaybackCoverGrace || withinChunkedProgressCoverGrace) {
                   SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -180,24 +283,48 @@ class _VideoCoverState extends State<VideoCover> {
                         final hasCoverVisual = videoCoverInfo != null || (extent != null && extent > 0);
                         final shouldDisplayCoverVisual =
                             hasCoverVisual && effectiveShowCover && (!isChunkedRemoteProtocol || currentPosition <= 0 || !videoController.isPlaying || !isRemoteStream || !hasFirstFrameRendered || withinChunkedProgressCoverGrace);
+                        final shouldInterceptPointer = effectiveShowCover && shouldDisplayCoverVisual;
+                        _logCoverDecision(
+                          status: status,
+                          currentPosition: currentPosition,
+                          remoteProtocol: remoteProtocol,
+                          hasDecodedFrame: hasDecodedFrame,
+                          hasFirstFrameRendered: hasFirstFrameRendered,
+                          hasStableDetailFrame: hasStableDetailFrame,
+                          withinRemoteCoverGrace: withinRemoteCoverGrace,
+                          withinChunkedPlaybackCoverGrace: withinChunkedPlaybackCoverGrace,
+                          withinChunkedProgressCoverGrace: withinChunkedProgressCoverGrace,
+                          keepRemoteCoverUntilPlaying: keepRemoteCoverUntilPlaying,
+                          keepRemoteCoverUntilProgressSettles: keepRemoteCoverUntilProgressSettles,
+                          showCover: showCover,
+                          effectiveShowCover: effectiveShowCover,
+                          hasCoverVisual: hasCoverVisual,
+                          shouldDisplayCoverVisual: shouldDisplayCoverVisual,
+                        );
                         if (videoCoverInfo != null) {
                           final coverSize = Size(
                             videoCoverInfo.image.width.toDouble(),
                             videoCoverInfo.image.height.toDouble(),
                           );
                           final coverController = shouldDisplayCoverVisual || coverSize == videoDisplaySize ? magnifierController : dismissedCoverMagnifierController;
-                          return widget.magnifierBuilder(coverController, coverSize, videoCoverUriImage);
+                          return IgnorePointer(
+                            ignoring: !shouldInterceptPointer,
+                            child: widget.magnifierBuilder(coverController, coverSize, videoCoverUriImage),
+                          );
                         }
 
                         if (extent != null && extent > 0) {
-                          return GestureDetector(
-                            onTap: widget.onTap,
-                            child: ThumbnailImage(
-                              entry: entry,
-                              extent: extent,
-                              devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                              fit: BoxFit.contain,
-                              showLoadingBackground: false,
+                          return IgnorePointer(
+                            ignoring: !shouldInterceptPointer,
+                            child: GestureDetector(
+                              onTap: widget.onTap,
+                              child: ThumbnailImage(
+                                entry: entry,
+                                extent: extent,
+                                devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                                fit: BoxFit.contain,
+                                showLoadingBackground: false,
+                              ),
                             ),
                           );
                         }
