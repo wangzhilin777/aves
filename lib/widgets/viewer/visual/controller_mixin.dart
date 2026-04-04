@@ -33,6 +33,9 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   final Set<String> _sftpAudioOnlyFallbackTriedUris = {};
   final Set<String> _smbAudioOnlyFallbackTriedUris = {};
   final Map<String, int> _localErrorRecoveryAttempts = {};
+  int _viewerRemotePreheatRequestToken = 0;
+  String? _lastViewerRemotePreheatSignature;
+  int _lastViewerRemotePreheatAtMillis = 0;
   String? _lastAutoPlayUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
@@ -273,6 +276,396 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     return controller.currentPosition > 0 || controller.firstFrameRenderedNotifier.value || (size != null && size.width > 1 && size.height > 1);
   }
 
+  bool _hasRenderableRemoteDetailPreheatFrame(AvesVideoController controller) {
+    final size = controller.decodedVideoSizeNotifier.value;
+    return controller.currentPosition > 0 || controller.firstFrameRenderedNotifier.value || (size != null && size.width > 1 && size.height > 1);
+  }
+
+  Future<void> _waitForRemoteDetailPreheatFrame(AvesVideoController controller, Duration timeout) async {
+    if (_hasRenderableRemoteDetailPreheatFrame(controller)) return;
+    final completer = Completer<void>();
+    late VoidCallback decodedListener;
+    late VoidCallback firstFrameListener;
+    StreamSubscription<int>? positionSub;
+    StreamSubscription<VideoStatus>? statusSub;
+
+    void completeIfReady() {
+      if (completer.isCompleted) return;
+      if (_hasRenderableRemoteDetailPreheatFrame(controller) || controller.status == VideoStatus.error) {
+        completer.complete();
+      }
+    }
+
+    decodedListener = completeIfReady;
+    firstFrameListener = completeIfReady;
+    controller.decodedVideoSizeNotifier.addListener(decodedListener);
+    controller.firstFrameRenderedNotifier.addListener(firstFrameListener);
+    positionSub = controller.positionStream.listen((_) => completeIfReady());
+    statusSub = controller.statusStream.listen((_) => completeIfReady());
+    try {
+      await completer.future.timeout(timeout);
+    } catch (_) {
+      // best-effort remote detail preheat
+    } finally {
+      controller.decodedVideoSizeNotifier.removeListener(decodedListener);
+      controller.firstFrameRenderedNotifier.removeListener(firstFrameListener);
+      await positionSub.cancel();
+      await statusSub.cancel();
+    }
+  }
+
+  Future<AvesVideoController> _primeWebdavViewerControllerForDetailPreheat(AvesEntry entry, AvesVideoController controller) async {
+    try {
+      await controller.untilReady.timeout(const Duration(milliseconds: 900));
+    } catch (_) {}
+    if (_hasRenderableRemoteDetailPreheatFrame(controller)) {
+      return controller;
+    }
+
+    final wasMuted = controller.isMuted;
+    try {
+      await controller.mute(true);
+      await controller.play();
+      await _waitForRemoteDetailPreheatFrame(controller, const Duration(milliseconds: 900));
+    } catch (_) {
+      // best-effort webdav detail preheat
+    } finally {
+      try {
+        await controller.pause();
+      } catch (_) {}
+      try {
+        await controller.seekTo(0);
+      } catch (_) {}
+      if (!wasMuted) {
+        try {
+          await controller.mute(false);
+        } catch (_) {}
+      }
+    }
+    unawaited(
+      remoteMediaLogService.log(
+        'autoplay',
+        'viewer applied webdav detail preview-style preheat',
+        data: {
+          'uri': entry.uri,
+          'hasRenderableFrame': _hasRenderableRemoteDetailPreheatFrame(controller),
+          'positionMillis': controller.currentPosition,
+        },
+      ),
+    );
+    return controller;
+  }
+
+  Future<AvesVideoController> _primeFtpViewerControllerForDetailPreheat(AvesEntry entry, AvesVideoController controller) async {
+    try {
+      await controller.untilReady.timeout(const Duration(milliseconds: 900));
+    } catch (_) {}
+    if (_hasRenderableRemoteDetailPreheatFrame(controller)) {
+      return controller;
+    }
+
+    final wasMuted = controller.isMuted;
+    try {
+      await controller.mute(true);
+      await controller.play();
+      await _waitForRemoteDetailPreheatFrame(controller, const Duration(milliseconds: 2200));
+    } catch (_) {
+      // best-effort ftp detail preheat
+    } finally {
+      try {
+        await controller.pause();
+      } catch (_) {}
+      try {
+        await controller.seekTo(0);
+      } catch (_) {}
+      if (!wasMuted) {
+        try {
+          await controller.mute(false);
+        } catch (_) {}
+      }
+    }
+    unawaited(
+      remoteMediaLogService.log(
+        'autoplay',
+        'viewer applied ftp detail preview-style preheat',
+        data: {
+          'uri': entry.uri,
+          'hasRenderableFrame': _hasRenderableRemoteDetailPreheatFrame(controller),
+          'positionMillis': controller.currentPosition,
+        },
+      ),
+    );
+    return controller;
+  }
+
+  Future<AvesVideoController> _primeSftpViewerControllerForDetailPreheat(AvesEntry entry, AvesVideoController controller) async {
+    try {
+      await controller.untilReady.timeout(const Duration(milliseconds: 900));
+    } catch (_) {}
+    if (_hasRenderableRemoteDetailPreheatFrame(controller)) {
+      return controller;
+    }
+
+    final wasMuted = controller.isMuted;
+    try {
+      await controller.mute(true);
+      await controller.play();
+      await _waitForRemoteDetailPreheatFrame(controller, const Duration(milliseconds: 2200));
+    } catch (_) {
+      // best-effort sftp detail preheat
+    } finally {
+      try {
+        await controller.pause();
+      } catch (_) {}
+      try {
+        await controller.seekTo(0);
+      } catch (_) {}
+      if (!wasMuted) {
+        try {
+          await controller.mute(false);
+        } catch (_) {}
+      }
+    }
+    unawaited(
+      remoteMediaLogService.log(
+        'autoplay',
+        'viewer applied sftp detail preview-style preheat',
+        data: {
+          'uri': entry.uri,
+          'hasRenderableFrame': _hasRenderableRemoteDetailPreheatFrame(controller),
+          'positionMillis': controller.currentPosition,
+        },
+      ),
+    );
+    return controller;
+  }
+
+  Future<AvesVideoController> _primeSmbViewerControllerForDetailPreheat(AvesEntry entry, AvesVideoController controller) async {
+    try {
+      await controller.untilReady.timeout(const Duration(milliseconds: 900));
+    } catch (_) {}
+    if (_hasRenderableRemoteDetailPreheatFrame(controller)) {
+      return controller;
+    }
+
+    final wasMuted = controller.isMuted;
+    try {
+      await controller.mute(true);
+      await controller.play();
+      await _waitForRemoteDetailPreheatFrame(controller, const Duration(milliseconds: 2200));
+    } catch (_) {
+      // best-effort smb detail preheat
+    } finally {
+      try {
+        await controller.pause();
+      } catch (_) {}
+      try {
+        await controller.seekTo(0);
+      } catch (_) {}
+      if (!wasMuted) {
+        try {
+          await controller.mute(false);
+        } catch (_) {}
+      }
+    }
+    unawaited(
+      remoteMediaLogService.log(
+        'autoplay',
+        'viewer applied smb detail preview-style preheat',
+        data: {
+          'uri': entry.uri,
+          'hasRenderableFrame': _hasRenderableRemoteDetailPreheatFrame(controller),
+          'positionMillis': controller.currentPosition,
+        },
+      ),
+    );
+    return controller;
+  }
+
+  bool _isViewerRemotePreheatCandidate(AvesEntry entry) {
+    if (!entry.isVideo) return false;
+    if (entry.isRemoteCachedMedia) return false;
+    if (remoteMediaService.hasVirtualRemoteRef(entry.uri)) return true;
+    return entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
+  }
+
+  Future<void> preheatViewerUpcomingRemoteVideos(List<AvesEntry> entries, int focusIndex) async {
+    if (!settings.remoteViewerPreheatEnabled) return;
+    final nextVideoPreheatCount = max(0, settings.remotePreviewVideoCount);
+    if (nextVideoPreheatCount <= 0) return;
+    if (focusIndex < 0 || focusIndex >= entries.length) return;
+    final requestToken = ++_viewerRemotePreheatRequestToken;
+
+    final focusEntry = entries[focusIndex];
+    if (!_isViewerRemotePreheatCandidate(focusEntry)) return;
+
+    final nextVideos = <AvesEntry>[];
+    for (var i = focusIndex + 1; i < entries.length; i++) {
+      final candidate = entries[i];
+      if (!_isViewerRemotePreheatCandidate(candidate)) continue;
+      nextVideos.add(candidate);
+      if (nextVideos.length >= nextVideoPreheatCount) break;
+    }
+    if (nextVideos.isEmpty) return;
+    final nowMillis = DateTime.now().millisecondsSinceEpoch;
+    final signature = '$focusIndex:${focusEntry.uri}:${nextVideos.map((entry) => entry.uri).join('|')}';
+    if (_lastViewerRemotePreheatSignature == signature && nowMillis - _lastViewerRemotePreheatAtMillis < 1800) {
+      return;
+    }
+    _lastViewerRemotePreheatSignature = signature;
+    _lastViewerRemotePreheatAtMillis = nowMillis;
+
+    for (final nextVideo in nextVideos) {
+      if (requestToken != _viewerRemotePreheatRequestToken) return;
+      if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+      try {
+        await remoteMediaService.ensureEntryMetadata(nextVideo, trigger: 'viewer_focus_next_video_preheat');
+        if (requestToken != _viewerRemotePreheatRequestToken) return;
+        if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+        final protocol = remoteMediaService.getRemoteProtocolForEntry(nextVideo);
+        if (protocol == RemoteProtocol.webdav) {
+          await remoteMediaService.prepareInitialStreamPlaybackForEntry(nextVideo, trigger: 'viewer_focus_next_video_warmup');
+          if (requestToken != _viewerRemotePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          await remoteMediaService.prepareEntryForPlayback(
+            nextVideo,
+            trigger: 'viewer_focus_next_video_preheat',
+            allowDownload: false,
+          );
+          if (requestToken != _viewerRemotePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          var controller = await context.read<VideoConductor>().getOrCreateController(nextVideo, maxControllerCount: 5);
+          if (requestToken != _viewerRemotePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          controller = await _primeWebdavViewerControllerForDetailPreheat(nextVideo, controller);
+          final size = controller.decodedVideoSizeNotifier.value;
+          if (size != null && size.width > 1 && size.height > 1) {
+            nextVideo.width = size.width.round();
+            nextVideo.height = size.height.round();
+            nextVideo.visualChangeNotifier.notify();
+          }
+          await remoteMediaLogService.log(
+            'stream',
+            'viewer prepared next webdav video detail preheat',
+            data: {
+              'focusUri': focusEntry.uri,
+              'uri': nextVideo.uri,
+              'hasRenderableFrame': _hasRenderableRemoteDetailPreheatFrame(controller),
+              'width': size?.width.round(),
+              'height': size?.height.round(),
+            },
+          );
+        } else if (protocol == RemoteProtocol.ftp) {
+          await remoteMediaService.prepareInitialStreamPlaybackForEntry(nextVideo, trigger: 'viewer_focus_next_video_warmup');
+          if (requestToken != _viewerRemotePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          await remoteMediaService.prepareEntryForPlayback(
+            nextVideo,
+            trigger: 'viewer_focus_next_video_preheat',
+            allowDownload: false,
+          );
+          if (requestToken != _viewerRemotePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          var controller = await context.read<VideoConductor>().getOrCreateController(nextVideo, maxControllerCount: 5);
+          if (requestToken != _viewerRemotePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          controller = await _primeFtpViewerControllerForDetailPreheat(nextVideo, controller);
+          final size = controller.decodedVideoSizeNotifier.value;
+          if (size != null && size.width > 1 && size.height > 1) {
+            nextVideo.width = size.width.round();
+            nextVideo.height = size.height.round();
+            nextVideo.visualChangeNotifier.notify();
+          }
+          await remoteMediaLogService.log(
+            'stream',
+            'viewer prepared next ftp video detail preheat',
+            data: {
+              'focusUri': focusEntry.uri,
+              'uri': nextVideo.uri,
+              'hasRenderableFrame': _hasRenderableRemoteDetailPreheatFrame(controller),
+              'width': size?.width.round(),
+              'height': size?.height.round(),
+            },
+          );
+        } else if (protocol == RemoteProtocol.sftp) {
+          await remoteMediaService.prepareInitialStreamPlaybackForEntry(nextVideo, trigger: 'viewer_focus_next_video_warmup');
+          if (requestToken != _viewerRemotePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          await remoteMediaService.prepareEntryForPlayback(
+            nextVideo,
+            trigger: 'viewer_focus_next_video_preheat',
+            allowDownload: false,
+          );
+          if (requestToken != _viewerRemotePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          var controller = await context.read<VideoConductor>().getOrCreateController(nextVideo, maxControllerCount: 5);
+          if (requestToken != _viewerRemotePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          controller = await _primeSftpViewerControllerForDetailPreheat(nextVideo, controller);
+          final size = controller.decodedVideoSizeNotifier.value;
+          if (size != null && size.width > 1 && size.height > 1) {
+            nextVideo.width = size.width.round();
+            nextVideo.height = size.height.round();
+            nextVideo.visualChangeNotifier.notify();
+          }
+          await remoteMediaLogService.log(
+            'stream',
+            'viewer prepared next sftp video detail preheat',
+            data: {
+              'focusUri': focusEntry.uri,
+              'uri': nextVideo.uri,
+              'hasRenderableFrame': _hasRenderableRemoteDetailPreheatFrame(controller),
+              'width': size?.width.round(),
+              'height': size?.height.round(),
+            },
+          );
+        } else if (protocol == RemoteProtocol.smb) {
+          await remoteMediaService.prepareInitialStreamPlaybackForEntry(nextVideo, trigger: 'viewer_focus_next_video_warmup');
+          if (requestToken != _viewerRemotePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          await remoteMediaService.prepareEntryForPlayback(
+            nextVideo,
+            trigger: 'viewer_focus_next_video_preheat',
+            allowDownload: false,
+          );
+          if (requestToken != _viewerRemotePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          var controller = await context.read<VideoConductor>().getOrCreateController(nextVideo, maxControllerCount: 5);
+          if (requestToken != _viewerRemotePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          controller = await _primeSmbViewerControllerForDetailPreheat(nextVideo, controller);
+          final size = controller.decodedVideoSizeNotifier.value;
+          if (size != null && size.width > 1 && size.height > 1) {
+            nextVideo.width = size.width.round();
+            nextVideo.height = size.height.round();
+            nextVideo.visualChangeNotifier.notify();
+          }
+          await remoteMediaLogService.log(
+            'stream',
+            'viewer prepared next smb video detail preheat',
+            data: {
+              'focusUri': focusEntry.uri,
+              'uri': nextVideo.uri,
+              'hasRenderableFrame': _hasRenderableRemoteDetailPreheatFrame(controller),
+              'width': size?.width.round(),
+              'height': size?.height.round(),
+            },
+          );
+        }
+      } catch (error) {
+        await remoteMediaLogService.log(
+          'stream',
+          'viewer failed next remote video detail preheat',
+          data: {
+            'focusUri': focusEntry.uri,
+            'uri': nextVideo.uri,
+            'error': '$error',
+          },
+        );
+      }
+    }
+  }
+
   Future<void> _initVideoController(AvesEntry entry) async {
     if (!entry.isRemoteCachedMedia && !entry.uri.startsWith('http://') && !entry.uri.startsWith('https://')) {
       unawaited(_logLocalCacheUsage(entry, 'viewer_init'));
@@ -285,8 +678,38 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     );
     final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
     final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
+    final shouldApplyRemoteDetailPreviewPreheat = settings.remoteViewerPreheatEnabled && settings.remotePreviewVideoCount > 0;
     if (isRemoteStream) {
-      if (remoteProtocol == RemoteProtocol.smb) {
+      if (!shouldApplyRemoteDetailPreviewPreheat) {
+        unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init'));
+      } else if (remoteProtocol == RemoteProtocol.webdav) {
+        await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init');
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'viewer awaited initial webdav stream warmup before controller init',
+            data: {'uri': entry.uri},
+          ),
+        );
+      } else if (remoteProtocol == RemoteProtocol.ftp) {
+        await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init');
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'viewer awaited initial ftp stream warmup before controller init',
+            data: {'uri': entry.uri},
+          ),
+        );
+      } else if (remoteProtocol == RemoteProtocol.sftp) {
+        await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init');
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'viewer awaited initial sftp stream warmup before controller init',
+            data: {'uri': entry.uri},
+          ),
+        );
+      } else if (remoteProtocol == RemoteProtocol.smb) {
         await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init');
         unawaited(
           remoteMediaLogService.log(
@@ -299,7 +722,18 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init'));
       }
     }
-    final controller = await context.read<VideoConductor>().getOrCreateController(entry);
+    var controller = await context.read<VideoConductor>().getOrCreateController(entry);
+    if (isRemoteStream && shouldApplyRemoteDetailPreviewPreheat) {
+      if (remoteProtocol == RemoteProtocol.webdav) {
+        controller = await _primeWebdavViewerControllerForDetailPreheat(entry, controller);
+      } else if (remoteProtocol == RemoteProtocol.ftp) {
+        controller = await _primeFtpViewerControllerForDetailPreheat(entry, controller);
+      } else if (remoteProtocol == RemoteProtocol.sftp) {
+        controller = await _primeSftpViewerControllerForDetailPreheat(entry, controller);
+      } else if (remoteProtocol == RemoteProtocol.smb) {
+        controller = await _primeSmbViewerControllerForDetailPreheat(entry, controller);
+      }
+    }
     setState(() {});
     unawaited(
       remoteMediaLogService.log(

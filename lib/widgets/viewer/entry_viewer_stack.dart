@@ -840,6 +840,9 @@ class _EntryViewerStackState extends State<EntryViewerStack> with EntryViewContr
     entryNotifier.value = newEntry;
     _isEntryTracked = false;
     await initEntryControllers(newEntry);
+    if (newEntry != null && hasCollection) {
+      unawaited(preheatViewerUpcomingRemoteVideos(entries, _currentEntryIndex));
+    }
 
     if (viewerController.isCasting) {
       final entry = entryNotifier.value;

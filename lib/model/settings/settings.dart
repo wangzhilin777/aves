@@ -446,6 +446,7 @@ class Settings
           case SettingKeys.remoteGridVideoAutoPlayKey:
           case SettingKeys.remoteGridVideoSoundOnKey:
           case SettingKeys.remotePreviewPreheatEnabledKey:
+          case SettingKeys.remoteViewerPreheatEnabledKey:
           case SettingKeys.showPinchGestureAlternativesKey:
           case SettingKeys.screenSaverFillScreenKey:
           case SettingKeys.screenSaverAnimatedZoomEffectKey:

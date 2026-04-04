@@ -171,6 +171,7 @@ class SettingKeys {
   static const remoteGridVideoAutoPlayKey = 'remote_grid_video_auto_play';
   static const remoteGridVideoSoundOnKey = 'remote_grid_video_sound_on';
   static const remotePreviewPreheatEnabledKey = 'remote_preview_preheat_enabled';
+  static const remoteViewerPreheatEnabledKey = 'remote_viewer_preheat_enabled';
   static const remotePreviewImageCountKey = 'remote_preview_image_count';
   static const remotePreviewVideoCountKey = 'remote_preview_video_count';
   static const remoteAutoDownloadImageMaxBytesKey = 'remote_auto_download_image_max_bytes';

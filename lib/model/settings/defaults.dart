@@ -127,6 +127,7 @@ class SettingsDefaults {
   static const remoteGridVideoAutoPlay = true;
   static const remoteGridVideoSoundOn = false;
   static const remotePreviewPreheatEnabled = true;
+  static const remoteViewerPreheatEnabled = true;
   static const remotePreviewImageCount = 4;
   static const remotePreviewVideoCount = 1;
   static const remoteAutoDownloadImageMaxBytes = 8 * 1024 * 1024;

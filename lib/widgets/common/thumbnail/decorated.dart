@@ -1005,7 +1005,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                     : isSmbPreview
                         ? holdLastFrame
                         : isWebdavPreview
-                            ? (keepLastFrameVisible || hasDecodedFrame || (isCurrent && controller.status != VideoStatus.error && (controller.isPlaying || controller.isReady || _playRequestedForCurrentFocus)))
+                            ? holdLastFrame
                             : isRemoteManagedEntry
                                 ? (keepLastFrameVisible && hasRenderableFrame)
                                 : (keepLastFrameVisible || hasDecodedFrame);
@@ -1018,14 +1018,15 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                         : isSmbPreview
                             ? false
                             : isWebdavPreview
-                                ? (keepLastFrameVisible || hasPreviewFrame)
+                                ? false
                                 : (keepLastFrameVisible && hasRenderableFrame))
                 : false;
             final hideFtpPreviewWhileViewerActive = isViewerActive && isFtpPreview;
             final hideSftpPreviewWhileViewerActive = isViewerActive && isSftpPreview;
             final hideSmbPreviewWhileViewerActive = isViewerActive && isSmbPreview;
+            final hideWebdavPreviewWhileViewerActive = isViewerActive && isWebdavPreview;
             final hideChunkedPreviewWhileViewerActive =
-                hideFtpPreviewWhileViewerActive || hideSftpPreviewWhileViewerActive || hideSmbPreviewWhileViewerActive;
+                hideFtpPreviewWhileViewerActive || hideSftpPreviewWhileViewerActive || hideSmbPreviewWhileViewerActive || hideWebdavPreviewWhileViewerActive;
             final baseShow = _videoSurfaceVisible || currentProtocolShow || remoteForceVisible || nonCurrentRemoteShow;
             final show = suppressNonCurrentChunkedPreviewSurface || hideChunkedPreviewWhileViewerActive ? false : baseShow;
             final ftpPreviewOpacityDuration =

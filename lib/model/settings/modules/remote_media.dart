@@ -49,6 +49,10 @@ mixin RemoteMediaSettings on SettingsAccess {
 
   set remotePreviewPreheatEnabled(bool newValue) => set(SettingKeys.remotePreviewPreheatEnabledKey, newValue);
 
+  bool get remoteViewerPreheatEnabled => getBool(SettingKeys.remoteViewerPreheatEnabledKey) ?? SettingsDefaults.remoteViewerPreheatEnabled;
+
+  set remoteViewerPreheatEnabled(bool newValue) => set(SettingKeys.remoteViewerPreheatEnabledKey, newValue);
+
   int get remotePreviewImageCount => getInt(SettingKeys.remotePreviewImageCountKey) ?? SettingsDefaults.remotePreviewImageCount;
 
   set remotePreviewImageCount(int newValue) => set(SettingKeys.remotePreviewImageCountKey, newValue);

@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/settings/enums/remote_stream_mode.dart';
@@ -99,18 +99,19 @@ class _RemotePreviewPreheatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Selector<Settings, (bool, int, int)>(
-      selector: (context, s) => (s.remotePreviewPreheatEnabled, s.remotePreviewImageCount, s.remotePreviewVideoCount),
+    return Selector<Settings, (bool, bool, int, int)>(
+      selector: (context, s) => (s.remotePreviewPreheatEnabled, s.remoteViewerPreheatEnabled, s.remotePreviewImageCount, s.remotePreviewVideoCount),
       builder: (context, state, child) {
-        final (enabled, imageCount, videoCount) = state;
+        final (enabled, viewerEnabled, imageCount, videoCount) = state;
+        final anyPreheatEnabled = enabled || viewerEnabled;
         return ExpansionTile(
           title: Text(_tr(context, 'Preview preheat', '预览预热')),
           subtitle: Text(
-            enabled
+            anyPreheatEnabled
                 ? _tr(
                     context,
-                    'Images: $imageCount, next videos: $videoCount',
-                    '图片：$imageCount 张，下一个视频：$videoCount 个',
+                    'Images: $imageCount, next videos: $videoCount, viewer: ${viewerEnabled ? 'on' : 'off'}',
+                    '图片：$imageCount 张，后续视频：$videoCount 个，详情页预热：${viewerEnabled ? '开' : '关'}',
                   )
                 : _tr(context, 'Disabled', '已关闭'),
           ),
@@ -119,6 +120,12 @@ class _RemotePreviewPreheatTile extends StatelessWidget {
               value: enabled,
               onChanged: (v) => settings.remotePreviewPreheatEnabled = v,
               title: Text(_tr(context, 'Enable automatic preview preheat', '开启自动预热')),
+            ),
+            SwitchListTile(
+              value: viewerEnabled,
+              onChanged: (v) => settings.remoteViewerPreheatEnabled = v,
+              title: Text(_tr(context, 'Enable viewer remote video preheat', '开启详情页远程视频预热')),
+              subtitle: Text(_tr(context, 'Uses the same next-video count setting below', '使用下方后续视频数量设置')),
             ),
             ListTile(
               enabled: enabled,
@@ -144,10 +151,10 @@ class _RemotePreviewPreheatTile extends StatelessWidget {
                       ),
             ),
             ListTile(
-              enabled: enabled,
+              enabled: anyPreheatEnabled,
               title: Text(_tr(context, 'Preheat next videos', '预热后续视频数量')),
               subtitle: Text(_tr(context, '$videoCount items', '$videoCount 个')),
-              onTap: !enabled
+              onTap: !anyPreheatEnabled
                   ? null
                   : () => showSelectionDialog<int>(
                         context: context,
@@ -344,3 +351,4 @@ class _RemoteCacheMaxTile extends StatelessWidget {
     );
   }
 }
+
