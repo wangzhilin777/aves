@@ -254,7 +254,9 @@ class _VideoCoverState extends State<VideoCover> {
                     shouldShowSmbErrorCover ||
                     shouldShowGenericRemoteErrorCover ||
                     withinRemoteCoverGrace;
-                final effectiveShowCover = showCover || keepRemoteCoverUntilProgressSettles;
+                final cachedCoverExtent = entry.cachedThumbnails.firstOrNull?.key.extent;
+                final hasPotentialCoverVisual = _videoCoverInfoNotifier.value != null || (cachedCoverExtent != null && cachedCoverExtent > 0);
+                final effectiveShowCover = (showCover || keepRemoteCoverUntilProgressSettles) && hasPotentialCoverVisual;
                 if (withinRemoteCoverGrace || withinChunkedPlaybackCoverGrace || withinChunkedProgressCoverGrace) {
                   SchedulerBinding.instance.addPostFrameCallback((_) {
                     if (mounted) setState(() {});
@@ -279,7 +281,7 @@ class _VideoCoverState extends State<VideoCover> {
                     child: ValueListenableBuilder<ImageInfo?>(
                       valueListenable: _videoCoverInfoNotifier,
                       builder: (context, videoCoverInfo, child) {
-                        final extent = entry.cachedThumbnails.firstOrNull?.key.extent;
+                        final extent = cachedCoverExtent;
                         final hasCoverVisual = videoCoverInfo != null || (extent != null && extent > 0);
                         final shouldDisplayCoverVisual =
                             hasCoverVisual && effectiveShowCover && (!isChunkedRemoteProtocol || currentPosition <= 0 || !videoController.isPlaying || !isRemoteStream || !hasFirstFrameRendered || withinChunkedProgressCoverGrace);

@@ -36,6 +36,9 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   int _viewerRemotePreheatRequestToken = 0;
   String? _lastViewerRemotePreheatSignature;
   int _lastViewerRemotePreheatAtMillis = 0;
+  int _viewerRemoteImagePreheatRequestToken = 0;
+  String? _lastViewerRemoteImagePreheatSignature;
+  int _lastViewerRemoteImagePreheatAtMillis = 0;
   String? _lastAutoPlayUri;
   int _lastAutoPlayAttemptMillis = 0;
   int _lastAutoPlayAnyAttemptMillis = 0;
@@ -168,6 +171,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   Future<void> _logLocalCacheUsage(AvesEntry entry, String stage) async {
+    if (!settings.remoteLogEnabled) return;
     if (entry.isRemoteCachedMedia || entry.uri.startsWith('http://') || entry.uri.startsWith('https://')) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     final last = _lastLocalCacheProbeAtMillisByUri[entry.uri];
@@ -489,6 +493,13 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     return entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
   }
 
+  bool _isViewerRemoteImagePreheatCandidate(AvesEntry entry) {
+    if (!entry.isImage || entry.isVideo || !entry.isDecodingSupported) return false;
+    if (entry.isRemoteCachedMedia) return true;
+    if (remoteMediaService.hasVirtualRemoteRef(entry.uri)) return true;
+    return entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
+  }
+
   Future<void> preheatViewerUpcomingRemoteVideos(List<AvesEntry> entries, int focusIndex) async {
     if (!settings.remoteViewerPreheatEnabled) return;
     final nextVideoPreheatCount = max(0, settings.remotePreviewVideoCount);
@@ -659,6 +670,143 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
           data: {
             'focusUri': focusEntry.uri,
             'uri': nextVideo.uri,
+            'error': '$error',
+          },
+        );
+      }
+    }
+  }
+
+  Future<void> preheatViewerUpcomingRemoteImages(List<AvesEntry> entries, int focusIndex) async {
+    if (!settings.remoteViewerPreheatEnabled) return;
+    final nextImagePreheatCount = max(0, settings.remotePreviewImageCount);
+    if (nextImagePreheatCount <= 0) return;
+    if (focusIndex < 0 || focusIndex >= entries.length) return;
+    final requestToken = ++_viewerRemoteImagePreheatRequestToken;
+
+    final focusEntry = entries[focusIndex];
+    final nextImages = <AvesEntry>[];
+    for (var i = focusIndex + 1; i < entries.length; i++) {
+      final candidate = entries[i];
+      if (!_isViewerRemoteImagePreheatCandidate(candidate)) continue;
+      nextImages.add(candidate);
+      if (nextImages.length >= nextImagePreheatCount) break;
+    }
+    if (nextImages.isEmpty) return;
+
+    final nowMillis = DateTime.now().millisecondsSinceEpoch;
+    final signature = '$focusIndex:${focusEntry.uri}:${nextImages.map((entry) => entry.uri).join('|')}';
+    if (_lastViewerRemoteImagePreheatSignature == signature && nowMillis - _lastViewerRemoteImagePreheatAtMillis < 1800) {
+      return;
+    }
+    _lastViewerRemoteImagePreheatSignature = signature;
+    _lastViewerRemoteImagePreheatAtMillis = nowMillis;
+
+    for (final nextImage in nextImages) {
+      if (requestToken != _viewerRemoteImagePreheatRequestToken) return;
+      if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+      try {
+        await remoteMediaService.ensureEntryMetadata(nextImage, trigger: 'viewer_focus_next_image_preheat');
+        if (requestToken != _viewerRemoteImagePreheatRequestToken) return;
+        if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+
+        final protocol = remoteMediaService.getRemoteProtocolForEntry(nextImage);
+        if (protocol == RemoteProtocol.webdav) {
+          await remoteMediaService.bindExistingCacheFileForEntry(
+            nextImage,
+            trigger: 'viewer_focus_next_image_preheat_bind_existing',
+          );
+          if (requestToken != _viewerRemoteImagePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          final resolved = await remoteMediaService.ensureViewerImageDisplayMetadata(
+            nextImage,
+            trigger: 'viewer_focus_next_image_preheat',
+          );
+          await remoteMediaLogService.log(
+            'metadata',
+            'viewer prepared next webdav image detail preheat',
+            data: {
+              'focusUri': focusEntry.uri,
+              'uri': nextImage.uri,
+              'resolved': resolved,
+              'width': nextImage.width,
+              'height': nextImage.height,
+            },
+          );
+        } else if (protocol == RemoteProtocol.ftp) {
+          await remoteMediaService.bindExistingCacheFileForEntry(
+            nextImage,
+            trigger: 'viewer_focus_next_image_preheat_bind_existing',
+          );
+          if (requestToken != _viewerRemoteImagePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          final resolved = await remoteMediaService.ensureViewerImageDisplayMetadata(
+            nextImage,
+            trigger: 'viewer_focus_next_image_preheat',
+          );
+          await remoteMediaLogService.log(
+            'metadata',
+            'viewer prepared next ftp image detail preheat',
+            data: {
+              'focusUri': focusEntry.uri,
+              'uri': nextImage.uri,
+              'resolved': resolved,
+              'width': nextImage.width,
+              'height': nextImage.height,
+            },
+          );
+        } else if (protocol == RemoteProtocol.sftp) {
+          await remoteMediaService.bindExistingCacheFileForEntry(
+            nextImage,
+            trigger: 'viewer_focus_next_image_preheat_bind_existing',
+          );
+          if (requestToken != _viewerRemoteImagePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          final resolved = await remoteMediaService.ensureViewerImageDisplayMetadata(
+            nextImage,
+            trigger: 'viewer_focus_next_image_preheat',
+          );
+          await remoteMediaLogService.log(
+            'metadata',
+            'viewer prepared next sftp image detail preheat',
+            data: {
+              'focusUri': focusEntry.uri,
+              'uri': nextImage.uri,
+              'resolved': resolved,
+              'width': nextImage.width,
+              'height': nextImage.height,
+            },
+          );
+        } else if (protocol == RemoteProtocol.smb) {
+          await remoteMediaService.bindExistingCacheFileForEntry(
+            nextImage,
+            trigger: 'viewer_focus_next_image_preheat_bind_existing',
+          );
+          if (requestToken != _viewerRemoteImagePreheatRequestToken) return;
+          if (!mounted || entryNotifier.value?.uri != focusEntry.uri) return;
+          final resolved = await remoteMediaService.ensureViewerImageDisplayMetadata(
+            nextImage,
+            trigger: 'viewer_focus_next_image_preheat',
+          );
+          await remoteMediaLogService.log(
+            'metadata',
+            'viewer prepared next smb image detail preheat',
+            data: {
+              'focusUri': focusEntry.uri,
+              'uri': nextImage.uri,
+              'resolved': resolved,
+              'width': nextImage.width,
+              'height': nextImage.height,
+            },
+          );
+        }
+      } catch (error) {
+        await remoteMediaLogService.log(
+          'metadata',
+          'viewer failed next remote image detail preheat',
+          data: {
+            'focusUri': focusEntry.uri,
+            'uri': nextImage.uri,
             'error': '$error',
           },
         );

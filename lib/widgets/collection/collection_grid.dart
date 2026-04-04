@@ -348,12 +348,12 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   double? _lastScrollOffset;
   DateTime? _lastScrollSampleAt;
   double _lastScrollSpeedPxPerSecond = 0;
-  DateTime _lastSlowScrollAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime? _initialFocusLockUntil;
   String? _initialFocusLockedUri;
   double? _initialFocusLockOffset;
   DateTime _lastVideoPreheatAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastVideoPreheatSignature;
+  DateTime _lastFastScrollAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastEdgeFocusAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastEdgeFocusUri;
   DateTime _lastFocusChangeAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -486,28 +486,12 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     _lastScrollIntentDirection = direction;
     _lastScrollIntentAt = DateTime.now();
     if (direction != ScrollDirection.idle) {
-      final currentPreviewEntry = widget.previewPlayingEntryNotifier.value;
-      if (currentPreviewEntry != null) {
-        final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(currentPreviewEntry);
-        if (remoteProtocol == RemoteProtocol.webdav) {
-          widget.previewPlayingEntryNotifier.value = null;
-        } else if (remoteProtocol == RemoteProtocol.ftp) {
-          widget.previewPlayingEntryNotifier.value = null;
-        } else if (remoteProtocol == RemoteProtocol.sftp) {
-          widget.previewPlayingEntryNotifier.value = null;
-        } else if (remoteProtocol == RemoteProtocol.smb) {
-          widget.previewPlayingEntryNotifier.value = null;
-        } else if (remoteProtocol == null && currentPreviewEntry.isVideo) {
-          widget.previewPlayingEntryNotifier.value = null;
-        }
-      }
       _onScrollOrLayoutChanged();
     }
   }
 
   void _onScrollingStateChanged() {
     if (!widget.isScrollingNotifier.value) {
-      _lastSlowScrollAt = DateTime.now();
       _deferredPrefetchTimer?.cancel();
       _deferredPrefetchTimer = Timer(const Duration(milliseconds: 80), () {
         if (!mounted) return;
@@ -546,11 +530,9 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       if (dtMs > 0) {
         _lastScrollSpeedPxPerSecond = ((currentOffset - previousOffset).abs() * 1000) / dtMs;
       }
-      if (_lastScrollSpeedPxPerSecond < 900 || !widget.isScrollingNotifier.value) {
-        _lastSlowScrollAt = now;
+      if (widget.isScrollingNotifier.value && _lastScrollSpeedPxPerSecond >= 900) {
+        _lastFastScrollAt = now;
       }
-    } else {
-      _lastSlowScrollAt = now;
     }
     _lastScrollSampleAt = now;
     if (_initialFocusLockOffset != null && (currentOffset - _initialFocusLockOffset!).abs() > 24) {
@@ -777,6 +759,36 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     final current = widget.previewPlayingEntryNotifier.value;
     if (current == target) return;
     final now = DateTime.now();
+    if (isScrolling && current != null && target != null && current.uri != target.uri) {
+      final sameUri = _lastKeepFocusLogUri == current.uri;
+      final withinCooldown = now.difference(_lastKeepFocusLogAt) < const Duration(milliseconds: 900);
+      if (!(sameUri && withinCooldown)) {
+        _lastKeepFocusLogUri = current.uri;
+        _lastKeepFocusLogAt = now;
+        unawaited(
+          remoteMediaLogService.log(
+            'focus',
+            'keep current preview focus while actively scrolling',
+            data: {
+              'currentUri': current.uri,
+              'nextTargetUri': target.uri,
+              'speedPxPerSecond': _lastScrollSpeedPxPerSecond,
+            },
+          ),
+        );
+      }
+      return;
+    }
+    if (isScrolling && current == null && target != null) {
+      _pendingFocusTarget = target;
+      _focusDebounceTimer?.cancel();
+      _focusDebounceTimer = Timer(const Duration(milliseconds: 220), () {
+        if (!mounted || widget.isScrollingNotifier.value) return;
+        _applyFocusTarget(_pendingFocusTarget);
+        _pendingFocusTarget = null;
+      });
+      return;
+    }
     final initialFocusLocked =
         _initialFocusLockUntil != null &&
         now.isBefore(_initialFocusLockUntil!) &&
@@ -856,8 +868,9 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     if (anchor == null || !mounted) return;
     if (!settings.remotePreviewPreheatEnabled) return;
     final now = DateTime.now();
-    final fastScrollRecently = widget.isScrollingNotifier.value && _lastScrollSpeedPxPerSecond >= 1400 && now.difference(_lastSlowScrollAt).inMilliseconds < 420;
-    if (fastScrollRecently) {
+    final fastScrollActive = widget.isScrollingNotifier.value && _lastScrollSpeedPxPerSecond >= 900;
+    final fastScrollRecently = now.difference(_lastFastScrollAt).inMilliseconds < 650;
+    if (fastScrollActive || fastScrollRecently) {
       _deferredPrefetchTimer?.cancel();
       _deferredPrefetchTimer = Timer(const Duration(milliseconds: 480), () {
         if (!mounted || widget.isScrollingNotifier.value) return;
@@ -871,6 +884,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
           data: {
             'focusUri': anchor.uri,
             'speedPxPerSecond': _lastScrollSpeedPxPerSecond,
+            'fastScrollRecently': fastScrollRecently,
           },
         ),
       );
@@ -953,6 +967,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
 
   Future<void> _preheatNextRemoteVideo(AvesEntry entry, AvesEntry focusAnchor) async {
     try {
+      final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
       await remoteMediaService.prepareInitialStreamPlaybackForEntry(
         entry,
         trigger: 'collection_focus_next_video_warmup',
@@ -963,6 +978,21 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
         allowDownload: false,
       );
       await remoteMediaService.ensureEntryMetadata(entry, trigger: 'collection_focus_next_video_preheat');
+
+      if (remoteProtocol == RemoteProtocol.webdav && existingFile != null) {
+        await remoteMediaLogService.log(
+          'stream',
+          'prepared next webdav video preview preheat using existing cache file',
+          data: {
+            'focusUri': focusAnchor.uri,
+            'uri': entry.uri,
+            'file': existingFile.path,
+            'width': entry.width > 1 ? entry.width : null,
+            'height': entry.height > 1 ? entry.height : null,
+          },
+        );
+        return;
+      }
 
       final controller = await context.read<VideoConductor>().getOrCreateController(entry, maxControllerCount: 5);
       Future<void> waitForPreheatFrame(AvesVideoController controller, Duration timeout) async {

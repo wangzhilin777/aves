@@ -16,6 +16,24 @@ abstract class SettingsSection {
     return FutureBuilder<List<SettingsTile>>(
       future: tiles(sectionContext),
       builder: (tileContext, snapshot) {
+        if (snapshot.hasError) {
+          debugPrint('failed to load settings section=$key with error=${snapshot.error}');
+          return AvesExpansionTile(
+            key: Key('section-$key'),
+            value: key,
+            leading: icon(tileContext),
+            title: title(tileContext),
+            expandedNotifier: expandedNotifier,
+            showHighlight: false,
+            children: const [
+              Padding(
+                padding: EdgeInsetsDirectional.fromSTEB(16, 8, 16, 16),
+                child: Text('Failed to load this settings section.'),
+              ),
+            ],
+          );
+        }
+
         final tiles = snapshot.data;
         if (tiles == null) return const SizedBox();
 
