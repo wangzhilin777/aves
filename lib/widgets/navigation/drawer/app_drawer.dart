@@ -187,11 +187,12 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver, Feed
     final l10n = context.l10n;
 
     Future<void> goTo(String routeName, WidgetBuilder pageBuilder) async {
-      final navigator = Navigator.maybeOf(context);
-      navigator?.pop();
+      final localNavigator = Navigator.maybeOf(context);
+      final rootNavigator = Navigator.of(context, rootNavigator: true);
+      localNavigator?.pop();
       await Future.delayed(ADurations.drawerTransitionLoose);
       if (!mounted) return;
-      await navigator?.push(
+      await rootNavigator.push(
         MaterialPageRoute(
           settings: RouteSettings(name: routeName),
           builder: pageBuilder,

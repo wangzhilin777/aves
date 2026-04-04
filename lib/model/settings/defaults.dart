@@ -119,7 +119,7 @@ class SettingsDefaults {
   static const saveSearchHistory = true;
 
   // remote
-  static const remoteLogEnabled = true;
+  static const remoteLogEnabled = false;
   static const remoteWifiOnlyDownload = false;
   static const remotePinAtTop = true;
   static const remoteCacheInSmartCollections = false;

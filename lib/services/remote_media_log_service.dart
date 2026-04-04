@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/ref/mime_types.dart';
 import 'package:aves/services/common/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
@@ -20,6 +21,7 @@ class RemoteMediaLogService {
     bool force = false,
   }) async {
     if (!force && !settings.remoteLogEnabled) return;
+    if (!force && !_shouldPersistLog(topic, data)) return;
 
     final ts = DateFormat('yyyy-MM-dd HH:mm:ss.SSS').format(DateTime.now());
     final dataText = data == null || data.isEmpty ? '' : ' ${jsonEncode(data)}';
@@ -92,4 +94,31 @@ class RemoteMediaLogService {
   }
 
   static const int _maxRetainedExportFiles = 20;
+
+  bool _shouldPersistLog(String topic, Map<String, Object?>? data) {
+    if (data == null || data.isEmpty) return true;
+
+    final protocol = data['protocol'] as String?;
+    if (protocol != null && protocol.isNotEmpty) return true;
+
+    final uri = (data['uri'] ?? data['entryUri']) as String?;
+    final path = (data['path'] ?? data['entryPath']) as String?;
+    final isRemoteCached = data['isRemoteCached'] == true || data['isRemoteCachedMedia'] == true;
+    final isVirtualRemoteUri = uri != null && (uri.startsWith('http://') || uri.startsWith('https://') || uri.startsWith('aves-remote://'));
+    final isRemoteCachePath =
+        (uri != null && uri.contains('/cache/remote/')) ||
+        (path != null && (path.contains('${Platform.pathSeparator}cache${Platform.pathSeparator}remote${Platform.pathSeparator}') || path.contains('/cache/remote/')));
+
+    if (isRemoteCached || isVirtualRemoteUri || isRemoteCachePath) return true;
+
+    if (topic == 'local_cache_probe') {
+      return kDebugMode;
+    }
+
+    if (topic == 'autoplay') {
+      return false;
+    }
+
+    return true;
+  }
 }

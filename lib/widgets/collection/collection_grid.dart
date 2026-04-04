@@ -486,6 +486,21 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     _lastScrollIntentDirection = direction;
     _lastScrollIntentAt = DateTime.now();
     if (direction != ScrollDirection.idle) {
+      final currentPreviewEntry = widget.previewPlayingEntryNotifier.value;
+      if (currentPreviewEntry != null) {
+        final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(currentPreviewEntry);
+        if (remoteProtocol == RemoteProtocol.webdav) {
+          widget.previewPlayingEntryNotifier.value = null;
+        } else if (remoteProtocol == RemoteProtocol.ftp) {
+          widget.previewPlayingEntryNotifier.value = null;
+        } else if (remoteProtocol == RemoteProtocol.sftp) {
+          widget.previewPlayingEntryNotifier.value = null;
+        } else if (remoteProtocol == RemoteProtocol.smb) {
+          widget.previewPlayingEntryNotifier.value = null;
+        } else if (remoteProtocol == null && currentPreviewEntry.isVideo) {
+          widget.previewPlayingEntryNotifier.value = null;
+        }
+      }
       _onScrollOrLayoutChanged();
     }
   }
