@@ -129,6 +129,7 @@ class Tile extends StatelessWidget {
     // in this case we pause the image retrieval task to get it out of the queue
     cancellableNotifier: isScrollingNotifier,
     playbackFocusNotifier: playbackFocusNotifier,
+    isScrollingNotifier: isScrollingNotifier,
     selectable: selectable,
     highlightable: highlightable,
     heroTagger: heroTagger,

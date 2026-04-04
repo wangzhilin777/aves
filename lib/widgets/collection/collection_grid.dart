@@ -8,6 +8,7 @@ import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/favourites.dart';
 import 'package:aves/model/filters/favourite.dart';
 import 'package:aves/model/filters/mime.dart';
+import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/model/selection.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/model/source/collection_lens.dart';
@@ -364,6 +365,51 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   TileLayout get tileLayout => widget.tileLayout;
 
   ScrollController get scrollController => widget.scrollController;
+
+  String _remotePrefetchIdentity(AvesEntry entry) {
+    final ref = remoteMediaService.getVirtualRemoteRef(entry.uri);
+    final protocol = ref?.$1.protocol ?? remoteMediaService.getRemoteProtocolForEntry(entry);
+    if (protocol == RemoteProtocol.webdav && ref != null) {
+      return 'webdav:${ref.$1.id}:${ref.$2.path}';
+    } else if (protocol == RemoteProtocol.ftp && ref != null) {
+      return 'ftp:${ref.$1.id}:${ref.$2.path}';
+    } else if (protocol == RemoteProtocol.sftp && ref != null) {
+      return 'sftp:${ref.$1.id}:${ref.$2.path}';
+    } else if (protocol == RemoteProtocol.smb && ref != null) {
+      return 'smb:${ref.$1.id}:${ref.$2.path}';
+    } else if (protocol == null) {
+      return entry.uri;
+    }
+    return entry.uri;
+  }
+
+  int _imagePrefetchDedupeWindowMillis(AvesEntry anchor) {
+    final protocol = remoteMediaService.getVirtualRemoteRef(anchor.uri)?.$1.protocol ?? remoteMediaService.getRemoteProtocolForEntry(anchor);
+    if (protocol == RemoteProtocol.webdav) {
+      return 2800;
+    } else if (protocol == RemoteProtocol.ftp) {
+      return 1500;
+    } else if (protocol == RemoteProtocol.sftp) {
+      return 1500;
+    } else if (protocol == RemoteProtocol.smb) {
+      return 2800;
+    }
+    return 1500;
+  }
+
+  int _videoPreheatDedupeWindowMillis(AvesEntry anchor) {
+    final protocol = remoteMediaService.getVirtualRemoteRef(anchor.uri)?.$1.protocol ?? remoteMediaService.getRemoteProtocolForEntry(anchor);
+    if (protocol == RemoteProtocol.webdav) {
+      return 3200;
+    } else if (protocol == RemoteProtocol.ftp) {
+      return 1800;
+    } else if (protocol == RemoteProtocol.sftp) {
+      return 1800;
+    } else if (protocol == RemoteProtocol.smb) {
+      return 3200;
+    }
+    return 1800;
+  }
 
   @override
   void initState() {
@@ -835,8 +881,11 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       candidates.add(entry);
       if (candidates.length >= imagePreheatCount) break;
     }
-    final signature = '$focusIndex:${candidates.map((e) => e.uri).join('|')}';
-    final duplicated = signature == _lastPrefetchSignature && now.difference(_lastPrefetchAt).inMilliseconds < 1500;
+    final signature =
+        '$focusIndex:${_remotePrefetchIdentity(anchor)}:${candidates.map(_remotePrefetchIdentity).join('|')}';
+    final duplicated =
+        signature == _lastPrefetchSignature &&
+        now.difference(_lastPrefetchAt).inMilliseconds < _imagePrefetchDedupeWindowMillis(anchor);
     if (!duplicated && candidates.isNotEmpty) {
       _lastPrefetchSignature = signature;
       _lastPrefetchAt = now;
@@ -874,8 +923,10 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       if (nextVideos.length >= nextVideoPreheatCount) break;
     }
     if (nextVideos.isEmpty) return;
-    final videoSignature = '$focusIndex:${nextVideos.map((e) => e.uri).join('|')}';
-    if (_lastVideoPreheatSignature == videoSignature && now.difference(_lastVideoPreheatAt).inMilliseconds < 1800) {
+    final videoSignature =
+        '$focusIndex:${_remotePrefetchIdentity(anchor)}:${nextVideos.map(_remotePrefetchIdentity).join('|')}';
+    if (_lastVideoPreheatSignature == videoSignature &&
+        now.difference(_lastVideoPreheatAt).inMilliseconds < _videoPreheatDedupeWindowMillis(anchor)) {
       return;
     }
     _lastVideoPreheatSignature = videoSignature;

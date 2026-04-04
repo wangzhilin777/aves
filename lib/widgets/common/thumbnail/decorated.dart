@@ -26,6 +26,7 @@ class DecoratedThumbnail extends StatelessWidget {
   final double tileExtent;
   final ValueNotifier<bool>? cancellableNotifier;
   final ValueListenable<AvesEntry?>? playbackFocusNotifier;
+  final ValueListenable<bool>? isScrollingNotifier;
   final bool isMosaic, selectable, highlightable;
   final Object? Function()? heroTagger;
   final HeroPlaceholderBuilder? heroPlaceholderBuilder;
@@ -41,6 +42,7 @@ class DecoratedThumbnail extends StatelessWidget {
     required this.tileExtent,
     this.cancellableNotifier,
     this.playbackFocusNotifier,
+    this.isScrollingNotifier,
     this.isMosaic = false,
     this.selectable = true,
     this.highlightable = true,
@@ -95,6 +97,7 @@ class DecoratedThumbnail extends StatelessWidget {
               _AutoPlayVideoThumbnail(
                 entry: entry,
                 isCurrentNotifier: playbackFocusNotifier!,
+                isScrollingNotifier: isScrollingNotifier,
                 isMosaic: isMosaic,
                 tileExtent: tileExtent,
               ),
@@ -123,12 +126,14 @@ class DecoratedThumbnail extends StatelessWidget {
 class _AutoPlayVideoThumbnail extends StatefulWidget {
   final AvesEntry entry;
   final ValueListenable<AvesEntry?> isCurrentNotifier;
+  final ValueListenable<bool>? isScrollingNotifier;
   final bool isMosaic;
   final double tileExtent;
 
   const _AutoPlayVideoThumbnail({
     required this.entry,
     required this.isCurrentNotifier,
+    this.isScrollingNotifier,
     required this.isMosaic,
     required this.tileExtent,
   });
@@ -165,15 +170,49 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   String? _lastControllerLifecycleKey;
   String? _lastTileSurfaceSnapshotKey;
 
+  bool _shouldAttachPreheatedControllerForNonCurrentTile({
+    required RemoteProtocol remoteProtocol,
+    required AvesVideoController preheatedController,
+  }) {
+    if (remoteProtocol == RemoteProtocol.webdav) {
+      return !identical(_controller, preheatedController);
+    } else if (remoteProtocol == RemoteProtocol.ftp) {
+      return !identical(_controller, preheatedController);
+    } else if (remoteProtocol == RemoteProtocol.sftp) {
+      return !identical(_controller, preheatedController);
+    } else if (remoteProtocol == RemoteProtocol.smb) {
+      return !identical(_controller, preheatedController);
+    }
+    return true;
+  }
+
   bool _hasDecodedFrame(AvesVideoController? controller) {
     final decodedSize = controller?.decodedVideoSizeNotifier.value;
     return decodedSize != null && decodedSize.width > 1 && decodedSize.height > 1;
+  }
+
+  bool _shouldSuppressAutoPlayWhileScrolling(RemoteProtocol? remoteProtocol) {
+    final isScrolling = widget.isScrollingNotifier?.value == true;
+    if (!isScrolling) return false;
+    if (remoteProtocol == RemoteProtocol.webdav) {
+      return true;
+    } else if (remoteProtocol == RemoteProtocol.ftp) {
+      return true;
+    } else if (remoteProtocol == RemoteProtocol.sftp) {
+      return true;
+    } else if (remoteProtocol == RemoteProtocol.smb) {
+      return true;
+    } else if (remoteProtocol == null) {
+      return true;
+    }
+    return false;
   }
 
   @override
   void initState() {
     super.initState();
     widget.isCurrentNotifier.addListener(_onCurrentChanged);
+    widget.isScrollingNotifier?.addListener(_onCurrentChanged);
     _viewerEntryNotifier = context.read<ViewerEntryNotifier>();
     _viewerEntryNotifier?.addListener(_onCurrentChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _onCurrentChanged());
@@ -185,6 +224,10 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     if (oldWidget.isCurrentNotifier != widget.isCurrentNotifier) {
       oldWidget.isCurrentNotifier.removeListener(_onCurrentChanged);
       widget.isCurrentNotifier.addListener(_onCurrentChanged);
+    }
+    if (oldWidget.isScrollingNotifier != widget.isScrollingNotifier) {
+      oldWidget.isScrollingNotifier?.removeListener(_onCurrentChanged);
+      widget.isScrollingNotifier?.addListener(_onCurrentChanged);
     }
     if (oldWidget.entry != widget.entry) {
       _unbindController(_controller);
@@ -200,6 +243,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   @override
   void dispose() {
     widget.isCurrentNotifier.removeListener(_onCurrentChanged);
+    widget.isScrollingNotifier?.removeListener(_onCurrentChanged);
     _viewerEntryNotifier?.removeListener(_onCurrentChanged);
     _playToken++;
     _videoSurfaceRevealTimer?.cancel();
@@ -643,7 +687,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       );
       if (!isViewerActive && !isCurrent && remoteProtocol != null) {
         final preheatedController = conductor.getController(entry);
-        if (preheatedController != null) {
+        final shouldAttachPreheatedController =
+            preheatedController != null &&
+            _shouldAttachPreheatedControllerForNonCurrentTile(
+              remoteProtocol: remoteProtocol,
+              preheatedController: preheatedController,
+            );
+        if (shouldAttachPreheatedController) {
           _logControllerLifecycle(
             event: 'attach_preheated_controller_for_non_current_tile',
             controller: preheatedController,
@@ -655,12 +705,23 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           }
         }
       }
-      if (!_isAutoPlayEnabled(settings) || !isCurrent || isViewerActive) {
+      final suppressWhileScrolling = _shouldSuppressAutoPlayWhileScrolling(remoteProtocol);
+      if (!_isAutoPlayEnabled(settings) || !isCurrent || isViewerActive || suppressWhileScrolling) {
         final reason = !_isAutoPlayEnabled(settings)
             ? 'autoplay_disabled_by_setting'
             : isViewerActive
                 ? 'viewer_active'
-                : 'not_current_focus_item';
+                : suppressWhileScrolling
+                    ? remoteProtocol == RemoteProtocol.webdav
+                        ? 'webdav_scroll_suppressed'
+                        : remoteProtocol == RemoteProtocol.ftp
+                            ? 'ftp_scroll_suppressed'
+                            : remoteProtocol == RemoteProtocol.sftp
+                                ? 'sftp_scroll_suppressed'
+                                : remoteProtocol == RemoteProtocol.smb
+                                    ? 'smb_scroll_suppressed'
+                                    : 'local_scroll_suppressed'
+                    : 'not_current_focus_item';
         final decisionKey = '$reason:${entry.uri}';
         if (_lastDecisionKey != decisionKey) {
           _lastDecisionKey = decisionKey;
