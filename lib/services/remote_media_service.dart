@@ -133,6 +133,7 @@ class _ChunkFileSegment {
 }
 
 class RemoteMediaService {
+  static const _webDavDirectPassthroughThresholdBytes = 128 * 1024 * 1024;
   static const _streamChunkSizeBytes = 2 * 1024 * 1024;
   static const _smbStreamChunkSizeBytes = 4 * 1024 * 1024;
   static const _streamChunkCacheVersion = 4;
@@ -1971,6 +1972,37 @@ class RemoteMediaService {
       final metadata = await _fetchWebDavFileMetadata(server: server, node: node);
       return metadata['sizeBytes'] as int?;
     })() ?? 0;
+    final shouldUseDirectPassthrough = node.isVideo && totalLength >= _webDavDirectPassthroughThresholdBytes;
+    if (shouldUseDirectPassthrough) {
+      unawaited(
+        _warmupWebDavCompanionChunks(
+          server: server,
+          node: node,
+          targetUri: targetUri,
+          totalLength: totalLength,
+          trigger: 'webdav_direct_passthrough_proxy',
+        ),
+      );
+      await remoteMediaLogService.log(
+        'stream',
+        'serve large webdav stream through direct passthrough proxy with companion warmup',
+        data: {
+          'server': server.name,
+          'path': node.path,
+          'method': request.method,
+          'range': request.rangeHeader,
+          'sizeBytes': totalLength,
+          'thresholdBytes': _webDavDirectPassthroughThresholdBytes,
+        },
+      );
+      return _proxyWebDavPassthrough(
+        server: server,
+        node: node,
+        request: request,
+        targetUri: targetUri,
+      );
+    }
+
     if (totalLength > 0) {
       await remoteMediaLogService.log(
         'stream',
@@ -2010,6 +2042,84 @@ class RemoteMediaService {
       request: request,
       targetUri: targetUri,
     );
+  }
+
+  Future<void> _warmupWebDavCompanionChunks({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required Uri targetUri,
+    required int totalLength,
+    required String trigger,
+  }) async {
+    if (totalLength <= 0) return;
+
+    final warmupKey = 'webdav_passthrough_companion|${server.id}|${node.path}';
+    if (_cacheWarmupKeys.contains(warmupKey)) return;
+    _cacheWarmupKeys.add(warmupKey);
+    try {
+      final chunkSize = _chunkSizeForProtocol(server.protocol);
+      final ranges = <RemoteByteRange>[
+        RemoteByteRange(
+          start: 0,
+          endInclusive: min(totalLength - 1, chunkSize - 1),
+          totalLength: totalLength,
+        ),
+      ];
+      if (totalLength > chunkSize) {
+        final tailStart = max(0, totalLength - chunkSize);
+        if (!ranges.any((range) => range.start == tailStart && range.endInclusive == totalLength - 1)) {
+          ranges.add(
+            RemoteByteRange(
+              start: tailStart,
+              endInclusive: totalLength - 1,
+              totalLength: totalLength,
+            ),
+          );
+        }
+      }
+
+      await Future.wait([
+        for (final range in ranges)
+          _getOrCreateStreamChunkFile(
+            server: server,
+            node: node,
+            range: range,
+            fetchChunk: (chunkRange) => _fetchWebDavChunk(
+              server: server,
+              targetUri: targetUri,
+              path: node.path,
+              range: chunkRange,
+            ),
+          ),
+      ], eagerError: false);
+
+      await remoteMediaLogService.log(
+        'stream',
+        'prepared companion warmup chunks for direct passthrough webdav stream',
+        data: {
+          'trigger': trigger,
+          'server': server.name,
+          'path': node.path,
+          'sizeBytes': totalLength,
+          'ranges': ranges.map((range) => '${range.start}-${range.endInclusive}').toList(),
+        },
+      );
+    } catch (error, stack) {
+      await remoteMediaLogService.log(
+        'stream',
+        'failed companion warmup for direct passthrough webdav stream',
+        data: {
+          'trigger': trigger,
+          'server': server.name,
+          'path': node.path,
+          'sizeBytes': totalLength,
+          'error': '$error',
+          'stack': _trimStackTrace(stack),
+        },
+      );
+    } finally {
+      _cacheWarmupKeys.remove(warmupKey);
+    }
   }
 
   Future<RemoteProxyResponse> _proxyWebDavPassthrough({
