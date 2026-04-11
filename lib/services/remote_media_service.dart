@@ -134,6 +134,10 @@ class _ChunkFileSegment {
 
 class RemoteMediaService {
   static const _webDavDirectPassthroughThresholdBytes = 128 * 1024 * 1024;
+  static const _webDavPreviewPreheatDelayThresholdBytes = 128 * 1024 * 1024;
+  static const _ftpPreviewPreheatDelayThresholdBytes = 64 * 1024 * 1024;
+  static const _sftpPreviewPreheatDelayThresholdBytes = 64 * 1024 * 1024;
+  static const _smbPreviewPreheatDelayThresholdBytes = 96 * 1024 * 1024;
   static const _streamChunkSizeBytes = 2 * 1024 * 1024;
   static const _smbStreamChunkSizeBytes = 4 * 1024 * 1024;
   static const _streamChunkCacheVersion = 4;
@@ -391,6 +395,27 @@ class RemoteMediaService {
   (RemoteServer server, RemoteBrowseNode node)? getVirtualRemoteRef(String uri) => _virtualRemoteRefs[uri];
 
   RemoteProtocol? getRemoteProtocolForEntry(AvesEntry entry) => _virtualRemoteRefs[entry.uri]?.$1.protocol;
+
+  int? previewVideoPreheatDelayThresholdBytesForEntry(AvesEntry entry) {
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref == null || !entry.isVideo) return null;
+
+    return switch (ref.$1.protocol) {
+      RemoteProtocol.webdav => _webDavPreviewPreheatDelayThresholdBytes,
+      RemoteProtocol.ftp => _ftpPreviewPreheatDelayThresholdBytes,
+      RemoteProtocol.sftp => _sftpPreviewPreheatDelayThresholdBytes,
+      RemoteProtocol.smb => _smbPreviewPreheatDelayThresholdBytes,
+    };
+  }
+
+  bool shouldDelayPreviewVideoPreheatForEntry(AvesEntry entry) {
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref == null || !entry.isVideo) return false;
+
+    final threshold = previewVideoPreheatDelayThresholdBytesForEntry(entry);
+    final sizeBytes = ref.$2.sizeBytes ?? entry.sizeBytes ?? 0;
+    return threshold != null && sizeBytes >= threshold;
+  }
 
   Future<File?> bindExistingCacheFileForEntry(
     AvesEntry entry, {
@@ -1968,10 +1993,13 @@ class RemoteMediaService {
       throw StateError('Invalid WebDAV target URI');
     }
 
-    final totalLength = node.sizeBytes ?? await (() async {
-      final metadata = await _fetchWebDavFileMetadata(server: server, node: node);
-      return metadata['sizeBytes'] as int?;
-    })() ?? 0;
+    final totalLength =
+        node.sizeBytes ??
+        await (() async {
+          final metadata = await _fetchWebDavFileMetadata(server: server, node: node);
+          return metadata['sizeBytes'] as int?;
+        })() ??
+        0;
     final shouldUseDirectPassthrough = node.isVideo && totalLength >= _webDavDirectPassthroughThresholdBytes;
     if (shouldUseDirectPassthrough) {
       unawaited(
