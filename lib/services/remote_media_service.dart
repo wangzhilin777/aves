@@ -417,6 +417,15 @@ class RemoteMediaService {
     return threshold != null && sizeBytes >= threshold;
   }
 
+  bool isLargeRemoteVideoEntry(AvesEntry entry) {
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref == null || !entry.isVideo) return false;
+
+    final threshold = previewVideoPreheatDelayThresholdBytesForEntry(entry);
+    final sizeBytes = ref.$2.sizeBytes ?? entry.sizeBytes ?? 0;
+    return threshold != null && sizeBytes >= threshold;
+  }
+
   Future<File?> bindExistingCacheFileForEntry(
     AvesEntry entry, {
     String trigger = 'remote_entry_bind_existing_cache',

@@ -44,7 +44,7 @@ class VideoCover extends StatefulWidget {
 
 class _VideoCoverState extends State<VideoCover> {
   ImageStream? _videoCoverStream;
-  late ImageStreamListener _videoCoverStreamListener;
+  ImageStreamListener? _videoCoverStreamListener;
   final ValueNotifier<ImageInfo?> _videoCoverInfoNotifier = ValueNotifier(null);
   static const _remoteCoverGrace = Duration(milliseconds: 1400);
   static const _chunkedRemotePlaybackCoverGrace = Duration(milliseconds: 180);
@@ -76,6 +76,8 @@ class _VideoCoverState extends State<VideoCover> {
   // use the high res photo as cover for the video part of a motion photo
   ImageProvider get videoCoverUriImage => (mainEntry.isMotionPhoto ? mainEntry : entry).fullImage;
 
+  bool get _shouldSuppressConcurrentRemoteCoverImage => remoteMediaService.isLargeRemoteVideoEntry(entry) && (entry.uri.startsWith('http://') || entry.uri.startsWith('https://'));
+
   @override
   void initState() {
     super.initState();
@@ -106,14 +108,23 @@ class _VideoCoverState extends State<VideoCover> {
     _chunkedProgressCoverDeadline = null;
     _wasPlaying = false;
     _hadPlaybackProgress = false;
+    if (_shouldSuppressConcurrentRemoteCoverImage) {
+      _videoCoverStream = null;
+      _videoCoverInfoNotifier.value = null;
+      return;
+    }
     _videoCoverStreamListener = ImageStreamListener((image, _) => _videoCoverInfoNotifier.value = image);
     _videoCoverStream = videoCoverUriImage.resolve(ImageConfiguration.empty);
-    _videoCoverStream!.addListener(_videoCoverStreamListener);
+    _videoCoverStream!.addListener(_videoCoverStreamListener!);
   }
 
   void _unregisterWidget(VideoCover oldWidget) {
-    _videoCoverStream?.removeListener(_videoCoverStreamListener);
+    final listener = _videoCoverStreamListener;
+    if (listener != null) {
+      _videoCoverStream?.removeListener(listener);
+    }
     _videoCoverStream = null;
+    _videoCoverStreamListener = null;
     _videoCoverInfoNotifier.value = null;
   }
 
@@ -202,48 +213,41 @@ class _VideoCoverState extends State<VideoCover> {
                 _hadPlaybackProgress = currentPosition > 0;
                 final withinChunkedPlaybackCoverGrace = isRemoteStream && isChunkedRemoteProtocol && _chunkedPlaybackCoverDeadline != null && DateTime.now().isBefore(_chunkedPlaybackCoverDeadline!);
                 final withinChunkedProgressCoverGrace = isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressCoverDeadline != null && DateTime.now().isBefore(_chunkedProgressCoverDeadline!);
-                final hasFtpRenderableVisual =
-                    remoteProtocol == RemoteProtocol.ftp && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final hasFtpRenderableVisual = remoteProtocol == RemoteProtocol.ftp && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
                 final allowFtpDetailCoverDismiss = hasFtpRenderableVisual;
-                final allowSftpDetailCoverDismiss =
-                    remoteProtocol == RemoteProtocol.sftp && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
-                final allowSmbDetailCoverDismiss =
-                    remoteProtocol == RemoteProtocol.smb && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
-                final keepRemoteCoverUntilPlaying = isRemoteStream &&
+                final allowSftpDetailCoverDismiss = remoteProtocol == RemoteProtocol.sftp && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final allowSmbDetailCoverDismiss = remoteProtocol == RemoteProtocol.smb && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final keepRemoteCoverUntilPlaying =
+                    isRemoteStream &&
                     (isChunkedRemoteProtocol
                         ? (remoteProtocol == RemoteProtocol.ftp
-                            ? (!allowFtpDetailCoverDismiss && withinChunkedPlaybackCoverGrace)
-                            : remoteProtocol == RemoteProtocol.sftp
-                                ? (!allowSftpDetailCoverDismiss && withinChunkedPlaybackCoverGrace)
-                                : remoteProtocol == RemoteProtocol.smb
-                                    ? (!allowSmbDetailCoverDismiss && withinChunkedPlaybackCoverGrace)
-                                    : (!hasStableDetailFrame || withinChunkedPlaybackCoverGrace))
+                              ? (!allowFtpDetailCoverDismiss && withinChunkedPlaybackCoverGrace)
+                              : remoteProtocol == RemoteProtocol.sftp
+                              ? (!allowSftpDetailCoverDismiss && withinChunkedPlaybackCoverGrace)
+                              : remoteProtocol == RemoteProtocol.smb
+                              ? (!allowSmbDetailCoverDismiss && withinChunkedPlaybackCoverGrace)
+                              : (!hasStableDetailFrame || withinChunkedPlaybackCoverGrace))
                         : !videoController.isPlaying);
-                final keepRemoteCoverUntilProgressSettles = isRemoteStream &&
+                final keepRemoteCoverUntilProgressSettles =
+                    isRemoteStream &&
                     isChunkedRemoteProtocol &&
                     (remoteProtocol == RemoteProtocol.ftp
                         ? (withinChunkedProgressCoverGrace && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0))
                         : remoteProtocol == RemoteProtocol.sftp
-                            ? (withinChunkedProgressCoverGrace && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0))
-                            : remoteProtocol == RemoteProtocol.smb
-                                ? (withinChunkedProgressCoverGrace && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0))
-                                : withinChunkedProgressCoverGrace);
-                final shouldShowFtpErrorCover =
-                    remoteProtocol == RemoteProtocol.ftp && status == VideoStatus.error && isRemoteStream && !hasFtpRenderableVisual;
-                final shouldShowSftpErrorCover =
-                    remoteProtocol == RemoteProtocol.sftp && status == VideoStatus.error && isRemoteStream && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
-                final shouldShowSmbErrorCover =
-                    remoteProtocol == RemoteProtocol.smb && status == VideoStatus.error && isRemoteStream && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                        ? (withinChunkedProgressCoverGrace && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0))
+                        : remoteProtocol == RemoteProtocol.smb
+                        ? (withinChunkedProgressCoverGrace && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0))
+                        : withinChunkedProgressCoverGrace);
+                final shouldShowFtpErrorCover = remoteProtocol == RemoteProtocol.ftp && status == VideoStatus.error && isRemoteStream && !hasFtpRenderableVisual;
+                final shouldShowSftpErrorCover = remoteProtocol == RemoteProtocol.sftp && status == VideoStatus.error && isRemoteStream && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final shouldShowSmbErrorCover = remoteProtocol == RemoteProtocol.smb && status == VideoStatus.error && isRemoteStream && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
                 final shouldShowGenericRemoteErrorCover = status == VideoStatus.error && isRemoteStream && !isChunkedRemoteProtocol;
-                final shouldShowFtpNotReadyCover =
-                    remoteProtocol == RemoteProtocol.ftp && !videoController.isReady && !hasFtpRenderableVisual;
-                final shouldShowSftpNotReadyCover =
-                    remoteProtocol == RemoteProtocol.sftp && !videoController.isReady && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
-                final shouldShowSmbNotReadyCover =
-                    remoteProtocol == RemoteProtocol.smb && !videoController.isReady && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
-                final shouldShowGenericNotReadyCover =
-                    !videoController.isReady && !isChunkedRemoteProtocol;
-                final showCover = shouldShowFtpNotReadyCover ||
+                final shouldShowFtpNotReadyCover = remoteProtocol == RemoteProtocol.ftp && !videoController.isReady && !hasFtpRenderableVisual;
+                final shouldShowSftpNotReadyCover = remoteProtocol == RemoteProtocol.sftp && !videoController.isReady && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final shouldShowSmbNotReadyCover = remoteProtocol == RemoteProtocol.smb && !videoController.isReady && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final shouldShowGenericNotReadyCover = !videoController.isReady && !isChunkedRemoteProtocol;
+                final showCover =
+                    shouldShowFtpNotReadyCover ||
                     shouldShowSftpNotReadyCover ||
                     shouldShowSmbNotReadyCover ||
                     shouldShowGenericNotReadyCover ||
