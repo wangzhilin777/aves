@@ -359,6 +359,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   DateTime _lastFocusChangeAt = DateTime.fromMillisecondsSinceEpoch(0);
   ScrollDirection _lastScrollIntentDirection = ScrollDirection.idle;
   DateTime _lastScrollIntentAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _prefetchRequestToken = 0;
 
   CollectionLens get collection => widget.collection;
 
@@ -678,13 +679,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
 
     final now = DateTime.now();
     final withinEdgeCooldown = now.difference(_lastEdgeFocusAt) < const Duration(milliseconds: 900);
-    final currentFocusVisible =
-        currentFocus != null &&
-        currentFocusIndex >= 0 &&
-        firstVisibleIndex >= 0 &&
-        lastVisibleIndex >= 0 &&
-        currentFocusIndex >= firstVisibleIndex &&
-        currentFocusIndex <= lastVisibleIndex;
+    final currentFocusVisible = currentFocus != null && currentFocusIndex >= 0 && firstVisibleIndex >= 0 && lastVisibleIndex >= 0 && currentFocusIndex >= firstVisibleIndex && currentFocusIndex <= lastVisibleIndex;
     if (withinEdgeCooldown && currentFocusVisible && currentFocus.isVideo) {
       return currentFocus;
     }
@@ -801,10 +796,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       return;
     }
 
-    final rapidVideoRetarget =
-        current?.isVideo == true &&
-        target?.isVideo == true &&
-        now.difference(_lastFocusChangeAt) < const Duration(milliseconds: 700);
+    final rapidVideoRetarget = current?.isVideo == true && target?.isVideo == true && now.difference(_lastFocusChangeAt) < const Duration(milliseconds: 700);
     if (rapidVideoRetarget && _lastScrollSpeedPxPerSecond < 900) {
       return;
     }
@@ -867,6 +859,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   Future<void> _prefetchRemoteWindow(AvesEntry? anchor) async {
     if (anchor == null || !mounted) return;
     if (!settings.remotePreviewPreheatEnabled) return;
+    final requestToken = ++_prefetchRequestToken;
     final now = DateTime.now();
     final fastScrollActive = widget.isScrollingNotifier.value && _lastScrollSpeedPxPerSecond >= 900;
     final fastScrollRecently = now.difference(_lastFastScrollAt).inMilliseconds < 650;
@@ -910,11 +903,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       candidates.add(entry);
       if (candidates.length >= imagePreheatCount) break;
     }
-    final signature =
-        '$focusIndex:${_remotePrefetchIdentity(anchor)}:${candidates.map(_remotePrefetchIdentity).join('|')}';
-    final duplicated =
-        signature == _lastPrefetchSignature &&
-        now.difference(_lastPrefetchAt).inMilliseconds < _imagePrefetchDedupeWindowMillis(anchor);
+    final signature = '$focusIndex:${_remotePrefetchIdentity(anchor)}:${candidates.map(_remotePrefetchIdentity).join('|')}';
+    final duplicated = signature == _lastPrefetchSignature && now.difference(_lastPrefetchAt).inMilliseconds < _imagePrefetchDedupeWindowMillis(anchor);
     if (!duplicated && candidates.isNotEmpty) {
       _lastPrefetchSignature = signature;
       _lastPrefetchAt = now;
@@ -952,10 +942,15 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       if (nextVideos.length >= nextVideoPreheatCount) break;
     }
     if (nextVideos.isEmpty) return;
-    final videoSignature =
-        '$focusIndex:${_remotePrefetchIdentity(anchor)}:${nextVideos.map(_remotePrefetchIdentity).join('|')}';
-    if (_lastVideoPreheatSignature == videoSignature &&
-        now.difference(_lastVideoPreheatAt).inMilliseconds < _videoPreheatDedupeWindowMillis(anchor)) {
+    if (!_isActivePrefetchRequest(anchor, requestToken)) return;
+    final shouldDelayForCurrentLargePreview = remoteMediaService.shouldDelayPreviewVideoPreheatForEntry(anchor);
+    if (shouldDelayForCurrentLargePreview) {
+      final ready = await _waitForLargePreviewPlaybackStable(anchor, requestToken);
+      if (!ready) return;
+    }
+    if (!_isActivePrefetchRequest(anchor, requestToken)) return;
+    final videoSignature = '$focusIndex:${_remotePrefetchIdentity(anchor)}:${nextVideos.map(_remotePrefetchIdentity).join('|')}';
+    if (_lastVideoPreheatSignature == videoSignature && now.difference(_lastVideoPreheatAt).inMilliseconds < _videoPreheatDedupeWindowMillis(anchor)) {
       return;
     }
     _lastVideoPreheatSignature = videoSignature;
@@ -963,6 +958,70 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     for (final nextVideo in nextVideos) {
       await _preheatNextRemoteVideo(nextVideo, anchor);
     }
+  }
+
+  bool _isActivePrefetchRequest(AvesEntry anchor, int requestToken) {
+    return mounted && _prefetchRequestToken == requestToken && widget.previewPlayingEntryNotifier.value?.uri == anchor.uri;
+  }
+
+  bool _hasStablePreviewPlayback(AvesVideoController controller) {
+    return controller.isReady && controller.isPlaying && _hasRenderablePreheatFrame(controller) && controller.currentPosition >= 120;
+  }
+
+  Future<bool> _waitForLargePreviewPlaybackStable(AvesEntry anchor, int requestToken) async {
+    final thresholdBytes = remoteMediaService.previewVideoPreheatDelayThresholdBytesForEntry(anchor);
+    final sizeBytes = remoteMediaService.getVirtualRemoteRef(anchor.uri)?.$2.sizeBytes ?? anchor.sizeBytes;
+    await remoteMediaLogService.log(
+      'stream',
+      'delay next video preview preheat until large current preview becomes stable',
+      data: {
+        'focusUri': anchor.uri,
+        'sizeBytes': sizeBytes,
+        'thresholdBytes': thresholdBytes,
+      },
+    );
+
+    final conductor = context.read<VideoConductor>();
+    final deadline = DateTime.now().add(const Duration(milliseconds: 3200));
+    while (DateTime.now().isBefore(deadline)) {
+      if (!_isActivePrefetchRequest(anchor, requestToken)) return false;
+
+      final controller = conductor.getController(anchor);
+      if (controller != null && _hasStablePreviewPlayback(controller)) {
+        await Future.delayed(const Duration(milliseconds: 260));
+        if (_isActivePrefetchRequest(anchor, requestToken) && _hasStablePreviewPlayback(controller)) {
+          await remoteMediaLogService.log(
+            'stream',
+            'large current preview became stable, resume next video preview preheat',
+            data: {
+              'focusUri': anchor.uri,
+              'sizeBytes': sizeBytes,
+              'positionMillis': controller.currentPosition,
+            },
+          );
+          return true;
+        }
+      }
+
+      await Future.delayed(const Duration(milliseconds: 120));
+    }
+
+    await remoteMediaLogService.log(
+      'stream',
+      'large current preview did not stabilize before next video preheat window timed out',
+      data: {
+        'focusUri': anchor.uri,
+        'sizeBytes': sizeBytes,
+      },
+    );
+    _deferredPrefetchTimer?.cancel();
+    _deferredPrefetchTimer = Timer(const Duration(milliseconds: 700), () {
+      if (!mounted || widget.isScrollingNotifier.value) return;
+      final current = widget.previewPlayingEntryNotifier.value;
+      if (current?.uri != anchor.uri) return;
+      unawaited(_prefetchRemoteWindow(anchor));
+    });
+    return false;
   }
 
   Future<void> _preheatNextRemoteVideo(AvesEntry entry, AvesEntry focusAnchor) async {
@@ -1006,8 +1065,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
           completer.complete();
         }
 
-        sizeListener = () => completeIfReady();
-        frameListener = () => completeIfReady();
+        sizeListener = completeIfReady;
+        frameListener = completeIfReady;
         controller.decodedVideoSizeNotifier.addListener(sizeListener);
         controller.firstFrameRenderedNotifier.addListener(frameListener);
         positionSub = controller.positionStream.listen((position) {
