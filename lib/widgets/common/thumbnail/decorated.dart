@@ -69,15 +69,31 @@ class DecoratedThumbnail extends StatelessWidget {
           thumbnailWidth = tileExtent;
         }
 
-        Widget child = ThumbnailImage(
-          entry: entry,
-          extent: tileExtent,
-          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-          isMosaic: isMosaic,
-          cancellableNotifier: cancellableNotifier,
-          heroTag: heroTagger?.call(),
-          heroPlaceholderBuilder: heroPlaceholderBuilder,
-        );
+        Widget buildBaseThumbnail({required bool suppressForLargeRemoteCurrentVideo}) {
+          if (suppressForLargeRemoteCurrentVideo) {
+            return const SizedBox.expand();
+          }
+          return ThumbnailImage(
+            entry: entry,
+            extent: tileExtent,
+            devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+            isMosaic: isMosaic,
+            cancellableNotifier: cancellableNotifier,
+            heroTag: heroTagger?.call(),
+            heroPlaceholderBuilder: heroPlaceholderBuilder,
+          );
+        }
+
+        final shouldWatchCurrentVideoState = playbackFocusNotifier != null && entry.isVideo;
+        Widget child = shouldWatchCurrentVideoState
+            ? ValueListenableBuilder<AvesEntry?>(
+                valueListenable: playbackFocusNotifier!,
+                builder: (context, currentEntry, _) {
+                  final suppressForLargeRemoteCurrentVideo = currentEntry?.uri == entry.uri && remoteMediaService.isLargeRemoteVideoEntry(entry);
+                  return buildBaseThumbnail(suppressForLargeRemoteCurrentVideo: suppressForLargeRemoteCurrentVideo);
+                },
+              )
+            : buildBaseThumbnail(suppressForLargeRemoteCurrentVideo: false);
 
         child = Stack(
           fit: StackFit.passthrough,
@@ -342,8 +358,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     Map<String, Object?> extra = const {},
   }) {
     if (!settings.remoteLogEnabled) return;
-    final key =
-        '$event|${entry.uri}|${isCurrent}|${controller?.hashCode}|${previousController?.hashCode}|${controller?.status.name}|${controller?.isPlaying}|${controller?.isReady}|${_viewerEntryNotifier?.value?.uri}|${extra.toString()}';
+    final key = '$event|$entry.uri|$isCurrent|${controller?.hashCode}|${previousController?.hashCode}|${controller?.status.name}|${controller?.isPlaying}|${controller?.isReady}|${_viewerEntryNotifier?.value?.uri}|$extra';
     if (_lastControllerLifecycleKey == key) return;
     _lastControllerLifecycleKey = key;
     unawaited(
@@ -432,7 +447,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   }) {
     if (!settings.remoteLogEnabled) return;
     final key =
-        '$event|${controller.status.name}|${controller.isPlaying}|${controller.isReady}|$hasDecodedFrame|$hasFirstFrameRendered|${_hasPlaybackProgress}|$hasRenderableFrame|$holdLastFrame|$inChunkedErrorCooldown|$currentReadyForReveal|$canReveal|$_videoSurfaceVisible|${_videoSurfaceRevealTimer != null}|$isCurrent|${_viewerEntryNotifier?.value != null}';
+        '$event|${controller.status.name}|${controller.isPlaying}|${controller.isReady}|$hasDecodedFrame|$hasFirstFrameRendered|$_hasPlaybackProgress|$hasRenderableFrame|$holdLastFrame|$inChunkedErrorCooldown|$currentReadyForReveal|$canReveal|$_videoSurfaceVisible|${_videoSurfaceRevealTimer != null}|$isCurrent|${_viewerEntryNotifier?.value != null}';
     if (_lastSurfaceDecisionKey == key) return;
     _lastSurfaceDecisionKey = key;
     unawaited(
@@ -486,52 +501,30 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     }
     final keepLastFrameVisible = controller.status == VideoStatus.paused || controller.status == VideoStatus.completed;
     final isRemotePreviewCandidate = isRemoteManagedEntry && !controller.isPlaying;
-    final keepPreviewFrameVisibleOnChunkedError =
-        isCurrent &&
-        isChunkedRemotePreview &&
-        controller.status == VideoStatus.error &&
-        (isFtpPreview ? hasFirstFrameRendered : hasPreviewFrame);
+    final keepPreviewFrameVisibleOnChunkedError = isCurrent && isChunkedRemotePreview && controller.status == VideoStatus.error && (isFtpPreview ? hasFirstFrameRendered : hasPreviewFrame);
     final holdLastFrame = (keepLastFrameVisible && hasRenderableFrame) || keepPreviewFrameVisibleOnChunkedError;
     final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
-    final inChunkedErrorCooldown =
-        isChunkedRemotePreview &&
-        errorCooldownStartedAt != null &&
-        DateTime.now().millisecondsSinceEpoch - errorCooldownStartedAt < 4000;
+    final inChunkedErrorCooldown = isChunkedRemotePreview && errorCooldownStartedAt != null && DateTime.now().millisecondsSinceEpoch - errorCooldownStartedAt < 4000;
     final currentReadyForReveal = isCurrent
         ? isFtpPreview
               ? (holdLastFrame || hasFirstFrameRendered || keepPreviewFrameVisibleOnChunkedError)
               : isSftpPreview
-                  ? (holdLastFrame || hasPreviewFrame || keepPreviewFrameVisibleOnChunkedError)
-                  : isSmbPreview
-                      ? (holdLastFrame || hasPreviewFrame || keepPreviewFrameVisibleOnChunkedError)
-                      : remoteProtocol == RemoteProtocol.webdav
-                          ? (holdLastFrame || hasRenderableFrame)
-                          : isRemoteManagedEntry
-                              ? (holdLastFrame || hasRenderableFrame)
-                              : (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame)
+              ? (holdLastFrame || hasPreviewFrame || keepPreviewFrameVisibleOnChunkedError)
+              : isSmbPreview
+              ? (holdLastFrame || hasPreviewFrame || keepPreviewFrameVisibleOnChunkedError)
+              : remoteProtocol == RemoteProtocol.webdav
+              ? (holdLastFrame || hasRenderableFrame)
+              : isRemoteManagedEntry
+              ? (holdLastFrame || hasRenderableFrame)
+              : (keepLastFrameVisible || controller.isPlaying || hasDecodedFrame)
         : false;
-    final suppressNonCurrentWebdavPreviewSurfaceWhileScrolling =
-        !isCurrent && isWebdavPreview && widget.isScrollingNotifier?.value == true;
-    final suppressNonCurrentFtpPreviewSurfaceWhileScrolling =
-        !isCurrent && isFtpPreview && widget.isScrollingNotifier?.value == true;
-    final suppressNonCurrentSftpPreviewSurfaceWhileScrolling =
-        !isCurrent && isSftpPreview && widget.isScrollingNotifier?.value == true;
-    final suppressNonCurrentSmbPreviewSurfaceWhileScrolling =
-        !isCurrent && isSmbPreview && widget.isScrollingNotifier?.value == true;
+    final suppressNonCurrentWebdavPreviewSurfaceWhileScrolling = !isCurrent && isWebdavPreview && widget.isScrollingNotifier?.value == true;
+    final suppressNonCurrentFtpPreviewSurfaceWhileScrolling = !isCurrent && isFtpPreview && widget.isScrollingNotifier?.value == true;
+    final suppressNonCurrentSftpPreviewSurfaceWhileScrolling = !isCurrent && isSftpPreview && widget.isScrollingNotifier?.value == true;
+    final suppressNonCurrentSmbPreviewSurfaceWhileScrolling = !isCurrent && isSmbPreview && widget.isScrollingNotifier?.value == true;
     final suppressNonCurrentRemotePreviewSurfaceWhileScrolling =
-        suppressNonCurrentWebdavPreviewSurfaceWhileScrolling ||
-        suppressNonCurrentFtpPreviewSurfaceWhileScrolling ||
-        suppressNonCurrentSftpPreviewSurfaceWhileScrolling ||
-        suppressNonCurrentSmbPreviewSurfaceWhileScrolling;
-    final canReveal =
-        !isViewerActive &&
-        !suppressNonCurrentRemotePreviewSurfaceWhileScrolling &&
-        ((currentReadyForReveal) ||
-            (!isCurrent &&
-                isRemotePreviewCandidate &&
-                !isChunkedRemotePreview &&
-                holdLastFrame &&
-                hasRenderableFrame));
+        suppressNonCurrentWebdavPreviewSurfaceWhileScrolling || suppressNonCurrentFtpPreviewSurfaceWhileScrolling || suppressNonCurrentSftpPreviewSurfaceWhileScrolling || suppressNonCurrentSmbPreviewSurfaceWhileScrolling;
+    final canReveal = !isViewerActive && !suppressNonCurrentRemotePreviewSurfaceWhileScrolling && ((currentReadyForReveal) || (!isCurrent && isRemotePreviewCandidate && !isChunkedRemotePreview && holdLastFrame && hasRenderableFrame));
     if (!canReveal) {
       _logSurfaceDecision(
         event: _videoSurfaceVisible ? 'hide_surface' : 'cannot_reveal_surface',
@@ -590,18 +583,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final isActiveRemoteManagedEntry = activeRemoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
       final activeHasDecodedFrame = _hasDecodedFrame(activeController);
       final activeHasFirstFrameRendered = activeController.firstFrameRenderedNotifier.value;
-      final activeHasRenderableFrame =
-          activeHasDecodedFrame || activeHasFirstFrameRendered || _hasPlaybackProgress || activeController.currentPosition > 0;
+      final activeHasRenderableFrame = activeHasDecodedFrame || activeHasFirstFrameRendered || _hasPlaybackProgress || activeController.currentPosition > 0;
       final activeKeepLastFrameVisible = activeController.status == VideoStatus.paused || activeController.status == VideoStatus.completed;
-      final activeIsChunkedRemotePreview =
-          activeRemoteProtocol == RemoteProtocol.ftp || activeRemoteProtocol == RemoteProtocol.sftp || activeRemoteProtocol == RemoteProtocol.smb;
+      final activeIsChunkedRemotePreview = activeRemoteProtocol == RemoteProtocol.ftp || activeRemoteProtocol == RemoteProtocol.sftp || activeRemoteProtocol == RemoteProtocol.smb;
       final isActiveRemotePreviewCandidate = isActiveRemoteManagedEntry && !activeController.isPlaying;
       final activeHoldLastFrame = activeKeepLastFrameVisible && activeHasRenderableFrame;
       final activeErrorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
-      final activeInChunkedErrorCooldown =
-          activeIsChunkedRemotePreview &&
-          activeErrorCooldownStartedAt != null &&
-          DateTime.now().millisecondsSinceEpoch - activeErrorCooldownStartedAt < 4000;
+      final activeInChunkedErrorCooldown = activeIsChunkedRemotePreview && activeErrorCooldownStartedAt != null && DateTime.now().millisecondsSinceEpoch - activeErrorCooldownStartedAt < 4000;
       final activeIsFtpPreview = activeRemoteProtocol == RemoteProtocol.ftp;
       final activeIsSftpPreview = activeRemoteProtocol == RemoteProtocol.sftp;
       final activeIsSmbPreview = activeRemoteProtocol == RemoteProtocol.smb;
@@ -610,37 +598,25 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           ? activeIsFtpPreview
                 ? (activeHoldLastFrame || activeController.firstFrameRenderedNotifier.value)
                 : activeIsSftpPreview
-                    ? (activeHoldLastFrame || activeHasDecodedFrame || activeHasFirstFrameRendered || _hasPlaybackProgress || activeController.currentPosition > 0)
-                    : activeIsSmbPreview
-                        ? (activeHoldLastFrame || activeHasDecodedFrame || activeHasFirstFrameRendered || _hasPlaybackProgress || activeController.currentPosition > 0)
-                        : activeIsChunkedRemotePreview
-                            ? (activeHoldLastFrame || activeController.isPlaying || (activeInChunkedErrorCooldown && _playRequestedForCurrentFocus))
-                            : isActiveRemoteManagedEntry
-                                ? (activeHoldLastFrame || activeHasRenderableFrame)
-                                : (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame)
+                ? (activeHoldLastFrame || activeHasDecodedFrame || activeHasFirstFrameRendered || _hasPlaybackProgress || activeController.currentPosition > 0)
+                : activeIsSmbPreview
+                ? (activeHoldLastFrame || activeHasDecodedFrame || activeHasFirstFrameRendered || _hasPlaybackProgress || activeController.currentPosition > 0)
+                : activeIsChunkedRemotePreview
+                ? (activeHoldLastFrame || activeController.isPlaying || (activeInChunkedErrorCooldown && _playRequestedForCurrentFocus))
+                : isActiveRemoteManagedEntry
+                ? (activeHoldLastFrame || activeHasRenderableFrame)
+                : (activeKeepLastFrameVisible || activeController.isPlaying || activeHasDecodedFrame)
           : false;
-      final suppressNonCurrentWebdavPreviewSurfaceWhileScrolling =
-          !isCurrent && activeIsWebdavPreview && widget.isScrollingNotifier?.value == true;
-      final suppressNonCurrentFtpPreviewSurfaceWhileScrolling =
-          !isCurrent && activeIsFtpPreview && widget.isScrollingNotifier?.value == true;
-      final suppressNonCurrentSftpPreviewSurfaceWhileScrolling =
-          !isCurrent && activeIsSftpPreview && widget.isScrollingNotifier?.value == true;
-      final suppressNonCurrentSmbPreviewSurfaceWhileScrolling =
-          !isCurrent && activeIsSmbPreview && widget.isScrollingNotifier?.value == true;
+      final suppressNonCurrentWebdavPreviewSurfaceWhileScrolling = !isCurrent && activeIsWebdavPreview && widget.isScrollingNotifier?.value == true;
+      final suppressNonCurrentFtpPreviewSurfaceWhileScrolling = !isCurrent && activeIsFtpPreview && widget.isScrollingNotifier?.value == true;
+      final suppressNonCurrentSftpPreviewSurfaceWhileScrolling = !isCurrent && activeIsSftpPreview && widget.isScrollingNotifier?.value == true;
+      final suppressNonCurrentSmbPreviewSurfaceWhileScrolling = !isCurrent && activeIsSmbPreview && widget.isScrollingNotifier?.value == true;
       final suppressNonCurrentRemotePreviewSurfaceWhileScrolling =
-          suppressNonCurrentWebdavPreviewSurfaceWhileScrolling ||
-          suppressNonCurrentFtpPreviewSurfaceWhileScrolling ||
-          suppressNonCurrentSftpPreviewSurfaceWhileScrolling ||
-          suppressNonCurrentSmbPreviewSurfaceWhileScrolling;
+          suppressNonCurrentWebdavPreviewSurfaceWhileScrolling || suppressNonCurrentFtpPreviewSurfaceWhileScrolling || suppressNonCurrentSftpPreviewSurfaceWhileScrolling || suppressNonCurrentSmbPreviewSurfaceWhileScrolling;
       final shouldReveal =
           (_viewerEntryNotifier?.value == null) &&
           !suppressNonCurrentRemotePreviewSurfaceWhileScrolling &&
-          ((currentReadyForReveal) ||
-              (!isCurrent &&
-                  isActiveRemotePreviewCandidate &&
-                  !activeIsChunkedRemotePreview &&
-                  activeHoldLastFrame &&
-                  activeHasRenderableFrame));
+          ((currentReadyForReveal) || (!isCurrent && isActiveRemotePreviewCandidate && !activeIsChunkedRemotePreview && activeHoldLastFrame && activeHasRenderableFrame));
       if (!shouldReveal || _videoSurfaceVisible) {
         _logSurfaceDecision(
           event: !shouldReveal ? 'reveal_timer_completed_without_reveal' : 'reveal_timer_completed_but_already_visible',
@@ -779,18 +755,18 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         final reason = !_isAutoPlayEnabled(settings)
             ? 'autoplay_disabled_by_setting'
             : isViewerActive
-                ? 'viewer_active'
-                : suppressWhileScrolling
-                    ? remoteProtocol == RemoteProtocol.webdav
-                        ? 'webdav_scroll_suppressed'
-                        : remoteProtocol == RemoteProtocol.ftp
-                            ? 'ftp_scroll_suppressed'
-                            : remoteProtocol == RemoteProtocol.sftp
-                                ? 'sftp_scroll_suppressed'
-                                : remoteProtocol == RemoteProtocol.smb
-                                    ? 'smb_scroll_suppressed'
-                                    : 'local_scroll_suppressed'
-                    : 'not_current_focus_item';
+            ? 'viewer_active'
+            : suppressWhileScrolling
+            ? remoteProtocol == RemoteProtocol.webdav
+                  ? 'webdav_scroll_suppressed'
+                  : remoteProtocol == RemoteProtocol.ftp
+                  ? 'ftp_scroll_suppressed'
+                  : remoteProtocol == RemoteProtocol.sftp
+                  ? 'sftp_scroll_suppressed'
+                  : remoteProtocol == RemoteProtocol.smb
+                  ? 'smb_scroll_suppressed'
+                  : 'local_scroll_suppressed'
+            : 'not_current_focus_item';
         final decisionKey = '$reason:${entry.uri}';
         if (_lastDecisionKey != decisionKey) {
           _lastDecisionKey = decisionKey;
@@ -860,8 +836,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           trigger: 'grid_preview',
           allowDownload: false,
         );
-        if ((remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb) &&
-            existingCacheFile == null) {
+        if ((remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb) && existingCacheFile == null) {
           await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview_pre_controller');
         }
         if (remoteProtocol == RemoteProtocol.smb && existingCacheFile == null) {
@@ -1100,85 +1075,59 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             final isViewerActive = _viewerEntryNotifier?.value != null;
             final isRemoteManagedEntry = remoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
             final suppressNonCurrentChunkedPreviewSurface = isChunkedRemotePreview && !isCurrent;
-            final suppressNonCurrentWebdavPreviewSurfaceWhileScrolling =
-                !isCurrent && isWebdavPreview && widget.isScrollingNotifier?.value == true;
-            final suppressNonCurrentFtpPreviewSurfaceWhileScrolling =
-                !isCurrent && isFtpPreview && widget.isScrollingNotifier?.value == true;
-            final suppressNonCurrentSftpPreviewSurfaceWhileScrolling =
-                !isCurrent && isSftpPreview && widget.isScrollingNotifier?.value == true;
-            final suppressNonCurrentSmbPreviewSurfaceWhileScrolling =
-                !isCurrent && isSmbPreview && widget.isScrollingNotifier?.value == true;
+            final suppressNonCurrentWebdavPreviewSurfaceWhileScrolling = !isCurrent && isWebdavPreview && widget.isScrollingNotifier?.value == true;
+            final suppressNonCurrentFtpPreviewSurfaceWhileScrolling = !isCurrent && isFtpPreview && widget.isScrollingNotifier?.value == true;
+            final suppressNonCurrentSftpPreviewSurfaceWhileScrolling = !isCurrent && isSftpPreview && widget.isScrollingNotifier?.value == true;
+            final suppressNonCurrentSmbPreviewSurfaceWhileScrolling = !isCurrent && isSmbPreview && widget.isScrollingNotifier?.value == true;
             final suppressNonCurrentRemotePreviewSurfaceWhileScrolling =
-                suppressNonCurrentWebdavPreviewSurfaceWhileScrolling ||
-                suppressNonCurrentFtpPreviewSurfaceWhileScrolling ||
-                suppressNonCurrentSftpPreviewSurfaceWhileScrolling ||
-                suppressNonCurrentSmbPreviewSurfaceWhileScrolling;
+                suppressNonCurrentWebdavPreviewSurfaceWhileScrolling || suppressNonCurrentFtpPreviewSurfaceWhileScrolling || suppressNonCurrentSftpPreviewSurfaceWhileScrolling || suppressNonCurrentSmbPreviewSurfaceWhileScrolling;
             final errorCooldownStartedAt = _lastAutoPlayErrorAtMillisByUri[entry.uri];
-            final inChunkedErrorCooldown =
-                isChunkedRemotePreview &&
-                errorCooldownStartedAt != null &&
-                DateTime.now().millisecondsSinceEpoch - errorCooldownStartedAt < 4000;
-            final keepPreviewFrameVisibleOnChunkedError =
-                isCurrent &&
-                isChunkedRemotePreview &&
-                controller.status == VideoStatus.error &&
-                (isFtpPreview ? hasFirstFrameRendered : hasPreviewFrame);
+            final inChunkedErrorCooldown = isChunkedRemotePreview && errorCooldownStartedAt != null && DateTime.now().millisecondsSinceEpoch - errorCooldownStartedAt < 4000;
+            final keepPreviewFrameVisibleOnChunkedError = isCurrent && isChunkedRemotePreview && controller.status == VideoStatus.error && (isFtpPreview ? hasFirstFrameRendered : hasPreviewFrame);
             final holdLastFrame = (keepLastFrameVisible && hasRenderableFrame) || keepPreviewFrameVisibleOnChunkedError;
-            final ftpForceVisible =
-                isCurrent &&
-                _playRequestedForCurrentFocus &&
-                hasFirstFrameRendered;
+            final ftpForceVisible = isCurrent && _playRequestedForCurrentFocus && hasFirstFrameRendered;
             final sftpForceVisible = isCurrent && _playRequestedForCurrentFocus && hasPreviewFrame;
             final smbForceVisible = isCurrent && _playRequestedForCurrentFocus && hasPreviewFrame;
-            final webdavForceVisible =
-                isCurrent && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
+            final webdavForceVisible = isCurrent && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
             final remoteForceVisible = isFtpPreview
                 ? ftpForceVisible
                 : isSftpPreview
-                    ? sftpForceVisible
-                    : isSmbPreview
-                        ? smbForceVisible
-                        : isWebdavPreview
-                            ? webdavForceVisible
-                            : false;
+                ? sftpForceVisible
+                : isSmbPreview
+                ? smbForceVisible
+                : isWebdavPreview
+                ? webdavForceVisible
+                : false;
             final currentProtocolShow = isFtpPreview
                 ? holdLastFrame
                 : isSftpPreview
-                    ? holdLastFrame
-                    : isSmbPreview
-                        ? holdLastFrame
-                        : isWebdavPreview
-                            ? holdLastFrame
-                            : isRemoteManagedEntry
-                                ? (keepLastFrameVisible && hasRenderableFrame)
-                                : (keepLastFrameVisible || hasDecodedFrame);
-            final nonCurrentRemoteShow = !isCurrent &&
-                    isRemoteManagedEntry
+                ? holdLastFrame
+                : isSmbPreview
+                ? holdLastFrame
+                : isWebdavPreview
+                ? holdLastFrame
+                : isRemoteManagedEntry
+                ? (keepLastFrameVisible && hasRenderableFrame)
+                : (keepLastFrameVisible || hasDecodedFrame);
+            final nonCurrentRemoteShow = !isCurrent && isRemoteManagedEntry
                 ? (isFtpPreview
-                    ? false
-                    : isSftpPreview
-                        ? false
-                        : isSmbPreview
-                            ? false
-                            : isWebdavPreview
-                                ? false
-                                : (keepLastFrameVisible && hasRenderableFrame))
+                      ? false
+                      : isSftpPreview
+                      ? false
+                      : isSmbPreview
+                      ? false
+                      : isWebdavPreview
+                      ? false
+                      : (keepLastFrameVisible && hasRenderableFrame))
                 : false;
             final hideFtpPreviewWhileViewerActive = isViewerActive && isFtpPreview;
             final hideSftpPreviewWhileViewerActive = isViewerActive && isSftpPreview;
             final hideSmbPreviewWhileViewerActive = isViewerActive && isSmbPreview;
             final hideWebdavPreviewWhileViewerActive = isViewerActive && isWebdavPreview;
-            final hideChunkedPreviewWhileViewerActive =
-                hideFtpPreviewWhileViewerActive || hideSftpPreviewWhileViewerActive || hideSmbPreviewWhileViewerActive || hideWebdavPreviewWhileViewerActive;
+            final hideChunkedPreviewWhileViewerActive = hideFtpPreviewWhileViewerActive || hideSftpPreviewWhileViewerActive || hideSmbPreviewWhileViewerActive || hideWebdavPreviewWhileViewerActive;
             final baseShow = _videoSurfaceVisible || currentProtocolShow || remoteForceVisible || nonCurrentRemoteShow;
-            final show =
-                suppressNonCurrentChunkedPreviewSurface ||
-                    suppressNonCurrentRemotePreviewSurfaceWhileScrolling ||
-                    hideChunkedPreviewWhileViewerActive
-                ? false
-                : baseShow;
-            final ftpPreviewOpacityDuration =
-                isFtpPreview ? Duration.zero : const Duration(milliseconds: 180);
+            final show = suppressNonCurrentChunkedPreviewSurface || suppressNonCurrentRemotePreviewSurfaceWhileScrolling || hideChunkedPreviewWhileViewerActive ? false : baseShow;
+            final ftpPreviewOpacityDuration = isFtpPreview ? Duration.zero : const Duration(milliseconds: 180);
             _logTileSurfaceSnapshot(
               controller: controller,
               remoteProtocol: remoteProtocol,
@@ -1190,8 +1139,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
               hasRenderableFrame: hasRenderableFrame,
               inChunkedErrorCooldown: inChunkedErrorCooldown,
               remoteForceVisible: remoteForceVisible,
-              suppressNonCurrentChunkedPreviewSurface:
-                  suppressNonCurrentChunkedPreviewSurface || suppressNonCurrentRemotePreviewSurfaceWhileScrolling,
+              suppressNonCurrentChunkedPreviewSurface: suppressNonCurrentChunkedPreviewSurface || suppressNonCurrentRemotePreviewSurfaceWhileScrolling,
             );
             final tileHeight = widget.tileExtent;
             final decodedSize = controller.decodedVideoSizeNotifier.value;
@@ -1205,9 +1153,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                       )
                 : tileHeight;
             final ftpPreviewSurfaceReady = !isFtpPreview || _ftpPreviewVisualSettled;
-            final previewVideoOpacity = isFtpPreview
-                ? (_videoSurfaceVisible && _ftpPreviewVisualSettled ? 1.0 : 0.0)
-                : (show ? 1.0 : 0.0);
+            final previewVideoOpacity = isFtpPreview ? (_videoSurfaceVisible && _ftpPreviewVisualSettled ? 1.0 : 0.0) : (show ? 1.0 : 0.0);
             final ftpShouldMountPreviewView = !isFtpPreview || ftpPreviewSurfaceReady;
             return SizedBox(
               width: tileWidth,
