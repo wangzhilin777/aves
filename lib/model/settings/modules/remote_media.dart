@@ -37,6 +37,10 @@ mixin RemoteMediaSettings on SettingsAccess {
 
   set remoteStandaloneFavouritePaths(Set<String> newValue) => set(SettingKeys.remoteStandaloneFavouritePathsKey, newValue.toList());
 
+  List<String> get remoteStandaloneFavouriteEntries => getStringList(SettingKeys.remoteStandaloneFavouriteEntriesKey) ?? const [];
+
+  set remoteStandaloneFavouriteEntries(List<String> newValue) => set(SettingKeys.remoteStandaloneFavouriteEntriesKey, newValue);
+
   bool get remoteGridVideoAutoPlay => getBool(SettingKeys.remoteGridVideoAutoPlayKey) ?? SettingsDefaults.remoteGridVideoAutoPlay;
 
   set remoteGridVideoAutoPlay(bool newValue) => set(SettingKeys.remoteGridVideoAutoPlayKey, newValue);

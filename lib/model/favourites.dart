@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/settings/settings.dart';
@@ -32,41 +34,55 @@ class Favourites with ChangeNotifier {
   FavouriteRow _entryToRow(AvesEntry entry) => FavouriteRow(entryId: entry.id);
 
   Future<void> add(Set<AvesEntry> entries) async {
-    await _materializeRemoteVideoAliases(entries);
-    final expandedEntries = await _expandEntriesWithRemoteCacheAliases(entries);
-    await remoteMediaService.registerStandaloneFavouritePaths(
-      expandedEntries.where((entry) => entry.isRemoteCachedMedia).map((entry) => entry.path).nonNulls.toSet(),
+    final materializedEntries = await _materializeRemoteFavouriteAliases(entries);
+    final expandedEntries = await _expandEntriesWithRemoteCacheAliases(materializedEntries);
+    await remoteMediaService.registerStandaloneFavouriteEntries(
+      expandedEntries,
       trigger: 'favourite_add',
     );
-    final newRows = expandedEntries.map(_entryToRow).toSet();
+    final newRows = expandedEntries.where((entry) => entry.id > 0).map(_entryToRow).toSet();
 
-    await localMediaDb.addFavourites(newRows);
-    _rows.addAll(newRows);
+    if (newRows.isNotEmpty) {
+      await localMediaDb.addFavourites(newRows);
+      _rows.addAll(newRows);
+    }
 
     notifyListeners();
   }
 
-  Future<void> _materializeRemoteVideoAliases(Set<AvesEntry> entries) async {
-    final remoteVideos = entries.where((entry) => entry.isVideo && remoteMediaService.getVirtualRemoteRef(entry.uri) != null).toSet();
-    if (remoteVideos.isEmpty) return;
+  Future<Set<AvesEntry>> _materializeRemoteFavouriteAliases(Set<AvesEntry> entries) async {
+    final resolvedEntries = <AvesEntry>{...entries};
+    final virtualRemoteEntries = entries.where((entry) => remoteMediaService.getVirtualRemoteRef(entry.uri) != null).toSet();
+    if (virtualRemoteEntries.isEmpty) return resolvedEntries;
 
-    await Future.wait(
-      remoteVideos.map(
-        (entry) => remoteMediaService.ensureIndexedCacheEntryForEntry(
+    final materializedEntries = await Future.wait(
+      virtualRemoteEntries.map((entry) async {
+        if (entry.isVideo) {
+          await remoteMediaService.ensureEntryMetadata(entry, trigger: 'favourite_add');
+          await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'favourite_add');
+          return null;
+        }
+        final indexedEntry = await remoteMediaService.ensureIndexedCacheEntryForEntry(
           entry,
           trigger: 'favourite_add',
-        ),
-      ),
+        );
+        if (indexedEntry != null && indexedEntry.id > 0 && entry.id != indexedEntry.id) {
+          entry.id = indexedEntry.id;
+        }
+        return indexedEntry;
+      }),
     );
+    resolvedEntries.addAll(materializedEntries.nonNulls);
+    return resolvedEntries;
   }
 
   Future<void> removeEntries(Set<AvesEntry> entries) async {
     final expandedEntries = await _expandEntriesWithRemoteCacheAliases(entries);
     await remoteMediaService.unregisterStandaloneFavouritePaths(
-      expandedEntries.where((entry) => entry.isRemoteCachedMedia).map((entry) => entry.path).nonNulls.toSet(),
+      expandedEntries.map(remoteMediaService.getStandaloneFavouriteKeyForEntry).nonNulls.toSet(),
       trigger: 'favourite_remove',
     );
-    await removeIds(expandedEntries.map((entry) => entry.id).toSet());
+    await removeIds(expandedEntries.where((entry) => entry.id > 0).map((entry) => entry.id).toSet());
     await remoteMediaService.enforceAllConnectionCacheLimits(trigger: 'favourite_remove');
   }
 
@@ -113,12 +129,12 @@ class Favourites with ChangeNotifier {
 
   // import/export
 
-  Map<String, List<String>>? export(CollectionSource source) {
+  Object? export(CollectionSource source) {
     final visibleEntries = source.allEntries;
     final ids = all;
     final paths = visibleEntries.where((entry) => ids.contains(entry.id)).map((entry) => entry.path).nonNulls.toSet();
     final byVolume = groupBy<String, StorageVolume?>(paths, androidFileUtils.getStorageVolume);
-    final jsonMap = Map.fromEntries(
+    final localJsonMap = Map.fromEntries(
       byVolume.entries.map((kv) {
         final volume = kv.key?.path;
         if (volume == null) return null;
@@ -127,19 +143,35 @@ class Favourites with ChangeNotifier {
         return MapEntry(volume, relativePaths);
       }).nonNulls,
     );
-    return jsonMap.isNotEmpty ? jsonMap : null;
+    final remoteStandaloneEntries = settings.remoteStandaloneFavouriteEntries;
+    if (localJsonMap.isEmpty && remoteStandaloneEntries.isEmpty) return null;
+
+    return {
+      'version': 2,
+      'local': localJsonMap,
+      'remoteStandaloneEntries': remoteStandaloneEntries,
+    };
   }
 
-  void import(Object jsonMap, CollectionSource source) {
+  Future<void> import(Object jsonMap, CollectionSource source) async {
     if (jsonMap is! Map) {
       debugPrint('failed to import favourites for jsonMap=$jsonMap');
       return;
     }
 
+    Map<String, List> localJsonMap;
+    List<String> remoteStandaloneEntries = const [];
+    if (jsonMap.containsKey('local') || jsonMap.containsKey('remoteStandaloneEntries')) {
+      localJsonMap = (jsonMap['local'] as Map?)?.cast<String, List>() ?? const {};
+      remoteStandaloneEntries = (jsonMap['remoteStandaloneEntries'] as List?)?.cast<String?>().nonNulls.toList() ?? const [];
+    } else {
+      localJsonMap = jsonMap.cast<String, List>();
+    }
+
     final visibleEntries = source.allEntries;
     final foundEntries = <AvesEntry>{};
     final missedPaths = <String>{};
-    jsonMap.cast<String, List>().forEach((volume, relativePaths) {
+    localJsonMap.forEach((volume, relativePaths) {
       relativePaths.cast<String?>().forEach((relativePath) {
         final path = pContext.join(volume, relativePath);
         final entry = visibleEntries.firstWhereOrNull((entry) => entry.path == path);
@@ -150,13 +182,40 @@ class Favourites with ChangeNotifier {
         }
       });
 
-      if (foundEntries.isNotEmpty) {
-        add(foundEntries);
-      }
-      if (missedPaths.isNotEmpty) {
-        debugPrint('failed to import favourites with ${missedPaths.length} missed paths');
-      }
     });
+
+    if (foundEntries.isNotEmpty) {
+      await add(foundEntries);
+    }
+    if (missedPaths.isNotEmpty) {
+      debugPrint('failed to import favourites with ${missedPaths.length} missed paths');
+    }
+
+    if (remoteStandaloneEntries.isNotEmpty) {
+      final mergedRemoteEntries = {
+        ...settings.remoteStandaloneFavouriteEntries,
+        ...remoteStandaloneEntries,
+      }.toList();
+      settings.remoteStandaloneFavouriteEntries = mergedRemoteEntries;
+
+      final importedRemoteKeys = remoteStandaloneEntries.map((jsonString) {
+        try {
+          return (jsonDecode(jsonString) as Map)['key'] as String?;
+        } catch (_) {
+          return null;
+        }
+      }).nonNulls.toSet();
+      if (importedRemoteKeys.isNotEmpty) {
+        settings.remoteStandaloneFavouritePaths = {
+          ...settings.remoteStandaloneFavouritePaths,
+          ...importedRemoteKeys,
+        };
+      }
+
+      await remoteMediaService.restoreStandaloneFavouriteEntries(trigger: 'favourites_import');
+      await remoteMediaService.syncStandaloneFavouriteMode(trigger: 'favourites_import');
+      notifyListeners();
+    }
   }
 }
 

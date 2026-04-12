@@ -36,7 +36,7 @@ extension ExtraAppExportItem on AppExportItem {
       case .dynamicAlbums:
         dynamicAlbums.import(jsonObject);
       case .favourites:
-        favourites.import(jsonObject, source);
+        await favourites.import(jsonObject, source);
       case .settings:
         await settings.import(jsonObject);
         albumGrouping.setGroups(settings.albumGroups);

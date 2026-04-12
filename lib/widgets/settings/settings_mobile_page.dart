@@ -164,7 +164,14 @@ class _SettingsMobilePageState extends State<SettingsMobilePage> with FeedbackMi
             );
             if (toImport == null || toImport.isEmpty) return;
 
-            await Future.forEach<AppExportItem>(toImport, (item) async {
+            final orderedItems = [
+              if (toImport.contains(AppExportItem.settings)) AppExportItem.settings,
+              if (toImport.contains(AppExportItem.dynamicAlbums)) AppExportItem.dynamicAlbums,
+              if (toImport.contains(AppExportItem.covers)) AppExportItem.covers,
+              if (toImport.contains(AppExportItem.favourites)) AppExportItem.favourites,
+            ];
+
+            await Future.forEach<AppExportItem>(orderedItems, (item) async {
               final jsonObject = importable[item];
               if (jsonObject != null) {
                 await item.import(jsonObject, source);

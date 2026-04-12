@@ -20,6 +20,7 @@ import 'package:aves/model/source/location/location.dart';
 import 'package:aves/model/source/section_keys.dart';
 import 'package:aves/model/source/tag.dart';
 import 'package:aves/ref/mime_types.dart';
+import 'package:aves/services/common/services.dart';
 import 'package:aves/utils/collection_utils.dart';
 import 'package:aves_model/aves_model.dart';
 import 'package:aves_utils/aves_utils.dart';
@@ -209,16 +210,41 @@ class CollectionLens with ChangeNotifier {
   void _applyFilters() {
     final includeStandaloneRemoteFavourites = filters.contains(FavouriteFilter.instance);
     final standaloneRemoteFavouritePaths = includeStandaloneRemoteFavourites ? settings.remoteStandaloneFavouritePaths : const <String>{};
+    final standaloneRemoteFavouriteEntries = includeStandaloneRemoteFavourites ? remoteMediaService.getStandaloneFavouriteEntries(standaloneRemoteFavouritePaths) : const <AvesEntry>[];
     final baseEntries = fixedSelection ??
         (filters.contains(TrashFilter.instance)
             ? source.trashedEntries
-            : {
-                ...source.visibleEntries,
-                if (includeStandaloneRemoteFavourites)
-                  ...source.allEntries.where(
-                    (entry) => !entry.trashed && entry.path != null && standaloneRemoteFavouritePaths.contains(entry.path),
-                  ),
-              });
+            : () {
+                final entries = <AvesEntry>{};
+                if (!includeStandaloneRemoteFavourites) {
+                  entries.addAll(source.visibleEntries);
+                  return entries;
+                }
+
+                final standaloneByKey = <String, AvesEntry>{};
+                for (final entry in standaloneRemoteFavouriteEntries.where((entry) => !entry.trashed)) {
+                  final key = remoteMediaService.getStandaloneFavouriteKeyForEntry(entry);
+                  if (key == null) continue;
+                  standaloneByKey[key] = entry;
+                }
+
+                for (final entry in source.visibleEntries) {
+                  final key = remoteMediaService.getStandaloneFavouriteKeyForEntry(entry);
+                  if (key != null && standaloneByKey.containsKey(key)) continue;
+                  entries.add(entry);
+                }
+
+                for (final entry in source.allEntries) {
+                  if (entry.trashed) continue;
+                  final key = remoteMediaService.getStandaloneFavouriteKeyForEntry(entry);
+                  if (key == null || !standaloneRemoteFavouritePaths.contains(key)) continue;
+                  if (standaloneByKey.containsKey(key)) continue;
+                  entries.add(entry);
+                }
+
+                entries.addAll(standaloneByKey.values);
+                return entries;
+              }());
     _disposeSyntheticEntries();
     _filteredSortedEntries = List.of(filters.isEmpty ? baseEntries : baseEntries.where((entry) => filters.every((filter) => filter.test(entry))));
 
