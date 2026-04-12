@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:aves/image_providers/thumbnail_provider.dart';
@@ -58,6 +59,7 @@ class _ThumbnailImageState extends State<ThumbnailImage> {
   _ProviderStream? _currentProviderStream;
   ImageInfo? _lastImageInfo;
   Object? _lastException;
+  bool _remoteImagePreparationInFlight = false;
   late final ImageStreamListener _streamListener;
 
   AvesEntry get entry => widget.entry;
@@ -105,6 +107,11 @@ class _ThumbnailImageState extends State<ThumbnailImage> {
   void _initProvider() {
     if (!entry.isDecodingSupported) return;
 
+    if (_requiresRemoteImagePreparation()) {
+      _scheduleRemoteImagePreparation();
+      return;
+    }
+
     _lastException = null;
     _providers.clear();
 
@@ -136,6 +143,43 @@ class _ThumbnailImageState extends State<ThumbnailImage> {
     _loadNextProvider();
   }
 
+  bool _requiresRemoteImagePreparation() {
+    if (!entry.isImage || !remoteMediaService.hasVirtualRemoteRef(entry.uri)) return false;
+    final uri = Uri.tryParse(entry.uri);
+    if (uri == null) return false;
+    return uri.scheme == 'http' || uri.scheme == 'https' || uri.scheme == 'aves-remote';
+  }
+
+  void _scheduleRemoteImagePreparation() {
+    if (_remoteImagePreparationInFlight) return;
+    _remoteImagePreparationInFlight = true;
+    _providers.clear();
+    _currentProviderStream?.stopListening();
+    _currentProviderStream = null;
+    _replaceImage(null);
+    unawaited(_prepareRemoteImageThumbnail());
+  }
+
+  Future<void> _prepareRemoteImageThumbnail() async {
+    try {
+      await remoteMediaService.ensureViewerImageDisplayMetadata(
+        entry,
+        trigger: 'grid_thumbnail',
+      );
+    } finally {
+      _remoteImagePreparationInFlight = false;
+      if (mounted) {
+        if (_requiresRemoteImagePreparation()) {
+          setState(() {});
+        } else {
+          _lastException = null;
+          _initProvider();
+          setState(() {});
+        }
+      }
+    }
+  }
+
   void _loadNextProvider([ImageInfo? imageInfo]) {
     final nextIndex = _currentProviderStream == null ? 0 : (_providers.indexOf(_currentProviderStream!.provider) + 1);
     if (nextIndex < _providers.length) {
@@ -163,6 +207,10 @@ class _ThumbnailImageState extends State<ThumbnailImage> {
 
   void _onError(Object exception, StackTrace? stackTrace) {
     if (!mounted) return;
+    if (_requiresRemoteImagePreparation()) {
+      _scheduleRemoteImagePreparation();
+      return;
+    }
     setState(() => _lastException = exception);
   }
 
