@@ -903,7 +903,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
 
       AvesVideoController controller;
       try {
-        controller = await conductor.getOrCreateController(entry, maxControllerCount: 2);
+        controller = await conductor.getOrCreateController(entry, maxControllerCount: 5);
       } catch (error) {
         unawaited(
           remoteMediaLogService.log(
