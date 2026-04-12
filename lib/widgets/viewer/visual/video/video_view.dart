@@ -27,12 +27,14 @@ class VideoView extends StatefulWidget {
 class _VideoViewState extends State<VideoView> {
   static const _remoteInitialErrorGrace = Duration(milliseconds: 1400);
   static const _chunkedRemoteProgressRevealGrace = Duration(milliseconds: 180);
+  static const _largeWebDavProgressRevealGrace = Duration(milliseconds: 320);
   AvesEntry get entry => widget.entry;
 
   AvesVideoController get controller => widget.controller;
   bool _loggedSoftErrorRender = false;
   late DateTime _initialErrorGraceDeadline;
   DateTime? _chunkedProgressRevealDeadline;
+  DateTime? _webDavProgressRevealDeadline;
   bool _hadPlaybackProgress = false;
   String? _lastLocalRenderDecision;
   String? _lastRemoteRenderDecision;
@@ -42,6 +44,7 @@ class _VideoViewState extends State<VideoView> {
     super.initState();
     _initialErrorGraceDeadline = DateTime.now().add(_remoteInitialErrorGrace);
     _chunkedProgressRevealDeadline = null;
+    _webDavProgressRevealDeadline = null;
     _hadPlaybackProgress = false;
     _registerWidget(widget);
   }
@@ -52,6 +55,7 @@ class _VideoViewState extends State<VideoView> {
     if (oldWidget.entry != widget.entry) {
       _initialErrorGraceDeadline = DateTime.now().add(_remoteInitialErrorGrace);
       _chunkedProgressRevealDeadline = null;
+      _webDavProgressRevealDeadline = null;
       _hadPlaybackProgress = false;
     }
     _unregisterWidget(oldWidget);
@@ -140,12 +144,18 @@ class _VideoViewState extends State<VideoView> {
             final isFtpProtocol = remoteProtocol == RemoteProtocol.ftp;
             final isSftpProtocol = remoteProtocol == RemoteProtocol.sftp;
             final isSmbProtocol = remoteProtocol == RemoteProtocol.smb;
+            final isWebDavProtocol = remoteProtocol == RemoteProtocol.webdav;
             final isChunkedRemoteProtocol = isFtpProtocol || isSftpProtocol || isSmbProtocol;
             final isChunkedRemotePreview = isChunkedRemoteProtocol && !widget.preferStableRemoteInit;
+            final isLargeWebDavDetail = widget.preferStableRemoteInit && isRemoteStream && isWebDavProtocol && remoteMediaService.isLargeRemoteVideoEntry(entry);
+            final hasRenderableFrame = hasDecodedFrame || hasFirstFrameRendered;
             final hasStableDetailFrame = controller.isPlaying && currentPosition > 0 && (hasFirstFrameRendered || hasDecodedFrame);
             final gainedPlaybackProgress = currentPosition > 0 && !_hadPlaybackProgress;
             if (gainedPlaybackProgress && widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol) {
               _chunkedProgressRevealDeadline = DateTime.now().add(_chunkedRemoteProgressRevealGrace);
+            }
+            if (gainedPlaybackProgress && isLargeWebDavDetail) {
+              _webDavProgressRevealDeadline = DateTime.now().add(_largeWebDavProgressRevealGrace);
             }
             _hadPlaybackProgress = currentPosition > 0;
             final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
@@ -154,33 +164,21 @@ class _VideoViewState extends State<VideoView> {
             final hasFtpPreviewFrame = hasFirstFrameRendered || currentPosition > 0;
             final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
             final withinChunkedProgressRevealGrace = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressRevealDeadline != null && DateTime.now().isBefore(_chunkedProgressRevealDeadline!);
-            final allowFtpStableDetailRender =
-                widget.preferStableRemoteInit &&
-                isFtpProtocol &&
-                (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
-            final allowSftpStableDetailRender =
-                widget.preferStableRemoteInit &&
-                isSftpProtocol &&
-                (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
-            final allowSmbStableDetailRender =
-                widget.preferStableRemoteInit &&
-                isSmbProtocol &&
-                (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
+            final withinWebDavProgressRevealGrace = isLargeWebDavDetail && _webDavProgressRevealDeadline != null && DateTime.now().isBefore(_webDavProgressRevealDeadline!);
+            final allowFtpStableDetailRender = widget.preferStableRemoteInit && isFtpProtocol && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+            final allowSftpStableDetailRender = widget.preferStableRemoteInit && isSftpProtocol && (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
+            final allowSmbStableDetailRender = widget.preferStableRemoteInit && isSmbProtocol && (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
+            final allowWebDavStableDetailRender = isLargeWebDavDetail && (hasRenderableFrame || (currentPosition > 0 && !withinWebDavProgressRevealGrace));
             final canRenderDespiteError = isRemoteManagedEntry
                 ? isChunkedRemoteProtocol
-                    ? widget.preferStableRemoteInit
-                          ? allowFtpStableDetailRender || allowSftpStableDetailRender || allowSmbStableDetailRender || hasStableDetailFrame
-                          : false
-                    : widget.preferStableRemoteInit
-                        ? hasStableDetailFrame
-                        : controller.isPlaying || hasRemotePreviewFrame
+                      ? (widget.preferStableRemoteInit ? allowFtpStableDetailRender || allowSftpStableDetailRender || allowSmbStableDetailRender || hasStableDetailFrame : false)
+                      : (widget.preferStableRemoteInit ? (isLargeWebDavDetail ? allowWebDavStableDetailRender || hasStableDetailFrame : hasStableDetailFrame) : controller.isPlaying || hasRemotePreviewFrame)
                 : controller.isPlaying || controller.isReady || hasLocalRecoverableFrame || (hasDecodedFrame && allowDecodedFrameRenderOnError);
-            final shouldKeepPlayerHiddenDuringChunkedInit = widget.preferStableRemoteInit &&
+            final shouldKeepPlayerHiddenDuringStableRemoteInit =
+                widget.preferStableRemoteInit &&
                 isRemoteStream &&
-                isChunkedRemoteProtocol &&
-                ((isFtpProtocol && !allowFtpStableDetailRender) ||
-                    (isSftpProtocol && !allowSftpStableDetailRender) ||
-                    (isSmbProtocol && !allowSmbStableDetailRender));
+                ((isChunkedRemoteProtocol && ((isFtpProtocol && !allowFtpStableDetailRender) || (isSftpProtocol && !allowSftpStableDetailRender) || (isSmbProtocol && !allowSmbStableDetailRender))) ||
+                    (isLargeWebDavDetail && !allowWebDavStableDetailRender));
             final shouldKeepLocalPlayerHiddenUntilFrame = !isRemoteManagedEntry && !hasLocalRecoverableFrame;
             if (allowFtpStableDetailRender) {
               _logRenderDecision(
@@ -194,7 +192,7 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return controller.buildPlayerWidget(context);
             }
@@ -210,7 +208,7 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return controller.buildPlayerWidget(context);
             }
@@ -226,13 +224,13 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return controller.buildPlayerWidget(context);
             }
-            if (shouldKeepPlayerHiddenDuringChunkedInit) {
+            if (isLargeWebDavDetail && allowWebDavStableDetailRender) {
               _logRenderDecision(
-                decision: 'chunked_hide_player_for_stable_init',
+                decision: 'webdav_detail_render_player_with_stable_frame',
                 status: status,
                 currentPosition: currentPosition,
                 isRemoteManagedEntry: isRemoteManagedEntry,
@@ -242,11 +240,43 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
+              );
+              return controller.buildPlayerWidget(context);
+            }
+            if (shouldKeepPlayerHiddenDuringStableRemoteInit) {
+              _logRenderDecision(
+                decision: isLargeWebDavDetail ? 'webdav_hide_player_for_stable_init' : 'chunked_hide_player_for_stable_init',
+                status: status,
+                currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
+                hasDecodedFrame: hasDecodedFrame,
+                hasFirstFrameRendered: hasFirstFrameRendered,
+                hasStableDetailFrame: hasStableDetailFrame,
+                withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return const ColoredBox(color: Colors.transparent);
             }
             if (status == VideoStatus.error) {
+              if (isLargeWebDavDetail && hasRemotePreviewFrame) {
+                _logRenderDecision(
+                  decision: 'webdav_detail_render_player_with_preview_frame',
+                  status: status,
+                  currentPosition: currentPosition,
+                  isRemoteManagedEntry: isRemoteManagedEntry,
+                  remoteProtocol: remoteProtocol,
+                  hasDecodedFrame: hasDecodedFrame,
+                  hasFirstFrameRendered: hasFirstFrameRendered,
+                  hasStableDetailFrame: hasStableDetailFrame,
+                  withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                  withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
+                );
+                return controller.buildPlayerWidget(context);
+              }
               if (widget.preferStableRemoteInit && isFtpProtocol && hasFtpPreviewFrame) {
                 _logRenderDecision(
                   decision: 'ftp_detail_render_player_with_preview_frame',
@@ -259,7 +289,7 @@ class _VideoViewState extends State<VideoView> {
                   hasStableDetailFrame: hasStableDetailFrame,
                   withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                   withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                 );
                 return controller.buildPlayerWidget(context);
               }
@@ -275,7 +305,7 @@ class _VideoViewState extends State<VideoView> {
                   hasStableDetailFrame: hasStableDetailFrame,
                   withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                   withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                 );
                 return controller.buildPlayerWidget(context);
               }
@@ -291,7 +321,7 @@ class _VideoViewState extends State<VideoView> {
                   hasStableDetailFrame: hasStableDetailFrame,
                   withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                   withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                 );
                 return controller.buildPlayerWidget(context);
               }
@@ -308,7 +338,7 @@ class _VideoViewState extends State<VideoView> {
                     hasStableDetailFrame: hasStableDetailFrame,
                     withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                     withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                    shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                    shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                   );
                   return controller.buildPlayerWidget(context);
                 }
@@ -324,7 +354,7 @@ class _VideoViewState extends State<VideoView> {
                     hasStableDetailFrame: hasStableDetailFrame,
                     withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                     withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                    shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                    shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                   );
                   return const ColoredBox(color: Colors.transparent);
                 }
@@ -340,7 +370,7 @@ class _VideoViewState extends State<VideoView> {
                     hasStableDetailFrame: hasStableDetailFrame,
                     withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                     withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                    shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                    shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                   );
                   return const ColoredBox(color: Colors.transparent);
                 }
@@ -356,7 +386,7 @@ class _VideoViewState extends State<VideoView> {
                     hasStableDetailFrame: hasStableDetailFrame,
                     withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                     withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                    shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                    shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                   );
                   return const ColoredBox(color: Colors.transparent);
                 }
@@ -371,7 +401,7 @@ class _VideoViewState extends State<VideoView> {
                   hasStableDetailFrame: hasStableDetailFrame,
                   withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                   withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                 );
                 return const ColoredBox(color: Colors.transparent);
               }
@@ -403,7 +433,7 @@ class _VideoViewState extends State<VideoView> {
                   hasStableDetailFrame: hasStableDetailFrame,
                   withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                   withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                 );
                 return controller.buildPlayerWidget(context);
               }
@@ -419,7 +449,7 @@ class _VideoViewState extends State<VideoView> {
                   hasStableDetailFrame: hasStableDetailFrame,
                   withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                   withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                  shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                 );
                 return const ColoredBox(color: Colors.transparent);
               }
@@ -434,7 +464,7 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return const ColoredBox(color: Colors.transparent);
             }
@@ -451,7 +481,7 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return const SizedBox();
             }
@@ -467,7 +497,7 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return const ColoredBox(color: Colors.transparent);
             }
@@ -483,7 +513,7 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return const ColoredBox(color: Colors.transparent);
             }
@@ -499,7 +529,7 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return const ColoredBox(color: Colors.transparent);
             }
@@ -515,9 +545,25 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return controller.buildPlayerWidget(context);
+            }
+            if (isLargeWebDavDetail && !hasRenderableFrame) {
+              _logRenderDecision(
+                decision: 'webdav_hide_player_until_displayable_frame',
+                status: status,
+                currentPosition: currentPosition,
+                isRemoteManagedEntry: isRemoteManagedEntry,
+                remoteProtocol: remoteProtocol,
+                hasDecodedFrame: hasDecodedFrame,
+                hasFirstFrameRendered: hasFirstFrameRendered,
+                hasStableDetailFrame: hasStableDetailFrame,
+                withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
+                withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
+              );
+              return const ColoredBox(color: Colors.transparent);
             }
             if (!widget.preferStableRemoteInit && isRemoteManagedEntry && !hasRemotePreviewFrame) {
               _logRenderDecision(
@@ -531,7 +577,7 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return const ColoredBox(color: Colors.transparent);
             }
@@ -547,7 +593,7 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return controller.buildPlayerWidget(context);
             }
@@ -563,7 +609,7 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return const ColoredBox(color: Colors.transparent);
             }
@@ -579,7 +625,7 @@ class _VideoViewState extends State<VideoView> {
                 hasStableDetailFrame: hasStableDetailFrame,
                 withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+                shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
               return const ColoredBox(color: Colors.transparent);
             }
@@ -594,7 +640,7 @@ class _VideoViewState extends State<VideoView> {
               hasStableDetailFrame: hasStableDetailFrame,
               withinRemoteInitialErrorGrace: withinRemoteInitialErrorGrace,
               withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
-              shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringChunkedInit,
+              shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
             );
             return controller.buildPlayerWidget(context);
           },
