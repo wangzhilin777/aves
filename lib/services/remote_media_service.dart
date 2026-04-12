@@ -139,7 +139,7 @@ class RemoteMediaService {
   static const _sftpPreviewPreheatDelayThresholdBytes = 64 * 1024 * 1024;
   static const _smbPreviewPreheatDelayThresholdBytes = 96 * 1024 * 1024;
   static const _largeWebDavViewerBootstrapChunkCount = 3;
-  static const _largeWebDavGridPreviewBootstrapChunkCount = 8;
+  static const _largeWebDavGridPreviewBootstrapChunkCount = 2;
   static const _initialVideoChunkRefetchAttempts = 2;
   static const _streamChunkSizeBytes = 2 * 1024 * 1024;
   static const _smbStreamChunkSizeBytes = 4 * 1024 * 1024;
@@ -206,6 +206,17 @@ class RemoteMediaService {
       RemoteProtocol.webdav => 1,
       RemoteProtocol.ftp || RemoteProtocol.sftp || RemoteProtocol.smb => _viewerInitialWarmupChunkCount,
     };
+  }
+
+  bool _shouldAppendTailWarmupRange({
+    required RemoteProtocol protocol,
+    required String trigger,
+  }) {
+    final normalizedTrigger = trigger.toLowerCase();
+    if (protocol == RemoteProtocol.webdav && normalizedTrigger.contains('grid_preview')) {
+      return false;
+    }
+    return true;
   }
 
   int _prefetchChunkCountForRequest({
@@ -909,7 +920,7 @@ class RemoteMediaService {
             ),
       ];
 
-      if (totalLength > chunkSize) {
+      if (_shouldAppendTailWarmupRange(protocol: server.protocol, trigger: trigger) && totalLength > chunkSize) {
         final tailStart = max(0, totalLength - chunkSize);
         if (!ranges.any((range) => range.start == tailStart && range.endInclusive == totalLength - 1)) {
           ranges.add(
