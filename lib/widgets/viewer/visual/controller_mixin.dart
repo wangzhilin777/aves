@@ -319,10 +319,33 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   Future<AvesVideoController> _primeWebdavViewerControllerForDetailPreheat(AvesEntry entry, AvesVideoController controller) async {
+    final useConservativeLargeVideoInit = remoteMediaService.isLargeRemoteVideoEntry(entry);
     try {
-      await controller.untilReady.timeout(const Duration(milliseconds: 900));
+      await controller.untilReady.timeout(Duration(milliseconds: useConservativeLargeVideoInit ? 1500 : 900));
     } catch (_) {}
     if (_hasRenderableRemoteDetailPreheatFrame(controller)) {
+      return controller;
+    }
+
+    if (useConservativeLargeVideoInit) {
+      try {
+        await _waitForRemoteDetailPreheatFrame(controller, const Duration(milliseconds: 1500));
+      } catch (_) {
+        // best-effort conservative webdav detail preheat
+      }
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'viewer kept large webdav detail preheat conservative',
+          data: {
+            'uri': entry.uri,
+            'hasRenderableFrame': _hasRenderableRemoteDetailPreheatFrame(controller),
+            'positionMillis': controller.currentPosition,
+            'status': controller.status.name,
+            'isPlaying': controller.isPlaying,
+          },
+        ),
+      );
       return controller;
     }
 
@@ -1108,12 +1131,14 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     await context.read<VideoConductor>().pauseOthers(videoController);
 
     final controllerEntry = videoController.entry;
+    var isLargeWebdavRemoteVideo = false;
     if (controllerEntry is AvesEntry) {
       await remoteMediaService.ensureEntryMetadata(controllerEntry, trigger: 'viewer_autoplay');
       final hasRemoteRef = remoteMediaService.getVirtualRemoteRef(controllerEntry.uri) != null;
       if (hasRemoteRef) {
         if (isRemoteStreamUri) {
           remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(controllerEntry);
+          isLargeWebdavRemoteVideo = remoteProtocol == RemoteProtocol.webdav && remoteMediaService.isLargeRemoteVideoEntry(controllerEntry);
           if (remoteProtocol == RemoteProtocol.smb || remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp) {
             await remoteMediaService.prepareInitialStreamPlaybackForEntry(controllerEntry, trigger: 'viewer_autoplay');
             unawaited(
@@ -1144,6 +1169,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         unawaited(remoteMediaService.warmupVideoCacheForEntry(controllerEntry, trigger: 'viewer_autoplay'));
       } else {
         remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(controllerEntry);
+        isLargeWebdavRemoteVideo = remoteProtocol == RemoteProtocol.webdav && remoteMediaService.isLargeRemoteVideoEntry(controllerEntry);
         unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(controllerEntry, trigger: 'viewer_autoplay'));
       }
     }
@@ -1170,7 +1196,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       }
     } else {
       try {
-        await videoController.untilReady.timeout(Duration(milliseconds: isRemoteStreamUri ? 1200 : 1500));
+        await videoController.untilReady.timeout(Duration(milliseconds: isLargeWebdavRemoteVideo ? 1800 : (isRemoteStreamUri ? 1200 : 1500)));
       } catch (_) {
         unawaited(
           remoteMediaLogService.log(
@@ -1259,7 +1285,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     // Playback initialization can still race with focus transitions or decoder warm-up.
     // If autoplay did not effectively start, retry once while the same entry stays focused.
     await Future.delayed(const Duration(milliseconds: 350) * timeDilation);
-    if (token == _autoPlayRequestToken && isCurrent() && !videoController.isPlaying && videoController.status != VideoStatus.error) {
+    if (token == _autoPlayRequestToken && isCurrent() && !videoController.isPlaying && videoController.status != VideoStatus.error && !isLargeWebdavRemoteVideo) {
       await videoController.play();
       unawaited(
         remoteMediaLogService.log(
@@ -1273,7 +1299,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     // Some videos (notably certain landscape encodes) may still miss the first autoplay window.
     // Keep one extra delayed retry while focus remains stable.
     await Future.delayed(const Duration(milliseconds: 550) * timeDilation);
-    if (token == _autoPlayRequestToken && isCurrent() && !videoController.isPlaying && videoController.status != VideoStatus.error) {
+    if (token == _autoPlayRequestToken && isCurrent() && !videoController.isPlaying && videoController.status != VideoStatus.error && !isLargeWebdavRemoteVideo) {
       await videoController.seekTo(resumeTimeMillis ?? 0);
       await videoController.play();
       unawaited(
@@ -1281,6 +1307,14 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
           'autoplay',
           'autoplay second retry requested after delayed non-playing state',
           data: {'uri': uri, 'seekMillis': resumeTimeMillis ?? 0},
+        ),
+      );
+    } else if (token == _autoPlayRequestToken && isCurrent() && !videoController.isPlaying && videoController.status != VideoStatus.error && isLargeWebdavRemoteVideo) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'skip aggressive autoplay retries for large webdav detail playback',
+          data: {'uri': uri},
         ),
       );
     }
