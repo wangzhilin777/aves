@@ -134,7 +134,7 @@ class SettingsDefaults {
   static const remoteAutoDownloadImageMaxBytes = 8 * 1024 * 1024;
   static const remoteAutoDownloadVideoMaxBytes = 30 * 1024 * 1024;
   static const remoteCacheMaxBytes = 1024 * 1024 * 1024;
-  static const remoteStreamMode = RemoteStreamMode.streamWithDownloadFallback;
+  static const remoteStreamMode = RemoteStreamMode.streamOnly;
 
   // bin
   static const enableBin = true;
