@@ -178,6 +178,17 @@ Before running or building the app, update the dependencies for the desired flav
 
 To build the project, create a file named `<app dir>/android/key.properties`. It should contain a reference to a keystore for app signing, and other necessary credentials. See [key_template.properties](https://github.com/deckerst/aves/blob/develop/android/key_template.properties) for the expected keys.
 
+### Local Custom Release Notes
+
+For local/custom builds, it is recommended to keep signing files outside of Git history and back them up separately.
+
+- Do not commit real signing materials such as `android/key.properties` or keystore files.
+- Add them to `.gitignore` and keep an encrypted backup in personal cloud storage or another private location.
+- When restoring the project on another machine, put the signing files back in place before building release APKs.
+- For local release examples:
+  - `flutter build apk -t lib/main_izzy.dart --flavor izzy --release --split-per-abi`
+  - the `arm64-v8a` artifact is usually generated at `build/app/outputs/flutter-apk/app-arm64-v8a-izzy-release.apk`
+
 To run the app:
 ```
 # ./flutterw run -t lib/main_play.dart --flavor play
