@@ -412,6 +412,20 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     return 1800;
   }
 
+  int _imagePrefetchConcurrency(AvesEntry anchor) {
+    final protocol = remoteMediaService.getVirtualRemoteRef(anchor.uri)?.$1.protocol ?? remoteMediaService.getRemoteProtocolForEntry(anchor);
+    if (protocol == RemoteProtocol.webdav) {
+      return 2;
+    } else if (protocol == RemoteProtocol.ftp) {
+      return 2;
+    } else if (protocol == RemoteProtocol.sftp) {
+      return 2;
+    } else if (protocol == RemoteProtocol.smb) {
+      return 2;
+    }
+    return 1;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -916,16 +930,26 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
           'focusUri': anchor.uri,
           'focusIndex': focusIndex,
           'count': candidates.length,
+          'concurrency': _imagePrefetchConcurrency(anchor),
           'uris': candidates.map((e) => e.uri).toList(),
         },
       );
 
-      for (final entry in candidates) {
-        final file = await remoteMediaService.ensureDownloadedForEntry(
-          entry,
-          trigger: 'collection_focus_image_window',
+      final concurrency = max(1, min(_imagePrefetchConcurrency(anchor), candidates.length));
+      for (var start = 0; start < candidates.length; start += concurrency) {
+        if (!_isActivePrefetchRequest(anchor, requestToken)) return;
+        final batch = candidates.skip(start).take(concurrency).toList();
+        final results = await Future.wait(
+          batch.map(
+            (entry) => remoteMediaService.ensureDownloadedForEntry(
+              entry,
+              trigger: 'collection_focus_image_window',
+            ),
+          ),
+          eagerError: false,
         );
-        if (file != null) {
+        if (!_isActivePrefetchRequest(anchor, requestToken)) return;
+        if (results.any((file) => file != null)) {
           collection.source.onAspectRatioChanged();
         }
       }
