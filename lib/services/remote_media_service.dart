@@ -138,6 +138,7 @@ class RemoteMediaService {
   static const _ftpPreviewPreheatDelayThresholdBytes = 64 * 1024 * 1024;
   static const _sftpPreviewPreheatDelayThresholdBytes = 64 * 1024 * 1024;
   static const _smbPreviewPreheatDelayThresholdBytes = 96 * 1024 * 1024;
+  static const _largeWebDavViewerBootstrapChunkCount = 3;
   static const _streamChunkSizeBytes = 2 * 1024 * 1024;
   static const _smbStreamChunkSizeBytes = 4 * 1024 * 1024;
   static const _streamChunkCacheVersion = 4;
@@ -181,9 +182,14 @@ class RemoteMediaService {
 
   int _initialWarmupChunkCount({
     required RemoteProtocol protocol,
+    required RemoteBrowseNode? node,
     required String trigger,
   }) {
     final normalizedTrigger = trigger.toLowerCase();
+    final isLargeWebDavViewerInit = protocol == RemoteProtocol.webdav && node != null && node.isVideo && normalizedTrigger.contains('viewer_init') && (node.sizeBytes ?? 0) >= _webDavDirectPassthroughThresholdBytes;
+    if (isLargeWebDavViewerInit) {
+      return _largeWebDavViewerBootstrapChunkCount;
+    }
     if (normalizedTrigger.contains('grid_preview')) {
       return _previewInitialWarmupChunkCount;
     }
@@ -883,6 +889,7 @@ class RemoteMediaService {
 
       final initialChunkCount = _initialWarmupChunkCount(
         protocol: server.protocol,
+        node: node,
         trigger: trigger,
       );
       final chunkSize = _chunkSizeForProtocol(server.protocol);
@@ -2009,6 +2016,29 @@ class RemoteMediaService {
           return metadata['sizeBytes'] as int?;
         })() ??
         0;
+    final shouldPreferChunkedBootstrap = totalLength > 0 && _shouldUseChunkedBootstrapForLargeWebDavRequest(node: node, request: request, totalLength: totalLength);
+    if (shouldPreferChunkedBootstrap) {
+      await remoteMediaLogService.log(
+        'stream',
+        'serve large webdav viewer bootstrap request through chunked backend before passthrough',
+        data: {
+          'server': server.name,
+          'path': node.path,
+          'method': request.method,
+          'range': request.rangeHeader,
+          'sizeBytes': totalLength,
+          'bootstrapBytes': _largeWebDavViewerBootstrapChunkCount * _chunkSizeForProtocol(server.protocol),
+        },
+      );
+      return _proxyChunkedRemote(
+        server: server,
+        node: node,
+        request: request,
+        totalLength: totalLength,
+        lastModified: _millisToDateTime(node.modifiedMillis),
+        fetchChunk: (chunkRange) => _fetchWebDavChunk(server: server, targetUri: targetUri, path: node.path, range: chunkRange),
+      );
+    }
     final shouldUseDirectPassthrough = node.isVideo && totalLength >= _webDavDirectPassthroughThresholdBytes;
     if (shouldUseDirectPassthrough) {
       unawaited(
@@ -2079,6 +2109,19 @@ class RemoteMediaService {
       request: request,
       targetUri: targetUri,
     );
+  }
+
+  bool _shouldUseChunkedBootstrapForLargeWebDavRequest({
+    required RemoteBrowseNode node,
+    required RemoteProxyRequest request,
+    required int totalLength,
+  }) {
+    if (!node.isVideo || totalLength < _webDavDirectPassthroughThresholdBytes) return false;
+    if (request.method == 'HEAD') return false;
+
+    final range = _resolveByteRange(request.rangeHeader, totalLength);
+    const bootstrapBytes = _largeWebDavViewerBootstrapChunkCount * _streamChunkSizeBytes;
+    return range.start < bootstrapBytes;
   }
 
   Future<void> _warmupWebDavCompanionChunks({
