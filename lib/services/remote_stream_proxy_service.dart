@@ -81,6 +81,7 @@ class RemoteStreamProxyService {
   Uri? proxyUriForRemote({
     required String serverId,
     required String path,
+    String? protocol,
   }) {
     final server = _server;
     if (server == null) return null;
@@ -92,6 +93,7 @@ class RemoteStreamProxyService {
       queryParameters: {
         'sid': serverId,
         'path': base64Url.encode(utf8.encode(path)),
+        if (protocol != null && protocol.isNotEmpty) 'protocol': protocol,
       },
     );
   }

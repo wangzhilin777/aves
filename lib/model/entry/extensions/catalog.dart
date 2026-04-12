@@ -12,6 +12,13 @@ import 'package:aves/services/metadata/svg_metadata_service.dart';
 import 'package:flutter/foundation.dart';
 
 extension ExtraAvesEntryCatalog on AvesEntry {
+  bool get _isLocalProxyRemoteStream {
+    final uriObj = Uri.tryParse(uri);
+    if (uriObj == null) return false;
+    final isLoopbackHttp = (uriObj.isScheme('http') || uriObj.isScheme('https')) && (uriObj.host == '127.0.0.1' || uriObj.host == 'localhost');
+    return isLoopbackHttp && uriObj.path == '/remote-stream' && uriObj.queryParameters.containsKey('sid');
+  }
+
   Future<void> catalog({required bool background, required bool force, required bool persist}) async {
     if (isCatalogued && !force) return;
 
@@ -43,8 +50,11 @@ extension ExtraAvesEntryCatalog on AvesEntry {
         }
       }
 
-      // cataloguing on platform
-      catalogMetadata = await metadataFetchService.getCatalogMetadata(this, background: background);
+      // Chunked remote proxy streams are not readable through Android file descriptor APIs.
+      // Skip platform catalog parsing there to avoid noisy failures during first playback init.
+      if (!_isLocalProxyRemoteStream) {
+        catalogMetadata = await metadataFetchService.getCatalogMetadata(this, background: background);
+      }
 
       // post-processing
       if ((isVideo && (catalogMetadata?.dateMillis ?? 0) == 0) || (mimeType == MimeTypes.avif && durationMillis != null)) {
