@@ -142,7 +142,7 @@ class _VideoViewState extends State<VideoView> {
             final isSmbProtocol = remoteProtocol == RemoteProtocol.smb;
             final isChunkedRemoteProtocol = isFtpProtocol || isSftpProtocol || isSmbProtocol;
             final isChunkedRemotePreview = isChunkedRemoteProtocol && !widget.preferStableRemoteInit;
-            final isLargeRemoteDetail = widget.preferStableRemoteInit && isRemoteStream && remoteMediaService.isLargeRemoteVideoEntry(entry);
+            final isLargeWebdavDetail = widget.preferStableRemoteInit && isRemoteStream && remoteProtocol == RemoteProtocol.webdav && remoteMediaService.isLargeRemoteVideoEntry(entry);
             final hasRenderableFrame = hasDecodedFrame || hasFirstFrameRendered;
             final hasStableDetailFrame = controller.isPlaying && currentPosition > 0 && (hasFirstFrameRendered || hasDecodedFrame);
             final gainedPlaybackProgress = currentPosition > 0 && !_hadPlaybackProgress;
@@ -159,17 +159,17 @@ class _VideoViewState extends State<VideoView> {
             final allowFtpStableDetailRender = widget.preferStableRemoteInit && isFtpProtocol && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
             final allowSftpStableDetailRender = widget.preferStableRemoteInit && isSftpProtocol && (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
             final allowSmbStableDetailRender = widget.preferStableRemoteInit && isSmbProtocol && (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
-            final allowLargeRemoteDetailRender = isLargeRemoteDetail && hasRenderableFrame;
+            final allowLargeWebdavDetailRender = isLargeWebdavDetail && hasRenderableFrame;
             final canRenderDespiteError = isRemoteManagedEntry
                 ? isChunkedRemoteProtocol
                       ? (widget.preferStableRemoteInit ? allowFtpStableDetailRender || allowSftpStableDetailRender || allowSmbStableDetailRender || hasStableDetailFrame : false)
-                      : (widget.preferStableRemoteInit ? (isLargeRemoteDetail ? allowLargeRemoteDetailRender || hasStableDetailFrame : hasStableDetailFrame) : controller.isPlaying || hasRemotePreviewFrame)
+                      : (widget.preferStableRemoteInit ? (isLargeWebdavDetail ? allowLargeWebdavDetailRender || hasStableDetailFrame : hasStableDetailFrame) : controller.isPlaying || hasRemotePreviewFrame)
                 : controller.isPlaying || controller.isReady || hasLocalRecoverableFrame || (hasDecodedFrame && allowDecodedFrameRenderOnError);
             final shouldKeepPlayerHiddenDuringStableRemoteInit =
                 widget.preferStableRemoteInit &&
                 isRemoteStream &&
                 ((isChunkedRemoteProtocol && ((isFtpProtocol && !allowFtpStableDetailRender) || (isSftpProtocol && !allowSftpStableDetailRender) || (isSmbProtocol && !allowSmbStableDetailRender))) ||
-                    (!isChunkedRemoteProtocol && isLargeRemoteDetail && !allowLargeRemoteDetailRender));
+                    (isLargeWebdavDetail && !allowLargeWebdavDetailRender));
             final shouldKeepLocalPlayerHiddenUntilFrame = !isRemoteManagedEntry && !hasLocalRecoverableFrame;
             if (allowFtpStableDetailRender) {
               _logRenderDecision(
@@ -219,9 +219,9 @@ class _VideoViewState extends State<VideoView> {
               );
               return controller.buildPlayerWidget(context);
             }
-            if (!isChunkedRemoteProtocol && isLargeRemoteDetail && allowLargeRemoteDetailRender) {
+            if (isLargeWebdavDetail && allowLargeWebdavDetailRender) {
               _logRenderDecision(
-                decision: 'large_remote_detail_render_player_with_stable_frame',
+                decision: 'large_webdav_detail_render_player_with_stable_frame',
                 status: status,
                 currentPosition: currentPosition,
                 isRemoteManagedEntry: isRemoteManagedEntry,
@@ -237,7 +237,7 @@ class _VideoViewState extends State<VideoView> {
             }
             if (shouldKeepPlayerHiddenDuringStableRemoteInit) {
               _logRenderDecision(
-                decision: !isChunkedRemoteProtocol && isLargeRemoteDetail ? 'large_remote_hide_player_for_stable_init' : 'chunked_hide_player_for_stable_init',
+                decision: isLargeWebdavDetail ? 'large_webdav_hide_player_for_stable_init' : 'chunked_hide_player_for_stable_init',
                 status: status,
                 currentPosition: currentPosition,
                 isRemoteManagedEntry: isRemoteManagedEntry,
@@ -252,9 +252,9 @@ class _VideoViewState extends State<VideoView> {
               return const ColoredBox(color: Colors.transparent);
             }
             if (status == VideoStatus.error) {
-              if (!isChunkedRemoteProtocol && isLargeRemoteDetail && hasRemotePreviewFrame) {
+              if (isLargeWebdavDetail && hasRemotePreviewFrame) {
                 _logRenderDecision(
-                  decision: 'large_remote_detail_render_player_with_preview_frame',
+                  decision: 'large_webdav_detail_render_player_with_preview_frame',
                   status: status,
                   currentPosition: currentPosition,
                   isRemoteManagedEntry: isRemoteManagedEntry,
@@ -540,9 +540,9 @@ class _VideoViewState extends State<VideoView> {
               );
               return controller.buildPlayerWidget(context);
             }
-            if (!isChunkedRemoteProtocol && isLargeRemoteDetail && !hasRenderableFrame) {
+            if (isLargeWebdavDetail && !hasRenderableFrame) {
               _logRenderDecision(
-                decision: 'large_remote_hide_player_until_displayable_frame',
+                decision: 'large_webdav_hide_player_until_displayable_frame',
                 status: status,
                 currentPosition: currentPosition,
                 isRemoteManagedEntry: isRemoteManagedEntry,
