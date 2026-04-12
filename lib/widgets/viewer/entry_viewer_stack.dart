@@ -33,6 +33,7 @@ import 'package:aves/widgets/viewer/overlay/video/video.dart';
 import 'package:aves/widgets/viewer/page_entry_builder.dart';
 import 'package:aves/widgets/viewer/video/conductor.dart';
 import 'package:aves/widgets/viewer/view/conductor.dart';
+import 'package:aves/widgets/viewer/viewer_pop_result.dart';
 import 'package:aves/widgets/viewer/visual/controller_mixin.dart';
 import 'package:aves_model/aves_model.dart';
 import 'package:aves_utils/aves_utils.dart';
@@ -47,12 +48,14 @@ import 'package:provider/provider.dart';
 class EntryViewerStack extends StatefulWidget {
   final CollectionLens? collection;
   final AvesEntry initialEntry;
+  final int? initialPreviewPositionMillis;
   final ViewerController viewerController;
 
   const EntryViewerStack({
     super.key,
     this.collection,
     required this.initialEntry,
+    this.initialPreviewPositionMillis,
     required this.viewerController,
   });
 
@@ -78,12 +81,22 @@ class _EntryViewerStackState extends State<EntryViewerStack> with EntryViewContr
   bool _isEntryTracked = true;
   Timer? _overlayHidingTimer;
   late ValueNotifier<AvesVideoController?> _playingVideoControllerNotifier;
+  int? _pendingInitialPreviewPositionMillis;
 
   @override
   bool get isViewingImage => _currentVerticalPage.value == imagePage;
 
   @override
   late final ValueNotifier<AvesEntry?> entryNotifier;
+
+  @override
+  int? takeInitialPreviewPositionMillis(AvesEntry entry) {
+    final candidate = _pendingInitialPreviewPositionMillis;
+    if (candidate == null) return null;
+    if (entry.id != widget.initialEntry.id) return null;
+    _pendingInitialPreviewPositionMillis = null;
+    return candidate;
+  }
 
   ViewerController get viewerController => widget.viewerController;
 
@@ -114,6 +127,7 @@ class _EntryViewerStackState extends State<EntryViewerStack> with EntryViewContr
     // so it is, strictly speaking, not contained in the lens used by the viewer,
     // but it can be found by content ID
     final initialEntry = widget.initialEntry;
+    _pendingInitialPreviewPositionMillis = widget.initialPreviewPositionMillis;
     final entry = entries.firstWhereOrNull((entry) => entry.id == initialEntry.id) ?? entries.firstOrNull;
     // opening hero, with viewer as target
     _heroInfoNotifier.value = EntryHeroInfo(collection, entry);
@@ -865,9 +879,10 @@ class _EntryViewerStackState extends State<EntryViewerStack> with EntryViewContr
 
   void _popVisual() {
     if (Navigator.canPop(context)) {
+      final popResult = _buildPopResult();
       Future<void> pop() async {
         await _onLeave();
-        Navigator.maybeOf(context)?.pop();
+        Navigator.maybeOf(context)?.pop(popResult);
       }
 
       // closing hero, with viewer as source
@@ -884,6 +899,25 @@ class _EntryViewerStackState extends State<EntryViewerStack> with EntryViewContr
       // exit app when trying to pop a viewer page
       _leaveViewer();
     }
+  }
+
+  ViewerPopResult? _buildPopResult() {
+    final entry = entryNotifier.value;
+    if (entry == null) return null;
+
+    int? previewPositionMillis;
+    if (entry.isVideo) {
+      final controller = context.read<VideoConductor>().getController(entry);
+      final positionMillis = controller?.currentPosition ?? 0;
+      if (positionMillis > 0) {
+        previewPositionMillis = positionMillis;
+      }
+    }
+
+    return ViewerPopResult(
+      entry: entry,
+      previewPositionMillis: previewPositionMillis,
+    );
   }
 
   Future<void> _leaveViewer() async {

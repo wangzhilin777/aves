@@ -15,7 +15,7 @@ class SettingsDefaults {
   static const videoGestureDoubleTapTogglePlay = false;
   static const videoGestureSideDoubleTapSeek = true;
   static const videoGestureVerticalDragBrightnessVolume = false;
-  static const gridVideoAutoPlay = true;
+  static const gridVideoAutoPlay = false;
   static const gridVideoSoundOn = false;
 
   // subtitles

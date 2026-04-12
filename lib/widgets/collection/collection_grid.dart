@@ -52,6 +52,7 @@ import 'package:aves/widgets/common/tile_extent_controller.dart';
 import 'package:aves/widgets/navigation/nav_bar/nav_bar.dart';
 import 'package:aves/widgets/viewer/entry_viewer_page.dart';
 import 'package:aves/widgets/viewer/video/conductor.dart';
+import 'package:aves/widgets/viewer/viewer_pop_result.dart';
 import 'package:aves_video/aves_video.dart';
 import 'package:aves_model/aves_model.dart';
 import 'package:collection/collection.dart';
@@ -124,19 +125,31 @@ class _CollectionGridContent extends StatefulWidget {
 class _CollectionGridContentState extends State<_CollectionGridContent> {
   final ValueNotifier<AvesEntry?> _focusedItemNotifier = ValueNotifier(null);
   final ValueNotifier<AvesEntry?> _previewPlayingEntryNotifier = ValueNotifier(null);
+  final ValueNotifier<ViewerPopResult?> _viewerReturnNotifier = ValueNotifier(null);
   final ValueNotifier<bool> _isScrollingNotifier = ValueNotifier(false);
   final ValueNotifier<AppMode> _selectingAppModeNotifier = ValueNotifier(AppMode.pickFilteredMediaInternal);
+  ViewerEntryNotifier? _viewerEntryNotifier;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => context.read<ViewerEntryNotifier>().value = null);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _viewerEntryNotifier?.value = null;
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _viewerEntryNotifier = context.read<ViewerEntryNotifier>();
   }
 
   @override
   void dispose() {
     _focusedItemNotifier.dispose();
     _previewPlayingEntryNotifier.dispose();
+    _viewerReturnNotifier.dispose();
     _isScrollingNotifier.dispose();
     _selectingAppModeNotifier.dispose();
     super.dispose();
@@ -205,6 +218,7 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
                                       tileLayout: tileLayout,
                                       isScrollingNotifier: _isScrollingNotifier,
                                       playbackFocusNotifier: _previewPlayingEntryNotifier,
+                                      viewerReturnNotifier: _viewerReturnNotifier,
                                     );
                                     if (!settings.useTvLayout) return tile;
 
@@ -250,6 +264,7 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
             collection: collection,
             isScrollingNotifier: _isScrollingNotifier,
             previewPlayingEntryNotifier: _previewPlayingEntryNotifier,
+            viewerReturnNotifier: _viewerReturnNotifier,
             scrollController: PrimaryScrollController.of(context),
             tileLayout: tileLayout,
             selectable: selectable,
@@ -263,6 +278,7 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
   Future<void> _goToViewer(CollectionLens collection, AvesEntry entry) async {
     // track viewer entry for dynamic hero placeholder
     final viewerEntryNotifier = context.read<ViewerEntryNotifier>();
+    final initialPreviewPositionMillis = entry.isVideo ? context.read<VideoConductor>().getController(entry)?.currentPosition : null;
 
     // `EntryViewerPage` is pushed with a transparent route, so the collection page
     // remains alive underneath it. Pause grid preview playback proactively to avoid
@@ -277,7 +293,7 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
     viewerEntryNotifier.value = entry;
 
     final selection = context.read<Selection<AvesEntry>>();
-    await Navigator.maybeOf(context)?.push(
+    final result = await Navigator.maybeOf(context)?.push<ViewerPopResult>(
       TransparentMaterialPageRoute(
         settings: const RouteSettings(name: EntryViewerPage.routeName),
         pageBuilder: (context, a, sa) {
@@ -287,6 +303,7 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
           Widget child = EntryViewerPage(
             collection: viewerCollection,
             initialEntry: entry,
+            initialPreviewPositionMillis: initialPreviewPositionMillis != null && initialPreviewPositionMillis > 0 ? initialPreviewPositionMillis : null,
           );
 
           if (selection.isSelecting) {
@@ -311,6 +328,44 @@ class _CollectionGridContentState extends State<_CollectionGridContent> {
       await Future.delayed(ADurations.pageTransitionExact * timeDilation);
     }
     viewerEntryNotifier.value = null;
+    if (!mounted || result == null) return;
+    await _restoreViewerReturn(result);
+  }
+
+  Future<void> _restoreViewerReturn(ViewerPopResult result) async {
+    final entry = result.entry;
+    _viewerReturnNotifier.value = result;
+    _focusedItemNotifier.value = entry;
+    if (!entry.isVideo) {
+      return;
+    }
+
+    final positionMillis = result.previewPositionMillis;
+    if (positionMillis != null && positionMillis > 0) {
+      final conductor = context.read<VideoConductor>();
+      final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+      try {
+        if (remoteProtocol == RemoteProtocol.webdav) {
+          await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'collection_viewer_return_restore');
+        } else if (remoteProtocol == RemoteProtocol.ftp) {
+          await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'collection_viewer_return_restore');
+        } else if (remoteProtocol == RemoteProtocol.sftp) {
+          await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'collection_viewer_return_restore');
+        } else if (remoteProtocol == RemoteProtocol.smb) {
+          await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'collection_viewer_return_restore');
+        }
+
+        final controller = await conductor.getOrCreateController(entry, maxControllerCount: 5);
+        try {
+          await controller.untilReady.timeout(const Duration(milliseconds: 800));
+        } catch (_) {}
+        try {
+          await controller.seekTo(positionMillis);
+        } catch (_) {}
+      } catch (_) {}
+    }
+
+    _previewPlayingEntryNotifier.value = entry;
   }
 }
 
@@ -318,6 +373,7 @@ class _CollectionSectionedContent extends StatefulWidget {
   final CollectionLens collection;
   final ValueNotifier<bool> isScrollingNotifier;
   final ValueNotifier<AvesEntry?> previewPlayingEntryNotifier;
+  final ValueNotifier<ViewerPopResult?> viewerReturnNotifier;
   final ScrollController scrollController;
   final TileLayout tileLayout;
   final bool selectable;
@@ -326,6 +382,7 @@ class _CollectionSectionedContent extends StatefulWidget {
     required this.collection,
     required this.isScrollingNotifier,
     required this.previewPlayingEntryNotifier,
+    required this.viewerReturnNotifier,
     required this.scrollController,
     required this.tileLayout,
     required this.selectable,
@@ -360,6 +417,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   ScrollDirection _lastScrollIntentDirection = ScrollDirection.idle;
   DateTime _lastScrollIntentAt = DateTime.fromMillisecondsSinceEpoch(0);
   int _prefetchRequestToken = 0;
+  late VideoConductor _videoConductor;
 
   CollectionLens get collection => widget.collection;
 
@@ -432,6 +490,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     _appBarHeightNotifier.addListener(_onAppBarHeightChanged);
     scrollController.addListener(_onScrollOrLayoutChanged);
     widget.isScrollingNotifier.addListener(_onScrollingStateChanged);
+    widget.viewerReturnNotifier.addListener(_onViewerReturnChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _onScrollOrLayoutChanged();
       Future.delayed(const Duration(milliseconds: 140), _onScrollOrLayoutChanged);
@@ -442,9 +501,16 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _videoConductor = context.read<VideoConductor>();
+  }
+
+  @override
   void dispose() {
     scrollController.removeListener(_onScrollOrLayoutChanged);
     widget.isScrollingNotifier.removeListener(_onScrollingStateChanged);
+    widget.viewerReturnNotifier.removeListener(_onViewerReturnChanged);
     _focusDebounceTimer?.cancel();
     _deferredPrefetchTimer?.cancel();
     widget.previewPlayingEntryNotifier.value = null;
@@ -514,6 +580,16 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
         unawaited(_prefetchRemoteWindow(widget.previewPlayingEntryNotifier.value));
       });
     }
+  }
+
+  void _onViewerReturnChanged() {
+    final result = widget.viewerReturnNotifier.value;
+    final entry = result?.entry;
+    if (entry == null) return;
+    _initialFocusLockUntil = DateTime.now().add(const Duration(milliseconds: 1800));
+    _initialFocusLockedUri = entry.uri;
+    _initialFocusLockOffset = scrollController.hasClients ? scrollController.offset : _initialFocusLockOffset;
+    _applyFocusTarget(entry);
   }
 
   void _onScrollOrLayoutChanged() {
@@ -1009,7 +1085,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       },
     );
 
-    final conductor = context.read<VideoConductor>();
+    final conductor = _videoConductor;
     final deadline = DateTime.now().add(const Duration(milliseconds: 3200));
     while (DateTime.now().isBefore(deadline)) {
       if (!_isActivePrefetchRequest(anchor, requestToken)) return false;
@@ -1081,7 +1157,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
         return;
       }
 
-      final controller = await context.read<VideoConductor>().getOrCreateController(entry, maxControllerCount: 5);
+      final controller = await _videoConductor.getOrCreateController(entry, maxControllerCount: 5);
       Future<void> waitForPreheatFrame(AvesVideoController controller, Duration timeout) async {
         if (_hasRenderablePreheatFrame(controller)) return;
         final completer = Completer<void>();

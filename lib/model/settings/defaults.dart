@@ -71,7 +71,7 @@ class SettingsDefaults {
   static const showThumbnailRating = true;
   static const showThumbnailRaw = true;
   static const showThumbnailVideoDuration = true;
-  static const allowSingleColumnPreview = true;
+  static const allowSingleColumnPreview = false;
 
   // filter grids
   static const albumGroupFactor = AlbumChipSectionFactor.importance;
@@ -114,13 +114,14 @@ class SettingsDefaults {
 
   // rendering
   static const imageBackground = EntryBackground.white;
+  static const viewerResumeFromPreviewEnabled = false;
 
   // search
   static const saveSearchHistory = true;
 
   // remote
   static const remoteLogEnabled = false;
-  static const remoteWifiOnlyDownload = false;
+  static const remoteWifiOnlyDownload = true;
   static const remotePinAtTop = true;
   static const remoteCacheInSmartCollections = false;
   static const remoteStandaloneFavouriteMode = true;

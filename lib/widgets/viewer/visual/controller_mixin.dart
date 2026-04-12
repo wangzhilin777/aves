@@ -51,6 +51,8 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
   ValueNotifier<AvesEntry?> get entryNotifier;
 
+  int? takeInitialPreviewPositionMillis(AvesEntry entry) => null;
+
   Future<void> initEntryControllers(AvesEntry? entry) async {
     if (!mounted || entry == null) return;
 
@@ -318,8 +320,13 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-  Future<AvesVideoController> _primeWebdavViewerControllerForDetailPreheat(AvesEntry entry, AvesVideoController controller) async {
+  Future<AvesVideoController> _primeWebdavViewerControllerForDetailPreheat(
+    AvesEntry entry,
+    AvesVideoController controller, {
+    int? initialPreviewPositionMillis,
+  }) async {
     final useConservativeLargeVideoInit = remoteMediaService.isLargeRemoteVideoEntry(entry);
+    final hasIncomingPreviewResume = initialPreviewPositionMillis != null && initialPreviewPositionMillis > 0;
     try {
       await controller.untilReady.timeout(Duration(milliseconds: useConservativeLargeVideoInit ? 1500 : 900));
     } catch (_) {}
@@ -343,6 +350,20 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
             'positionMillis': controller.currentPosition,
             'status': controller.status.name,
             'isPlaying': controller.isPlaying,
+          },
+        ),
+      );
+      return controller;
+    }
+
+    if (hasIncomingPreviewResume) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'viewer kept webdav detail preheat non-destructive for incoming preview resume',
+          data: {
+            'uri': entry.uri,
+            'previewPositionMillis': initialPreviewPositionMillis,
           },
         ),
       );
@@ -383,11 +404,29 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     return controller;
   }
 
-  Future<AvesVideoController> _primeFtpViewerControllerForDetailPreheat(AvesEntry entry, AvesVideoController controller) async {
+  Future<AvesVideoController> _primeFtpViewerControllerForDetailPreheat(
+    AvesEntry entry,
+    AvesVideoController controller, {
+    int? initialPreviewPositionMillis,
+  }) async {
     try {
       await controller.untilReady.timeout(const Duration(milliseconds: 1200));
     } catch (_) {}
     if (_hasRenderableRemoteDetailPreheatFrame(controller)) {
+      return controller;
+    }
+
+    if (initialPreviewPositionMillis != null && initialPreviewPositionMillis > 0) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'viewer kept ftp detail preheat non-destructive for incoming preview resume',
+          data: {
+            'uri': entry.uri,
+            'previewPositionMillis': initialPreviewPositionMillis,
+          },
+        ),
+      );
       return controller;
     }
 
@@ -410,11 +449,29 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     return controller;
   }
 
-  Future<AvesVideoController> _primeSftpViewerControllerForDetailPreheat(AvesEntry entry, AvesVideoController controller) async {
+  Future<AvesVideoController> _primeSftpViewerControllerForDetailPreheat(
+    AvesEntry entry,
+    AvesVideoController controller, {
+    int? initialPreviewPositionMillis,
+  }) async {
     try {
       await controller.untilReady.timeout(const Duration(milliseconds: 900));
     } catch (_) {}
     if (_hasRenderableRemoteDetailPreheatFrame(controller)) {
+      return controller;
+    }
+
+    if (initialPreviewPositionMillis != null && initialPreviewPositionMillis > 0) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'viewer kept sftp detail preheat non-destructive for incoming preview resume',
+          data: {
+            'uri': entry.uri,
+            'previewPositionMillis': initialPreviewPositionMillis,
+          },
+        ),
+      );
       return controller;
     }
 
@@ -452,11 +509,29 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     return controller;
   }
 
-  Future<AvesVideoController> _primeSmbViewerControllerForDetailPreheat(AvesEntry entry, AvesVideoController controller) async {
+  Future<AvesVideoController> _primeSmbViewerControllerForDetailPreheat(
+    AvesEntry entry,
+    AvesVideoController controller, {
+    int? initialPreviewPositionMillis,
+  }) async {
     try {
       await controller.untilReady.timeout(const Duration(milliseconds: 900));
     } catch (_) {}
     if (_hasRenderableRemoteDetailPreheatFrame(controller)) {
+      return controller;
+    }
+
+    if (initialPreviewPositionMillis != null && initialPreviewPositionMillis > 0) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'viewer kept smb detail preheat non-destructive for incoming preview resume',
+          data: {
+            'uri': entry.uri,
+            'previewPositionMillis': initialPreviewPositionMillis,
+          },
+        ),
+      );
       return controller;
     }
 
@@ -922,15 +997,17 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       );
       controller = await videoConductor.recreateController(entry);
     }
+    final incomingPreviewPositionMillis = takeInitialPreviewPositionMillis(entry);
+    final initialPreviewPositionMillis = settings.viewerResumeFromPreviewEnabled ? incomingPreviewPositionMillis : null;
     if (isRemoteStream && shouldApplyRemoteDetailPreviewPreheat) {
       if (remoteProtocol == RemoteProtocol.webdav) {
-        controller = await _primeWebdavViewerControllerForDetailPreheat(entry, controller);
+        controller = await _primeWebdavViewerControllerForDetailPreheat(entry, controller, initialPreviewPositionMillis: initialPreviewPositionMillis);
       } else if (remoteProtocol == RemoteProtocol.ftp) {
-        controller = await _primeFtpViewerControllerForDetailPreheat(entry, controller);
+        controller = await _primeFtpViewerControllerForDetailPreheat(entry, controller, initialPreviewPositionMillis: initialPreviewPositionMillis);
       } else if (remoteProtocol == RemoteProtocol.sftp) {
-        controller = await _primeSftpViewerControllerForDetailPreheat(entry, controller);
+        controller = await _primeSftpViewerControllerForDetailPreheat(entry, controller, initialPreviewPositionMillis: initialPreviewPositionMillis);
       } else if (remoteProtocol == RemoteProtocol.smb) {
-        controller = await _primeSmbViewerControllerForDetailPreheat(entry, controller);
+        controller = await _primeSmbViewerControllerForDetailPreheat(entry, controller, initialPreviewPositionMillis: initialPreviewPositionMillis);
       }
     }
     setState(() {});
@@ -997,10 +1074,11 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
             'isRemoteCached': entry.isRemoteCachedMedia,
             'sourceType': isRemoteStream ? 'remote' : 'local',
             'viewerAutoPlayMode': settings.videoAutoPlayMode.name,
+            'viewerPreviewResumeEnabled': settings.viewerResumeFromPreviewEnabled,
           },
         ),
       );
-      final resumeTimeMillis = await controller.getResumeTime(context);
+      final resumeTimeMillis = initialPreviewPositionMillis ?? await controller.getResumeTime(context);
       await _autoPlayVideo(controller, () => entry == entryNotifier.value, resumeTimeMillis: resumeTimeMillis);
     }
   }
@@ -1188,7 +1266,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     }
 
     final prefersImmediatePlayback = isRemoteStreamUri && (remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb);
-    final normalizedResumeTimeMillis = prefersImmediatePlayback ? null : (resumeTimeMillis != null && resumeTimeMillis > 0 ? resumeTimeMillis : null);
+    final normalizedResumeTimeMillis = resumeTimeMillis != null && resumeTimeMillis > 0 ? resumeTimeMillis : null;
     final shouldDeferInitialResumeSeek = prefersImmediatePlayback && normalizedResumeTimeMillis != null;
     var localPrimed = false;
     if (prefersImmediatePlayback) {

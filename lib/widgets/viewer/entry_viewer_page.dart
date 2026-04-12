@@ -13,11 +13,13 @@ class EntryViewerPage extends StatefulWidget {
 
   final CollectionLens? collection;
   final AvesEntry initialEntry;
+  final int? initialPreviewPositionMillis;
 
   const EntryViewerPage({
     super.key,
     this.collection,
     required this.initialEntry,
+    this.initialPreviewPositionMillis,
   });
 
   @override
@@ -51,6 +53,7 @@ class _EntryViewerPageState extends State<EntryViewerPage> {
         child: EntryViewerStack(
           collection: collection,
           initialEntry: widget.initialEntry,
+          initialPreviewPositionMillis: widget.initialPreviewPositionMillis,
           viewerController: _viewerController,
         ),
       ),

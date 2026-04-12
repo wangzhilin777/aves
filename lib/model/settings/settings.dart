@@ -428,6 +428,7 @@ class Settings
           case SettingKeys.showOverlayThumbnailPreviewKey:
           case SettingKeys.viewerGestureSideTapNextKey:
           case SettingKeys.viewerUseCutoutKey:
+          case SettingKeys.viewerResumeFromPreviewEnabledKey:
           case SettingKeys.enableMotionPhotoAutoPlayKey:
           case SettingKeys.videoGestureDoubleTapTogglePlayKey:
           case SettingKeys.videoGestureSideDoubleTapSeekKey:

@@ -41,6 +41,7 @@ class ViewerSection extends SettingsSection {
       SettingsTileViewerMotionPhotoAutoPlay(),
       if (!settings.useTvLayout) SettingsTileViewerGridVideoAutoPlay(),
       if (!settings.useTvLayout) SettingsTileViewerGridVideoSoundOn(),
+      if (!settings.useTvLayout) SettingsTileViewerRemoteResumeFromPreview(),
       SettingsTileViewerImageBackground(),
     ];
   }
@@ -192,5 +193,20 @@ class SettingsTileViewerGridVideoSoundOn extends SettingsTile {
       );
     },
     title: title(context),
+  );
+}
+
+class SettingsTileViewerRemoteResumeFromPreview extends SettingsTile {
+  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
+
+  @override
+  String title(BuildContext context) => _tr(context, 'Use preview position when opening video details', '进入详情时沿用预览进度');
+
+  @override
+  Widget build(BuildContext context) => SettingsSwitchListTile(
+    selector: (context, s) => s.viewerResumeFromPreviewEnabled,
+    onChanged: (v) => settings.viewerResumeFromPreviewEnabled = v,
+    title: title(context),
+    subtitle: _tr(context, 'Applies to local and remote videos. Off by default.', '适用于本地和远程视频，默认关闭。'),
   );
 }

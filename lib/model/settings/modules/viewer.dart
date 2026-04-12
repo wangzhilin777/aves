@@ -50,6 +50,10 @@ mixin ViewerSettings on SettingsAccess {
 
   set viewerUseCutout(bool newValue) => set(SettingKeys.viewerUseCutoutKey, newValue);
 
+  bool get viewerResumeFromPreviewEnabled => getBool(SettingKeys.viewerResumeFromPreviewEnabledKey) ?? SettingsDefaults.viewerResumeFromPreviewEnabled;
+
+  set viewerResumeFromPreviewEnabled(bool newValue) => set(SettingKeys.viewerResumeFromPreviewEnabledKey, newValue);
+
   bool get enableMotionPhotoAutoPlay => getBool(SettingKeys.enableMotionPhotoAutoPlayKey) ?? SettingsDefaults.enableMotionPhotoAutoPlay;
 
   set enableMotionPhotoAutoPlay(bool newValue) => set(SettingKeys.enableMotionPhotoAutoPlayKey, newValue);
