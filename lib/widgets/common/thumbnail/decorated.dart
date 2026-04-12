@@ -884,21 +884,8 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
           trigger: 'grid_preview',
           allowDownload: false,
         );
-        final isLargeWebDavPreview = remoteProtocol == RemoteProtocol.webdav && remoteMediaService.isLargeRemoteVideoEntry(entry);
-        if ((remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb || isLargeWebDavPreview) && existingCacheFile == null) {
+        if ((remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb) && existingCacheFile == null) {
           await remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'grid_preview_pre_controller');
-        }
-        if (isLargeWebDavPreview && existingCacheFile == null) {
-          unawaited(
-            remoteMediaLogService.log(
-              'autoplay',
-              'webdav grid preview forced stable head warmup before controller init',
-              data: {
-                'uri': entry.uri,
-                'skipQuickCacheDownload': true,
-              },
-            ),
-          );
         }
         if (remoteProtocol == RemoteProtocol.smb && existingCacheFile == null) {
           unawaited(
