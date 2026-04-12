@@ -27,6 +27,7 @@ class VideoView extends StatefulWidget {
 class _VideoViewState extends State<VideoView> {
   static const _remoteInitialErrorGrace = Duration(milliseconds: 1400);
   static const _chunkedRemoteProgressRevealGrace = Duration(milliseconds: 180);
+  static const _ftpVisibleProgressThreshold = 160;
   AvesEntry get entry => widget.entry;
 
   AvesVideoController get controller => widget.controller;
@@ -120,6 +121,16 @@ class _VideoViewState extends State<VideoView> {
     );
   }
 
+  Widget _buildFtpMountedPlayer({required bool visible}) {
+    return IgnorePointer(
+      ignoring: !visible,
+      child: Opacity(
+        opacity: visible ? 1 : 0,
+        child: controller.buildPlayerWidget(context),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<VideoStatus>(
@@ -153,10 +164,12 @@ class _VideoViewState extends State<VideoView> {
             final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
             final hasLocalRecoverableFrame = !isRemoteManagedEntry && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
             final hasRemotePreviewFrame = hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0;
-            final hasFtpPreviewFrame = hasDecodedFrame || hasFirstFrameRendered;
+            final hasFtpVisibleFrame = currentPosition >= _ftpVisibleProgressThreshold && (hasDecodedFrame || hasFirstFrameRendered);
+            final hasFtpPreviewFrame = hasFtpVisibleFrame;
+            final shouldKeepFtpPlayerHiddenUntilStableProgress = isFtpProtocol && !hasFtpVisibleFrame;
             final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
             final withinChunkedProgressRevealGrace = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressRevealDeadline != null && DateTime.now().isBefore(_chunkedProgressRevealDeadline!);
-            final allowFtpStableDetailRender = widget.preferStableRemoteInit && isFtpProtocol && (hasDecodedFrame || hasFirstFrameRendered);
+            final allowFtpStableDetailRender = widget.preferStableRemoteInit && isFtpProtocol && hasFtpVisibleFrame;
             final allowSftpStableDetailRender = widget.preferStableRemoteInit && isSftpProtocol && (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
             final allowSmbStableDetailRender = widget.preferStableRemoteInit && isSmbProtocol && (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
             final allowLargeWebdavDetailRender = isLargeWebdavDetail && hasRenderableFrame;
@@ -185,7 +198,7 @@ class _VideoViewState extends State<VideoView> {
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
                 shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
-              return controller.buildPlayerWidget(context);
+              return _buildFtpMountedPlayer(visible: true);
             }
             if (allowSftpStableDetailRender) {
               _logRenderDecision(
@@ -249,6 +262,9 @@ class _VideoViewState extends State<VideoView> {
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
                 shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
+              if (isFtpProtocol) {
+                return _buildFtpMountedPlayer(visible: false);
+              }
               return const ColoredBox(color: Colors.transparent);
             }
             if (status == VideoStatus.error) {
@@ -282,7 +298,7 @@ class _VideoViewState extends State<VideoView> {
                   withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
                   shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                 );
-                return controller.buildPlayerWidget(context);
+                return _buildFtpMountedPlayer(visible: true);
               }
               if (widget.preferStableRemoteInit && isSftpProtocol && hasRemotePreviewFrame) {
                 _logRenderDecision(
@@ -331,7 +347,7 @@ class _VideoViewState extends State<VideoView> {
                     withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
                     shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                   );
-                  return controller.buildPlayerWidget(context);
+                  return isFtpProtocol ? _buildFtpMountedPlayer(visible: true) : controller.buildPlayerWidget(context);
                 }
                 if (isFtpProtocol) {
                   _logRenderDecision(
@@ -347,7 +363,7 @@ class _VideoViewState extends State<VideoView> {
                     withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
                     shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                   );
-                  return const ColoredBox(color: Colors.transparent);
+                  return _buildFtpMountedPlayer(visible: false);
                 }
                 if (isSftpProtocol) {
                   _logRenderDecision(
@@ -426,7 +442,7 @@ class _VideoViewState extends State<VideoView> {
                   withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
                   shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                 );
-                return controller.buildPlayerWidget(context);
+                return isFtpProtocol ? _buildFtpMountedPlayer(visible: true) : controller.buildPlayerWidget(context);
               }
               if (withinRemoteInitialErrorGrace || (isRemoteStream && isChunkedRemoteProtocol)) {
                 _logRenderDecision(
@@ -442,6 +458,9 @@ class _VideoViewState extends State<VideoView> {
                   withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
                   shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
                 );
+                if (isFtpProtocol) {
+                  return _buildFtpMountedPlayer(visible: false);
+                }
                 return const ColoredBox(color: Colors.transparent);
               }
               _logRenderDecision(
@@ -476,7 +495,7 @@ class _VideoViewState extends State<VideoView> {
               );
               return const SizedBox();
             }
-            if (isFtpProtocol && !widget.preferStableRemoteInit && !hasFtpPreviewFrame) {
+            if (shouldKeepFtpPlayerHiddenUntilStableProgress) {
               _logRenderDecision(
                 decision: 'ftp_hide_player_until_preview_frame',
                 status: status,
@@ -490,7 +509,7 @@ class _VideoViewState extends State<VideoView> {
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
                 shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
-              return const ColoredBox(color: Colors.transparent);
+              return _buildFtpMountedPlayer(visible: false);
             }
             if (isSftpProtocol && !hasRemotePreviewFrame) {
               _logRenderDecision(
@@ -538,7 +557,7 @@ class _VideoViewState extends State<VideoView> {
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
                 shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
-              return controller.buildPlayerWidget(context);
+              return isFtpProtocol ? _buildFtpMountedPlayer(visible: true) : controller.buildPlayerWidget(context);
             }
             if (isLargeWebdavDetail && !hasRenderableFrame) {
               _logRenderDecision(
@@ -618,6 +637,9 @@ class _VideoViewState extends State<VideoView> {
                 withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
                 shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
               );
+              if (isFtpProtocol) {
+                return _buildFtpMountedPlayer(visible: false);
+              }
               return const ColoredBox(color: Colors.transparent);
             }
             _logRenderDecision(
@@ -633,7 +655,7 @@ class _VideoViewState extends State<VideoView> {
               withinChunkedProgressRevealGrace: withinChunkedProgressRevealGrace,
               shouldKeepPlayerHiddenDuringChunkedInit: shouldKeepPlayerHiddenDuringStableRemoteInit,
             );
-            return controller.buildPlayerWidget(context);
+            return isFtpProtocol ? _buildFtpMountedPlayer(visible: true) : controller.buildPlayerWidget(context);
           },
         );
       },

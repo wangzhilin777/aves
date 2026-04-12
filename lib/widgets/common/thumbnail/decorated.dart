@@ -1187,6 +1187,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             final decodedSize = controller.decodedVideoSizeNotifier.value;
             final displaySize = decodedSize ?? entry.displaySize;
             final displayAspectRatio = decodedSize != null && decodedSize.height > 0 ? decodedSize.width / decodedSize.height : entry.displayAspectRatio;
+            final shouldShowFtpThumbnailUnderlay = isFtpPreview && !hasFirstFrameRendered;
             final tileWidth = widget.isMosaic
                 ? tileHeight *
                       displayAspectRatio.clamp(
@@ -1203,6 +1204,14 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
+                  if (shouldShowFtpThumbnailUnderlay)
+                    ThumbnailImage(
+                      entry: entry,
+                      extent: tileHeight,
+                      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                      fit: widget.isMosaic ? BoxFit.cover : BoxFit.contain,
+                      showLoadingBackground: false,
+                    ),
                   IgnorePointer(
                     child: AnimatedOpacity(
                       opacity: previewVideoOpacity,

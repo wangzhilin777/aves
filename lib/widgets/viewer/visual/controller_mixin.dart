@@ -898,6 +898,30 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       );
       controller = await videoConductor.recreateController(entry);
     }
+    if (isRemoteStream &&
+        remoteProtocol == RemoteProtocol.ftp &&
+        (controller.currentPosition > 0 ||
+            controller.isPlaying ||
+            controller.status == VideoStatus.error ||
+            controller.isReady ||
+            _hasRenderableRemoteDetailPreheatFrame(controller))) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'viewer recreates ftp detail controller to avoid reusing preview session',
+          data: {
+            'uri': entry.uri,
+            'status': controller.status.name,
+            'isPlaying': controller.isPlaying,
+            'isReady': controller.isReady,
+            'positionMillis': controller.currentPosition,
+            'hasRenderableFrame': _hasRenderableRemoteDetailPreheatFrame(controller),
+            'protocol': remoteProtocol?.name,
+          },
+        ),
+      );
+      controller = await videoConductor.recreateController(entry);
+    }
     if (isRemoteStream && shouldApplyRemoteDetailPreviewPreheat) {
       if (remoteProtocol == RemoteProtocol.webdav) {
         controller = await _primeWebdavViewerControllerForDetailPreheat(entry, controller);
@@ -1164,6 +1188,8 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     }
 
     final prefersImmediatePlayback = isRemoteStreamUri && (remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb);
+    final normalizedResumeTimeMillis = prefersImmediatePlayback ? null : (resumeTimeMillis != null && resumeTimeMillis > 0 ? resumeTimeMillis : null);
+    final shouldDeferInitialResumeSeek = prefersImmediatePlayback && normalizedResumeTimeMillis != null;
     var localPrimed = false;
     if (prefersImmediatePlayback) {
       unawaited(
@@ -1226,10 +1252,47 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       }
     }
 
-    if (resumeTimeMillis != null) {
-      await videoController.seekTo(resumeTimeMillis);
+    if (shouldDeferInitialResumeSeek) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'deferred remote resume seek until playback bootstrap completed',
+          data: {
+            'uri': uri,
+            'protocol': remoteProtocol?.name,
+            'resumeTimeMillis': normalizedResumeTimeMillis,
+          },
+        ),
+      );
+    } else if (normalizedResumeTimeMillis != null) {
+      await videoController.seekTo(normalizedResumeTimeMillis);
     }
     await videoController.play();
+    if (shouldDeferInitialResumeSeek && token == _autoPlayRequestToken && isCurrent() && videoController.status != VideoStatus.error) {
+      try {
+        await _waitForRemoteDetailPreheatFrame(videoController, const Duration(milliseconds: 900));
+      } catch (_) {
+        // best-effort deferred remote resume seek
+      }
+      if (token == _autoPlayRequestToken && isCurrent() && videoController.status != VideoStatus.error) {
+        await videoController.seekTo(normalizedResumeTimeMillis);
+        if (!videoController.isPlaying) {
+          await videoController.play();
+        }
+        unawaited(
+          remoteMediaLogService.log(
+            'autoplay',
+            'applied deferred remote resume seek after playback bootstrap',
+            data: {
+              'uri': uri,
+              'protocol': remoteProtocol?.name,
+              'resumeTimeMillis': normalizedResumeTimeMillis,
+              'positionMillis': videoController.currentPosition,
+            },
+          ),
+        );
+      }
+    }
     if (controllerEntry is AvesEntry) {
       await remoteMediaService.ensureEntryMetadata(controllerEntry, trigger: 'viewer_playback_started');
     }
@@ -1240,7 +1303,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         data: {
           'uri': videoController.entry.uri,
           'path': controllerEntry is AvesEntry ? controllerEntry.path : null,
-          'resumeTimeMillis': resumeTimeMillis,
+          'resumeTimeMillis': normalizedResumeTimeMillis,
           'muted': videoController.isMuted,
           'isRemoteStream': isRemoteStreamUri,
           'sourceType': isRemoteStreamUri ? 'remote' : 'local',
@@ -1284,14 +1347,26 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     // Some videos (notably certain landscape encodes) may still miss the first autoplay window.
     // Keep one extra delayed retry while focus remains stable.
     await Future.delayed(const Duration(milliseconds: 550) * timeDilation);
-    if (token == _autoPlayRequestToken && isCurrent() && !videoController.isPlaying && videoController.status != VideoStatus.error && !isLargeWebdavRemoteVideo) {
-      await videoController.seekTo(resumeTimeMillis ?? 0);
+    if (token == _autoPlayRequestToken && isCurrent() && !videoController.isPlaying && videoController.status != VideoStatus.error && !isLargeWebdavRemoteVideo && !prefersImmediatePlayback) {
+      await videoController.seekTo(normalizedResumeTimeMillis ?? 0);
       await videoController.play();
       unawaited(
         remoteMediaLogService.log(
           'autoplay',
           'autoplay second retry requested after delayed non-playing state',
-          data: {'uri': uri, 'seekMillis': resumeTimeMillis ?? 0},
+          data: {'uri': uri, 'seekMillis': normalizedResumeTimeMillis ?? 0},
+        ),
+      );
+    } else if (token == _autoPlayRequestToken && isCurrent() && !videoController.isPlaying && videoController.status != VideoStatus.error && prefersImmediatePlayback) {
+      await videoController.play();
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'chunked remote autoplay retry requested without extra seek',
+          data: {
+            'uri': uri,
+            'protocol': remoteProtocol?.name,
+          },
         ),
       );
     } else if (token == _autoPlayRequestToken && isCurrent() && !videoController.isPlaying && videoController.status != VideoStatus.error && isLargeWebdavRemoteVideo) {

@@ -16,6 +16,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path/path.dart' as p;
 
 class MpvVideoController extends AvesVideoController {
+  static const _proxyInitialSurfaceSettleDelay = Duration(milliseconds: 160);
   late Player _mkPlayer;
   late VideoStatus _status;
   bool _abRepeatSeeking = false;
@@ -31,6 +32,8 @@ class MpvVideoController extends AvesVideoController {
   bool _openInProgress = false;
   bool _ignoreNextVisualRefresh = false;
   bool _metadataSyncInFlight = false;
+  bool _preferSoftwareDecodeForProxyStream = false;
+  int _lastKnownPlaybackPositionMillis = 0;
 
   static final _pContext = p.Context();
 
@@ -66,6 +69,9 @@ class MpvVideoController extends AvesVideoController {
     required super.playbackStateHandler,
     required super.settings,
   }) {
+    if (_isFtpLocalProxyRemoteStream) {
+      _preferSoftwareDecodeForProxyStream = true;
+    }
     _status = VideoStatus.idle;
     _statusStreamController.add(_status);
 
@@ -140,6 +146,9 @@ class MpvVideoController extends AvesVideoController {
     );
     _subscriptions.add(
       playerStream.position.listen((v) {
+        if (v.inMilliseconds > 0 && _canResumeFromObservedPosition) {
+          _lastKnownPlaybackPositionMillis = v.inMilliseconds;
+        }
         final abRepeat = abRepeatNotifier.value;
         if (abRepeat != null && status == VideoStatus.playing) {
           final start = abRepeat.start;
@@ -224,6 +233,7 @@ class MpvVideoController extends AvesVideoController {
     if (_openInProgress) return;
     _openInProgress = true;
     try {
+      _debugProxy('_init begin', {'startMillis': startMillis, 'playerPlaying': _mkPlayer.state.playing});
       firstFrameRenderedNotifier.value = false;
       final playing = _mkPlayer.state.playing;
 
@@ -242,6 +252,7 @@ class MpvVideoController extends AvesVideoController {
       await _mkPlayer.open(_mediaCandidates[_mediaCandidateIndex], play: playing);
       await _mkPlayer.setSubtitleTrack(SubtitleTrack.no());
       if (startMillis > 0) {
+        _debugProxy('_init requesting seekTo(startMillis)', {'startMillis': startMillis});
         await seekTo(startMillis);
       }
 
@@ -274,6 +285,78 @@ class MpvVideoController extends AvesVideoController {
     return [Media(rawUri)];
   }
 
+  bool get _isLocalProxyRemoteStream {
+    final uri = Uri.tryParse(entry.uri);
+    if (uri == null) return false;
+    final isLoopbackHttp = (uri.isScheme('http') || uri.isScheme('https')) && (uri.host == '127.0.0.1' || uri.host == 'localhost');
+    return isLoopbackHttp && uri.path == '/remote-stream' && uri.queryParameters.containsKey('sid');
+  }
+
+  String? get _proxyRemoteProtocol {
+    final uri = Uri.tryParse(entry.uri);
+    if (uri == null) return null;
+    return uri.queryParameters['protocol']?.toLowerCase();
+  }
+
+  bool get _isFtpLocalProxyRemoteStream => _isLocalProxyRemoteStream && _proxyRemoteProtocol == 'ftp';
+
+  bool get _hasDecodedVideoFrame {
+    final decodedSize = decodedVideoSizeNotifier.value;
+    return decodedSize != null && decodedSize.width > 1 && decodedSize.height > 1;
+  }
+
+  bool get _hasRenderablePlaybackFrame => firstFrameRenderedNotifier.value || _hasDecodedVideoFrame;
+
+  bool get _canResumeFromObservedPosition {
+    if (_isLocalProxyRemoteStream) {
+      return firstFrameRenderedNotifier.value;
+    }
+    return _hasRenderablePlaybackFrame;
+  }
+
+  int get _safeResumePositionMillis {
+    if (_canResumeFromObservedPosition && currentPosition > 0) {
+      return currentPosition;
+    }
+    return _lastKnownPlaybackPositionMillis;
+  }
+
+  void _debugProxy(String message, [Map<String, Object?> data = const {}]) {
+    if (!_isLocalProxyRemoteStream) return;
+    debugPrint('FTP_PROXY_DEBUG $message ${{
+      'uri': entry.uri,
+      'status': _status.name,
+      'currentPosition': currentPosition,
+      'lastKnownPlaybackPositionMillis': _lastKnownPlaybackPositionMillis,
+      'firstFrameRendered': firstFrameRenderedNotifier.value,
+      'hasDecodedVideoFrame': _hasDecodedVideoFrame,
+      ...data,
+    }}');
+  }
+
+  Future<void> _waitForSurfaceAttachment() async {
+    final controller = _mkControllerNotifier.value;
+    if (controller == null) return;
+    if (controller.id.value != null) return;
+
+    final completer = Completer<void>();
+    late VoidCallback listener;
+    listener = () {
+      if (controller.id.value != null && !completer.isCompleted) {
+        completer.complete();
+      }
+    };
+    controller.id.addListener(listener);
+    try {
+      await Future.any([
+        completer.future,
+        Future.delayed(const Duration(milliseconds: 700)),
+      ]);
+    } finally {
+      controller.id.removeListener(listener);
+    }
+  }
+
   Future<void> _recoverFromRemoteStreamError() async {
     if (_recoveringFromStreamError || _openInProgress) {
       return;
@@ -283,6 +366,44 @@ class MpvVideoController extends AvesVideoController {
       _statusStreamController.add(VideoStatus.error);
       return;
     }
+    final resumePositionMillis = _safeResumePositionMillis;
+    final hadRenderablePlaybackState = _hasRenderablePlaybackFrame;
+    _debugProxy('_recoverFromRemoteStreamError', {
+      'resumePositionMillis': resumePositionMillis,
+      'hadRenderablePlaybackState': hadRenderablePlaybackState,
+      'preferSoftwareDecode': _preferSoftwareDecodeForProxyStream,
+      'mediaCandidateIndex': _mediaCandidateIndex,
+    });
+    if (_isLocalProxyRemoteStream && _preferSoftwareDecodeForProxyStream && hadRenderablePlaybackState) {
+      _debugProxy('recover keeps existing proxy controller after renderable-frame error');
+      _statusStreamController.add(_mkPlayer.state.playing ? VideoStatus.playing : VideoStatus.paused);
+      return;
+    }
+    if (_isLocalProxyRemoteStream && !_preferSoftwareDecodeForProxyStream) {
+      _recoveringFromStreamError = true;
+      try {
+        if (!hadRenderablePlaybackState) {
+          firstFrameRenderedNotifier.value = false;
+        }
+        _preferSoftwareDecodeForProxyStream = true;
+        _initController();
+        final shouldPlay = _mkPlayer.state.playing || _status == VideoStatus.playing;
+        await _mkPlayer.open(_mediaCandidates[_mediaCandidateIndex], play: shouldPlay);
+        await _mkPlayer.setSubtitleTrack(SubtitleTrack.no());
+        if (hadRenderablePlaybackState && resumePositionMillis > 0) {
+          try {
+            _debugProxy('recover requesting seekTo(resumePositionMillis)', {'resumePositionMillis': resumePositionMillis});
+            await seekTo(resumePositionMillis);
+          } catch (_) {}
+        }
+        _statusStreamController.add(_mkPlayer.state.playing ? VideoStatus.playing : VideoStatus.paused);
+        return;
+      } catch (_) {
+        _statusStreamController.add(VideoStatus.error);
+      } finally {
+        _recoveringFromStreamError = false;
+      }
+    }
     if (_mediaCandidateIndex + 1 >= _mediaCandidates.length) {
       _statusStreamController.add(VideoStatus.error);
       return;
@@ -290,11 +411,19 @@ class MpvVideoController extends AvesVideoController {
 
     _recoveringFromStreamError = true;
     try {
-      firstFrameRenderedNotifier.value = false;
+      if (!hadRenderablePlaybackState) {
+        firstFrameRenderedNotifier.value = false;
+      }
       _mediaCandidateIndex += 1;
       final shouldPlay = _mkPlayer.state.playing || _status == VideoStatus.playing;
       await _mkPlayer.open(_mediaCandidates[_mediaCandidateIndex], play: shouldPlay);
       await _mkPlayer.setSubtitleTrack(SubtitleTrack.no());
+      if (hadRenderablePlaybackState && resumePositionMillis > 0) {
+        try {
+          _debugProxy('fallback candidate requesting seekTo(resumePositionMillis)', {'resumePositionMillis': resumePositionMillis});
+          await seekTo(resumePositionMillis);
+        } catch (_) {}
+      }
       _statusStreamController.add(_mkPlayer.state.playing ? VideoStatus.playing : VideoStatus.paused);
     } catch (_) {
       _statusStreamController.add(VideoStatus.error);
@@ -304,14 +433,14 @@ class MpvVideoController extends AvesVideoController {
   }
 
   void _initController() {
-    final hardwareAcceleration = settings.videoHardwareAcceleration;
+    final hardwareAcceleration = _preferSoftwareDecodeForProxyStream ? VideoHardwareAcceleration.disabled : settings.videoHardwareAcceleration;
     String hwdec;
-    switch (settings.videoHardwareAcceleration) {
-      case .disabled:
+    switch (hardwareAcceleration) {
+      case VideoHardwareAcceleration.disabled:
         hwdec = 'no';
-      case .enabled:
+      case VideoHardwareAcceleration.enabled:
         hwdec = 'auto-safe';
-      case .forced:
+      case VideoHardwareAcceleration.forced:
         hwdec = 'mediacodec';
     }
     final oldController = _mkControllerNotifier.value;
@@ -322,6 +451,7 @@ class MpvVideoController extends AvesVideoController {
             configuration: VideoControllerConfiguration(
               hwdec: hwdec,
               enableHardwareAcceleration: hardwareAcceleration != VideoHardwareAcceleration.disabled,
+              androidAttachSurfaceAfterVideoParameters: _isLocalProxyRemoteStream ? false : null,
             ),
           )
           ..waitUntilFirstFrameRendered.then((v) {
@@ -374,15 +504,36 @@ class MpvVideoController extends AvesVideoController {
       _ignoreNextVisualRefresh = false;
       return;
     }
-    _init(startMillis: currentPosition);
+    if (_isLocalProxyRemoteStream) {
+      _debugProxy('onVisualChanged ignored for local proxy stream');
+      return;
+    }
+    _debugProxy('onVisualChanged requesting _init', {'startMillis': _safeResumePositionMillis});
+    _init(startMillis: _safeResumePositionMillis);
   }
 
   @override
   Future<void> play() async {
+    _debugProxy('play requested');
+    final hadRenderableProxyFrameBeforeRecovery = _isLocalProxyRemoteStream && _hasRenderablePlaybackFrame;
+    if (_isLocalProxyRemoteStream) {
+      await _waitForSurfaceAttachment();
+      if (!hadRenderableProxyFrameBeforeRecovery) {
+        await Future.delayed(_proxyInitialSurfaceSettleDelay);
+      }
+    }
     if (status == VideoStatus.error) {
       await _recoverFromRemoteStreamError();
-      if (status == VideoStatus.error) {
-        await _init(startMillis: currentPosition);
+      final shouldKeepExistingProxyController =
+          _isLocalProxyRemoteStream &&
+          _preferSoftwareDecodeForProxyStream &&
+          (hadRenderableProxyFrameBeforeRecovery || _hasRenderablePlaybackFrame);
+      if (status == VideoStatus.error && !shouldKeepExistingProxyController) {
+        _debugProxy('play requesting _init after error', {'startMillis': _safeResumePositionMillis});
+        await _init(startMillis: _safeResumePositionMillis);
+      } else if (shouldKeepExistingProxyController) {
+        _debugProxy('play keeps existing proxy controller after renderable-frame error');
+        _statusStreamController.add(_mkPlayer.state.playing ? VideoStatus.playing : VideoStatus.paused);
       }
     }
     try {
@@ -396,6 +547,7 @@ class MpvVideoController extends AvesVideoController {
 
   @override
   Future<void> seekTo(int targetMillis) async {
+    _debugProxy('seekTo requested', {'targetMillis': targetMillis});
     if (!isReady) {
       await untilReady;
       // When the player gets ready, it can play from the beginning right away,

@@ -8,6 +8,75 @@ import 'package:flutter/widgets.dart';
 
 class ThumbnailProvider extends ImageProvider<ThumbnailProviderKey> {
   final ThumbnailProviderKey key;
+  static const _transparentPngBytes = <int>[
+    0x89,
+    0x50,
+    0x4E,
+    0x47,
+    0x0D,
+    0x0A,
+    0x1A,
+    0x0A,
+    0x00,
+    0x00,
+    0x00,
+    0x0D,
+    0x49,
+    0x48,
+    0x44,
+    0x52,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    0x08,
+    0x06,
+    0x00,
+    0x00,
+    0x00,
+    0x1F,
+    0x15,
+    0xC4,
+    0x89,
+    0x00,
+    0x00,
+    0x00,
+    0x0D,
+    0x49,
+    0x44,
+    0x41,
+    0x54,
+    0x78,
+    0x9C,
+    0x63,
+    0x00,
+    0x01,
+    0x00,
+    0x00,
+    0x05,
+    0x00,
+    0x01,
+    0x0D,
+    0x0A,
+    0x2D,
+    0xB4,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x49,
+    0x45,
+    0x4E,
+    0x44,
+    0xAE,
+    0x42,
+    0x60,
+    0x82,
+  ];
 
   ThumbnailProvider(this.key);
 
@@ -32,6 +101,11 @@ class ThumbnailProvider extends ImageProvider<ThumbnailProviderKey> {
   }
 
   Future<ui.Codec> _loadAsync(ThumbnailProviderKey key, ImageDecoderCallback decode) async {
+    if (_isLocalProxyRemoteVideoStream(key)) {
+      // For loopback remote video streams, let playback/first-frame and cached covers win.
+      // Platform thumbnail extraction on the same proxy stream can contend with startup.
+      return decode(await ui.ImmutableBuffer.fromUint8List(Uint8List.fromList(_transparentPngBytes)));
+    }
     try {
       return await mediaFetchService.getThumbnail(
         decoded: false,
@@ -50,6 +124,14 @@ class ThumbnailProvider extends ImageProvider<ThumbnailProviderKey> {
   void resolveStreamForKey(ImageConfiguration configuration, ImageStream stream, ThumbnailProviderKey key, ImageErrorListener handleError) {
     mediaFetchService.resumeLoading(key);
     super.resolveStreamForKey(configuration, stream, key, handleError);
+  }
+
+  bool _isLocalProxyRemoteVideoStream(ThumbnailProviderKey key) {
+    if (!key.mimeType.startsWith('video/')) return false;
+    final uri = Uri.tryParse(key.uri);
+    if (uri == null) return false;
+    final isLoopbackHttp = (uri.scheme == 'http' || uri.scheme == 'https') && (uri.host == '127.0.0.1' || uri.host == 'localhost');
+    return isLoopbackHttp && uri.path == '/remote-stream' && uri.queryParameters.containsKey('sid');
   }
 
   void pause() => mediaFetchService.cancelThumbnail(key);

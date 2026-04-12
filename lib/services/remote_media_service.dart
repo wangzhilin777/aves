@@ -1477,7 +1477,11 @@ class RemoteMediaService {
     required RemoteBrowseNode node,
   }) {
     if (node.isVideo) {
-      final proxyUri = remoteStreamProxyService.proxyUriForRemote(serverId: server.id, path: node.path);
+      final proxyUri = remoteStreamProxyService.proxyUriForRemote(
+        serverId: server.id,
+        path: node.path,
+        protocol: server.protocol.name,
+      );
       if (proxyUri != null) {
         final key = '${server.id}|${node.path}';
         if (_proxyLoggedUris.add(key)) {
