@@ -165,8 +165,8 @@ class _VideoViewState extends State<VideoView> {
             final hasLocalRecoverableFrame = !isRemoteManagedEntry && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
             final hasRemotePreviewFrame = hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0;
             final hasFtpVisibleFrame = currentPosition >= _ftpVisibleProgressThreshold && (hasDecodedFrame || hasFirstFrameRendered);
-            final hasFtpPreviewFrame = hasFtpVisibleFrame;
-            final shouldKeepFtpPlayerHiddenUntilStableProgress = isFtpProtocol && !hasFtpVisibleFrame;
+            final hasFtpPreviewFrame = hasDecodedFrame || hasFirstFrameRendered;
+            final shouldKeepFtpPlayerHiddenUntilStableProgress = isFtpProtocol && widget.preferStableRemoteInit && !hasFtpVisibleFrame;
             final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
             final withinChunkedProgressRevealGrace = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressRevealDeadline != null && DateTime.now().isBefore(_chunkedProgressRevealDeadline!);
             final allowFtpStableDetailRender = widget.preferStableRemoteInit && isFtpProtocol && hasFtpVisibleFrame;

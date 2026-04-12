@@ -1131,9 +1131,11 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
           await waitForPreheatFrame(controller, isRemoteNoCache ? const Duration(milliseconds: 2200) : const Duration(milliseconds: 600));
         } catch (_) {}
         await controller.pause();
-        try {
-          await controller.seekTo(0);
-        } catch (_) {}
+        if (remoteProtocol != RemoteProtocol.ftp) {
+          try {
+            await controller.seekTo(0);
+          } catch (_) {}
+        }
         try {
           await controller.untilReady.timeout(const Duration(milliseconds: 450));
         } catch (_) {}
