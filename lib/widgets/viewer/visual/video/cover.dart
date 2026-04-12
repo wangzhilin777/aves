@@ -232,7 +232,7 @@ class _VideoCoverState extends State<VideoCover> {
                 final allowFtpDetailCoverDismiss = hasFtpRenderableVisual;
                 final allowSftpDetailCoverDismiss = remoteProtocol == RemoteProtocol.sftp && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
                 final allowSmbDetailCoverDismiss = remoteProtocol == RemoteProtocol.smb && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
-                final allowLargeRemoteDetailCoverDismiss = isLargeRemoteDetail && (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinLargeRemoteProgressCoverGrace));
+                final allowLargeRemoteDetailCoverDismiss = isLargeRemoteDetail && (hasDecodedFrame || hasFirstFrameRendered);
                 final keepRemoteCoverUntilPlaying =
                     isRemoteStream &&
                     (isChunkedRemoteProtocol

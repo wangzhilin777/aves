@@ -27,14 +27,12 @@ class VideoView extends StatefulWidget {
 class _VideoViewState extends State<VideoView> {
   static const _remoteInitialErrorGrace = Duration(milliseconds: 1400);
   static const _chunkedRemoteProgressRevealGrace = Duration(milliseconds: 180);
-  static const _largeRemoteProgressRevealGrace = Duration(milliseconds: 320);
   AvesEntry get entry => widget.entry;
 
   AvesVideoController get controller => widget.controller;
   bool _loggedSoftErrorRender = false;
   late DateTime _initialErrorGraceDeadline;
   DateTime? _chunkedProgressRevealDeadline;
-  DateTime? _largeRemoteProgressRevealDeadline;
   bool _hadPlaybackProgress = false;
   String? _lastLocalRenderDecision;
   String? _lastRemoteRenderDecision;
@@ -44,7 +42,6 @@ class _VideoViewState extends State<VideoView> {
     super.initState();
     _initialErrorGraceDeadline = DateTime.now().add(_remoteInitialErrorGrace);
     _chunkedProgressRevealDeadline = null;
-    _largeRemoteProgressRevealDeadline = null;
     _hadPlaybackProgress = false;
     _registerWidget(widget);
   }
@@ -55,7 +52,6 @@ class _VideoViewState extends State<VideoView> {
     if (oldWidget.entry != widget.entry) {
       _initialErrorGraceDeadline = DateTime.now().add(_remoteInitialErrorGrace);
       _chunkedProgressRevealDeadline = null;
-      _largeRemoteProgressRevealDeadline = null;
       _hadPlaybackProgress = false;
     }
     _unregisterWidget(oldWidget);
@@ -153,9 +149,6 @@ class _VideoViewState extends State<VideoView> {
             if (gainedPlaybackProgress && widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol) {
               _chunkedProgressRevealDeadline = DateTime.now().add(_chunkedRemoteProgressRevealGrace);
             }
-            if (gainedPlaybackProgress && isLargeRemoteDetail) {
-              _largeRemoteProgressRevealDeadline = DateTime.now().add(_largeRemoteProgressRevealGrace);
-            }
             _hadPlaybackProgress = currentPosition > 0;
             final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
             final hasLocalRecoverableFrame = !isRemoteManagedEntry && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
@@ -163,11 +156,10 @@ class _VideoViewState extends State<VideoView> {
             final hasFtpPreviewFrame = hasFirstFrameRendered || currentPosition > 0;
             final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
             final withinChunkedProgressRevealGrace = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressRevealDeadline != null && DateTime.now().isBefore(_chunkedProgressRevealDeadline!);
-            final withinLargeRemoteProgressRevealGrace = isLargeRemoteDetail && _largeRemoteProgressRevealDeadline != null && DateTime.now().isBefore(_largeRemoteProgressRevealDeadline!);
             final allowFtpStableDetailRender = widget.preferStableRemoteInit && isFtpProtocol && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
             final allowSftpStableDetailRender = widget.preferStableRemoteInit && isSftpProtocol && (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
             final allowSmbStableDetailRender = widget.preferStableRemoteInit && isSmbProtocol && (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
-            final allowLargeRemoteDetailRender = isLargeRemoteDetail && (hasRenderableFrame || (currentPosition > 0 && !withinLargeRemoteProgressRevealGrace));
+            final allowLargeRemoteDetailRender = isLargeRemoteDetail && hasRenderableFrame;
             final canRenderDespiteError = isRemoteManagedEntry
                 ? isChunkedRemoteProtocol
                       ? (widget.preferStableRemoteInit ? allowFtpStableDetailRender || allowSftpStableDetailRender || allowSmbStableDetailRender || hasStableDetailFrame : false)
