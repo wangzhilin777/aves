@@ -937,7 +937,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
 
       final concurrency = max(1, min(_imagePrefetchConcurrency(anchor), candidates.length));
       for (var start = 0; start < candidates.length; start += concurrency) {
-        if (!_isActivePrefetchRequest(anchor, requestToken)) return;
+        if (!_isActiveImagePrefetchRequest(requestToken)) return;
         final batch = candidates.skip(start).take(concurrency).toList();
         final results = await Future.wait(
           batch.map(
@@ -948,7 +948,7 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
           ),
           eagerError: false,
         );
-        if (!_isActivePrefetchRequest(anchor, requestToken)) return;
+        if (!_isActiveImagePrefetchRequest(requestToken)) return;
         if (results.any((file) => file != null)) {
           collection.source.onAspectRatioChanged();
         }
@@ -986,6 +986,10 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
 
   bool _isActivePrefetchRequest(AvesEntry anchor, int requestToken) {
     return mounted && _prefetchRequestToken == requestToken && widget.previewPlayingEntryNotifier.value?.uri == anchor.uri;
+  }
+
+  bool _isActiveImagePrefetchRequest(int requestToken) {
+    return mounted && _prefetchRequestToken == requestToken;
   }
 
   bool _hasStablePreviewPlayback(AvesVideoController controller) {
