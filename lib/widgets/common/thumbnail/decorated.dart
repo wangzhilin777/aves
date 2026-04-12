@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:aves/model/entry/entry.dart';
+import 'package:aves/model/entry/extensions/images.dart';
 import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/model/settings/settings.dart';
@@ -17,6 +18,7 @@ import 'package:aves/widgets/common/thumbnail/overlay.dart';
 import 'package:aves/widgets/viewer/video/conductor.dart';
 import 'package:aves/widgets/viewer/visual/video/video_view.dart';
 import 'package:aves_video/aves_video.dart';
+import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -58,6 +60,8 @@ class DecoratedThumbnail extends StatelessWidget {
       builder: (context, child) {
         final double thumbnailHeight = tileExtent;
         final double thumbnailWidth;
+        final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
+        final isRemoteManagedEntry = remoteProtocol != null || entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri);
         if (isMosaic) {
           thumbnailWidth =
               thumbnailHeight *
@@ -72,6 +76,14 @@ class DecoratedThumbnail extends StatelessWidget {
         Widget buildBaseThumbnail({required bool suppressForLargeRemoteCurrentVideo}) {
           if (suppressForLargeRemoteCurrentVideo) {
             return const SizedBox.expand();
+          }
+          if (isRemoteManagedEntry) {
+            return _RemoteCachedThumbnailImage(
+              entry: entry,
+              width: thumbnailWidth,
+              height: thumbnailHeight,
+              fit: isMosaic ? BoxFit.cover : (entry.isSvg ? BoxFit.contain : BoxFit.cover),
+            );
           }
           return ThumbnailImage(
             entry: entry,
@@ -135,6 +147,42 @@ class DecoratedThumbnail extends StatelessWidget {
           child: child,
         );
       },
+    );
+  }
+}
+
+class _RemoteCachedThumbnailImage extends StatelessWidget {
+  final AvesEntry entry;
+  final double width;
+  final double height;
+  final BoxFit fit;
+
+  const _RemoteCachedThumbnailImage({
+    required this.entry,
+    required this.width,
+    required this.height,
+    required this.fit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = entry.cachedThumbnails.sortedBy<num>((provider) => provider.key.extent).lastOrNull;
+    if (provider == null) {
+      return SizedBox(
+        width: width,
+        height: height,
+        child: const ColoredBox(
+          color: Colors.transparent,
+        ),
+      );
+    }
+    return Image(
+      image: provider,
+      width: width,
+      height: height,
+      fit: fit,
+      gaplessPlayback: true,
+      filterQuality: FilterQuality.low,
     );
   }
 }
