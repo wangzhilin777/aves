@@ -695,7 +695,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         currentReadyForReveal: currentReadyForReveal,
         canReveal: shouldReveal,
       );
-      final shouldDelayFtpPreviewVisual = activeRemoteProtocol == RemoteProtocol.ftp;
+      final shouldDelayFtpPreviewVisual = activeRemoteProtocol == RemoteProtocol.ftp && !activeHasRenderableFrame;
       _ftpPreviewSettleTimer?.cancel();
       setState(() {
         _videoSurfaceVisible = true;

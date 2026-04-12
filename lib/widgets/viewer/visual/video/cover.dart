@@ -228,7 +228,7 @@ class _VideoCoverState extends State<VideoCover> {
                 final withinChunkedProgressCoverGrace = isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressCoverDeadline != null && DateTime.now().isBefore(_chunkedProgressCoverDeadline!);
                 final withinLargeRemotePlaybackCoverGrace = isLargeWebdavDetail && _largeRemotePlaybackCoverDeadline != null && DateTime.now().isBefore(_largeRemotePlaybackCoverDeadline!);
                 final withinLargeRemoteProgressCoverGrace = isLargeWebdavDetail && _largeRemoteProgressCoverDeadline != null && DateTime.now().isBefore(_largeRemoteProgressCoverDeadline!);
-                final hasFtpRenderableVisual = remoteProtocol == RemoteProtocol.ftp && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+                final hasFtpRenderableVisual = remoteProtocol == RemoteProtocol.ftp && (hasDecodedFrame || hasFirstFrameRendered);
                 final allowFtpDetailCoverDismiss = hasFtpRenderableVisual;
                 final allowSftpDetailCoverDismiss = remoteProtocol == RemoteProtocol.sftp && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
                 final allowSmbDetailCoverDismiss = remoteProtocol == RemoteProtocol.smb && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
@@ -250,7 +250,7 @@ class _VideoCoverState extends State<VideoCover> {
                     isRemoteStream &&
                     ((isChunkedRemoteProtocol &&
                             (remoteProtocol == RemoteProtocol.ftp
-                                ? (withinChunkedProgressCoverGrace && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0))
+                                ? (withinChunkedProgressCoverGrace && !(hasDecodedFrame || hasFirstFrameRendered))
                                 : remoteProtocol == RemoteProtocol.sftp
                                 ? (withinChunkedProgressCoverGrace && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0))
                                 : remoteProtocol == RemoteProtocol.smb
