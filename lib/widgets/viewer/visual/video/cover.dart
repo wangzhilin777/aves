@@ -204,7 +204,7 @@ class _VideoCoverState extends State<VideoCover> {
                 final currentPosition = positionSnapshot.data ?? videoController.currentPosition;
                 final isRemoteStream = entry.uri.startsWith('http://') || entry.uri.startsWith('https://');
                 final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
-                final isLargeRemoteDetail = isRemoteStream && remoteMediaService.isLargeRemoteVideoEntry(entry);
+                final isLargeWebdavDetail = isRemoteStream && remoteProtocol == RemoteProtocol.webdav && remoteMediaService.isLargeRemoteVideoEntry(entry);
                 final isChunkedRemoteProtocol = remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb;
                 final hasStableDetailFrame = hasFirstFrameRendered && videoController.isPlaying && currentPosition > 0;
                 final withinRemoteCoverGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_coverGraceDeadline);
@@ -216,23 +216,23 @@ class _VideoCoverState extends State<VideoCover> {
                 if (gainedPlaybackProgress && isRemoteStream && isChunkedRemoteProtocol) {
                   _chunkedProgressCoverDeadline = DateTime.now().add(_chunkedRemoteProgressCoverGrace);
                 }
-                if (startedPlayingNow && isLargeRemoteDetail) {
+                if (startedPlayingNow && isLargeWebdavDetail) {
                   _largeRemotePlaybackCoverDeadline = DateTime.now().add(_largeRemotePlaybackCoverGrace);
                 }
-                if (gainedPlaybackProgress && isLargeRemoteDetail) {
+                if (gainedPlaybackProgress && isLargeWebdavDetail) {
                   _largeRemoteProgressCoverDeadline = DateTime.now().add(_largeRemoteProgressCoverGrace);
                 }
                 _wasPlaying = videoController.isPlaying;
                 _hadPlaybackProgress = currentPosition > 0;
                 final withinChunkedPlaybackCoverGrace = isRemoteStream && isChunkedRemoteProtocol && _chunkedPlaybackCoverDeadline != null && DateTime.now().isBefore(_chunkedPlaybackCoverDeadline!);
                 final withinChunkedProgressCoverGrace = isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressCoverDeadline != null && DateTime.now().isBefore(_chunkedProgressCoverDeadline!);
-                final withinLargeRemotePlaybackCoverGrace = isLargeRemoteDetail && _largeRemotePlaybackCoverDeadline != null && DateTime.now().isBefore(_largeRemotePlaybackCoverDeadline!);
-                final withinLargeRemoteProgressCoverGrace = isLargeRemoteDetail && _largeRemoteProgressCoverDeadline != null && DateTime.now().isBefore(_largeRemoteProgressCoverDeadline!);
+                final withinLargeRemotePlaybackCoverGrace = isLargeWebdavDetail && _largeRemotePlaybackCoverDeadline != null && DateTime.now().isBefore(_largeRemotePlaybackCoverDeadline!);
+                final withinLargeRemoteProgressCoverGrace = isLargeWebdavDetail && _largeRemoteProgressCoverDeadline != null && DateTime.now().isBefore(_largeRemoteProgressCoverDeadline!);
                 final hasFtpRenderableVisual = remoteProtocol == RemoteProtocol.ftp && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
                 final allowFtpDetailCoverDismiss = hasFtpRenderableVisual;
                 final allowSftpDetailCoverDismiss = remoteProtocol == RemoteProtocol.sftp && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
                 final allowSmbDetailCoverDismiss = remoteProtocol == RemoteProtocol.smb && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
-                final allowLargeRemoteDetailCoverDismiss = isLargeRemoteDetail && (hasDecodedFrame || hasFirstFrameRendered);
+                final allowLargeWebdavDetailCoverDismiss = isLargeWebdavDetail && (hasDecodedFrame || hasFirstFrameRendered);
                 final keepRemoteCoverUntilPlaying =
                     isRemoteStream &&
                     (isChunkedRemoteProtocol
@@ -243,8 +243,8 @@ class _VideoCoverState extends State<VideoCover> {
                               : remoteProtocol == RemoteProtocol.smb
                               ? (!allowSmbDetailCoverDismiss && withinChunkedPlaybackCoverGrace)
                               : (!hasStableDetailFrame || withinChunkedPlaybackCoverGrace))
-                        : isLargeRemoteDetail
-                        ? (!allowLargeRemoteDetailCoverDismiss || withinLargeRemotePlaybackCoverGrace)
+                        : isLargeWebdavDetail
+                        ? (!allowLargeWebdavDetailCoverDismiss || withinLargeRemotePlaybackCoverGrace)
                         : !videoController.isPlaying);
                 final keepRemoteCoverUntilProgressSettles =
                     isRemoteStream &&
@@ -256,7 +256,7 @@ class _VideoCoverState extends State<VideoCover> {
                                 : remoteProtocol == RemoteProtocol.smb
                                 ? (withinChunkedProgressCoverGrace && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0))
                                 : withinChunkedProgressCoverGrace)) ||
-                        (!isChunkedRemoteProtocol && isLargeRemoteDetail && withinLargeRemoteProgressCoverGrace && !allowLargeRemoteDetailCoverDismiss));
+                        (isLargeWebdavDetail && withinLargeRemoteProgressCoverGrace && !allowLargeWebdavDetailCoverDismiss));
                 final shouldShowFtpErrorCover = remoteProtocol == RemoteProtocol.ftp && status == VideoStatus.error && isRemoteStream && !hasFtpRenderableVisual;
                 final shouldShowSftpErrorCover = remoteProtocol == RemoteProtocol.sftp && status == VideoStatus.error && isRemoteStream && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
                 final shouldShowSmbErrorCover = remoteProtocol == RemoteProtocol.smb && status == VideoStatus.error && isRemoteStream && !(hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
@@ -310,7 +310,7 @@ class _VideoCoverState extends State<VideoCover> {
                             hasCoverVisual &&
                             effectiveShowCover &&
                             (!isChunkedRemoteProtocol || currentPosition <= 0 || !videoController.isPlaying || !isRemoteStream || !hasFirstFrameRendered || withinChunkedProgressCoverGrace) &&
-                            (!isLargeRemoteDetail || currentPosition <= 0 || !videoController.isPlaying || !isRemoteStream || !hasFirstFrameRendered || withinLargeRemoteProgressCoverGrace);
+                            (!isLargeWebdavDetail || currentPosition <= 0 || !videoController.isPlaying || !isRemoteStream || !hasFirstFrameRendered || withinLargeRemoteProgressCoverGrace);
                         final shouldInterceptPointer = effectiveShowCover && shouldDisplayCoverVisual;
                         _logCoverDecision(
                           status: status,
