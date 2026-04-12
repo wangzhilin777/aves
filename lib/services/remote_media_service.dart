@@ -11,6 +11,7 @@ import 'package:aves/model/remote/remote_server.dart';
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/cache.dart';
 import 'package:aves/model/entry/extensions/catalog.dart';
+import 'package:aves/model/entry/extensions/images.dart';
 import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/entry/origins.dart';
 import 'package:aves/model/settings/enums/remote_stream_mode.dart';
@@ -27,6 +28,7 @@ import 'package:dartssh2/dartssh2.dart';
 import 'package:ftpconnect/ftpconnect.dart';
 import 'package:ftpconnect/src/ftp_reply.dart';
 import 'package:ftpconnect/src/ftp_socket.dart';
+import 'package:flutter/painting.dart';
 import 'package:ftpconnect/src/utils.dart';
 import 'package:http/http.dart' as http;
 import 'package:smb_connect/smb_connect.dart';
@@ -206,6 +208,9 @@ class RemoteMediaService {
   static const _previewInitialWarmupChunkCount = 1;
   static const _viewerInitialWarmupChunkCount = 2;
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
+  final Map<String, Future<void>> _standaloneFavouriteThumbnailWarmupInFlight = {};
+  final Map<String, String> _standaloneFavouriteCoverImageFiles = {};
+  final Map<String, String> _remotePreviewCoverImageFiles = {};
   final Map<String, Future<File?>> _downloadInFlight = {};
   final Set<String> _cacheWarmupKeys = {};
   final Map<String, (String uri, int expiresAtMillis)> _playbackUriCache = {};
@@ -226,6 +231,7 @@ class RemoteMediaService {
     required RemoteBrowseNode node,
   }) {
     _virtualRemoteRefs[uri] = (server, node);
+    unawaited(_hydrateRemotePreviewCoverPath(uri, server, node));
   }
 
   bool hasVirtualRemoteRef(String uri) => _virtualRemoteRefs.containsKey(uri);
@@ -354,6 +360,7 @@ class RemoteMediaService {
         final ref = _virtualRemoteRefs[rawUri];
         if (ref != null) {
           _virtualRemoteRefs[resolvedUri] = ref;
+          unawaited(_hydrateRemotePreviewCoverPath(resolvedUri, ref.$1, ref.$2));
         }
         await remoteMediaLogService.log(
           'autoplay',
@@ -441,6 +448,7 @@ class RemoteMediaService {
       entry.path = existingFile.path;
       entry.sizeBytes = await existingFile.length();
       _virtualRemoteRefs[fileUri] = ref;
+      await _hydrateRemotePreviewCoverPath(fileUri, ref.$1, ref.$2, entry: entry);
       await _refreshEntryMetadataFromLocalFile(entry, fileUri);
       entry.visualChangeNotifier.notify();
       return existingFile;
@@ -458,6 +466,7 @@ class RemoteMediaService {
       entry.path = file.path;
       entry.sizeBytes = await file.length();
       _virtualRemoteRefs[fileUri] = ref;
+      await _hydrateRemotePreviewCoverPath(fileUri, ref.$1, ref.$2, entry: entry);
       await _refreshEntryMetadataFromLocalFile(entry, fileUri);
       entry.visualChangeNotifier.notify();
       await remoteMediaLogService.log(
@@ -559,6 +568,72 @@ class RemoteMediaService {
     return key != null && settings.remoteStandaloneFavouritePaths.contains(key);
   }
 
+  ImageProvider? getStandaloneFavouriteThumbnailProvider(
+    AvesEntry entry, {
+    double extent = 256,
+  }) {
+    final key = getStandaloneFavouriteKeyForEntry(entry);
+    if (key == null) return null;
+    final coverFilePath = _standaloneFavouriteCoverImageFiles[key];
+    if (coverFilePath != null && coverFilePath.isNotEmpty) {
+      final coverFile = File(coverFilePath);
+      if (coverFile.existsSync()) {
+        return FileImage(coverFile);
+      }
+      _standaloneFavouriteCoverImageFiles.remove(key);
+    }
+    return null;
+  }
+
+  String? getRemotePreviewCoverKeyForEntry(AvesEntry entry) {
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref == null || !entry.isVideo) return null;
+    return 'remote_preview:${ref.$1.id}:${ref.$2.path}';
+  }
+
+  bool supportsRemotePreviewCover(AvesEntry entry) {
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref == null || !entry.isVideo) return false;
+    return switch (ref.$1.protocol) {
+      RemoteProtocol.webdav => true,
+      RemoteProtocol.ftp => true,
+      RemoteProtocol.sftp => true,
+      RemoteProtocol.smb => true,
+    };
+  }
+
+  ImageProvider? getRemotePreviewThumbnailProvider(
+    AvesEntry entry, {
+    double extent = 256,
+  }) {
+    if (!supportsRemotePreviewCover(entry)) return null;
+    final key = getRemotePreviewCoverKeyForEntry(entry);
+    if (key == null) return null;
+    final coverFilePath = _remotePreviewCoverImageFiles[key];
+    if (coverFilePath != null && coverFilePath.isNotEmpty) {
+      final coverFile = File(coverFilePath);
+      if (coverFile.existsSync()) {
+        return FileImage(coverFile);
+      }
+      _remotePreviewCoverImageFiles.remove(key);
+    }
+    return null;
+  }
+
+  Future<void> _hydrateRemotePreviewCoverPath(
+    String uri,
+    RemoteServer server,
+    RemoteBrowseNode node, {
+    AvesEntry? entry,
+  }) async {
+    final key = 'remote_preview:${server.id}:${node.path}';
+    final coverFile = await _getRemotePreviewCoverFile(server, node, createIfMissing: false);
+    if (await coverFile.exists() && await coverFile.length() > 0) {
+      _remotePreviewCoverImageFiles[key] = coverFile.path;
+      entry?.visualChangeNotifier.notify();
+    }
+  }
+
   int _syntheticStandaloneFavouriteEntryId(String key) {
     final hash = key.hashCode & 0x3fffffff;
     return -(hash + 1);
@@ -612,6 +687,7 @@ class RemoteMediaService {
   }) async {
     _standaloneFavouriteEntries.values.forEach((entry) => entry.dispose());
     _standaloneFavouriteEntries.clear();
+    _standaloneFavouriteCoverImageFiles.clear();
 
     final persistedEntries = _loadPersistedStandaloneFavouriteEntries();
     if (persistedEntries.isEmpty) return;
@@ -645,6 +721,10 @@ class RemoteMediaService {
         actualPath: cachedFile?.path,
       );
       _standaloneFavouriteEntries[persisted.key] = entry;
+      final coverFile = await _getStandaloneFavouriteCoverFile(server, node, createIfMissing: false);
+      if (await coverFile.exists() && await coverFile.length() > 0) {
+        _standaloneFavouriteCoverImageFiles[persisted.key] = coverFile.path;
+      }
       unawaited(_prepareStandaloneFavouriteDisplayAssets(entry, trigger: trigger));
     }
   }
@@ -773,9 +853,11 @@ class RemoteMediaService {
     AvesEntry entry, {
     required String trigger,
   }) async {
+    String? requestUri;
     try {
+      requestUri = await _resolveStandaloneFavouriteThumbnailSourceUri(entry);
       await EntryCache.evict(
-        entry.uri,
+        requestUri,
         entry.mimeType,
         entry.dateModifiedMillis,
         entry.rotationDegrees,
@@ -785,7 +867,7 @@ class RemoteMediaService {
       final codec = await mediaFetchService.getThumbnail(
         decoded: false,
         request: ThumbnailProviderKey(
-          uri: entry.uri,
+          uri: requestUri,
           mimeType: entry.mimeType,
           pageId: entry.pageId,
           rotationDegrees: entry.rotationDegrees,
@@ -803,6 +885,7 @@ class RemoteMediaService {
         data: {
           'trigger': trigger,
           'uri': entry.uri,
+          'requestUri': requestUri,
           'path': entry.path,
           'mimeType': entry.mimeType,
           'width': entry.width,
@@ -816,8 +899,179 @@ class RemoteMediaService {
         data: {
           'trigger': trigger,
           'uri': entry.uri,
+          'requestUri': requestUri,
           'path': entry.path,
           'mimeType': entry.mimeType,
+          'error': '$error',
+        },
+      );
+      await reportService.recordError(error, stack);
+    }
+  }
+
+  Future<void> warmupStandaloneFavouriteThumbnailIfNeeded(
+    AvesEntry entry, {
+    String trigger = 'standalone_favourite_cover_restore',
+  }) async {
+    final key = getStandaloneFavouriteKeyForEntry(entry);
+    if (key == null || !settings.remoteStandaloneFavouritePaths.contains(key) || !entry.isVideo) return;
+    if (entry.cachedThumbnails.isNotEmpty) return;
+
+    final warmupKey = '$key|${entry.uri}';
+    final inFlight = _standaloneFavouriteThumbnailWarmupInFlight[warmupKey];
+    if (inFlight != null) {
+      await inFlight;
+      return;
+    }
+
+    Future<void> run() async {
+      String? requestUri;
+      try {
+        requestUri = await _resolveStandaloneFavouriteThumbnailSourceUri(entry);
+        final codec = await mediaFetchService.getThumbnail(
+          decoded: false,
+          request: ThumbnailProviderKey(
+            uri: requestUri,
+            mimeType: entry.mimeType,
+            pageId: entry.pageId,
+            rotationDegrees: entry.rotationDegrees,
+            isFlipped: entry.isFlipped,
+            dateModifiedMillis: entry.dateModifiedMillis ?? -1,
+            extent: 256,
+          ),
+          taskKey: 'standalone_favourite_warmup|${entry.uri}|$trigger',
+        );
+        codec.dispose();
+        entry.visualChangeNotifier.notify();
+        await remoteMediaLogService.log(
+          'thumbnail',
+          'warmed standalone remote favourite thumbnail from existing source',
+          data: {
+            'trigger': trigger,
+            'uri': entry.uri,
+            'requestUri': requestUri,
+            'path': entry.path,
+            'mimeType': entry.mimeType,
+          },
+        );
+      } catch (error, stack) {
+        await remoteMediaLogService.log(
+          'thumbnail',
+          'failed to warm standalone remote favourite thumbnail from existing source',
+          data: {
+            'trigger': trigger,
+            'uri': entry.uri,
+            'requestUri': requestUri,
+            'path': entry.path,
+            'mimeType': entry.mimeType,
+            'error': '$error',
+          },
+        );
+        await reportService.recordError(error, stack);
+      }
+    }
+
+    final task = Future<void>(run);
+    _standaloneFavouriteThumbnailWarmupInFlight[warmupKey] = task;
+    try {
+      await task;
+    } finally {
+      _standaloneFavouriteThumbnailWarmupInFlight.remove(warmupKey);
+    }
+  }
+
+  Future<String> _resolveStandaloneFavouriteThumbnailSourceUri(AvesEntry entry) async {
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref == null) return entry.uri;
+
+    final server = ref.$1;
+    final node = ref.$2;
+
+    final cachedFile = await _getExistingCacheFile(server, node);
+    if (cachedFile != null) {
+      return Uri.file(cachedFile.path).toString();
+    }
+    return entry.uri;
+  }
+
+  Future<void> storeStandaloneFavouriteCapturedCover(
+    AvesEntry entry,
+    Uint8List bytes, {
+    String trigger = 'grid_preview_capture',
+  }) async {
+    if (bytes.isEmpty) return;
+    final key = getStandaloneFavouriteKeyForEntry(entry);
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (key == null || ref == null) return;
+
+    try {
+      final coverFile = await _getStandaloneFavouriteCoverFile(ref.$1, ref.$2);
+      await coverFile.writeAsBytes(bytes, flush: true);
+      _standaloneFavouriteCoverImageFiles[key] = coverFile.path;
+      entry.visualChangeNotifier.notify();
+      await remoteMediaLogService.log(
+        'thumbnail',
+        'stored captured standalone remote favourite cover image',
+        data: {
+          'trigger': trigger,
+          'uri': entry.uri,
+          'path': entry.path,
+          'file': coverFile.path,
+          'byteCount': bytes.length,
+          'mimeType': entry.mimeType,
+        },
+      );
+    } catch (error, stack) {
+      await remoteMediaLogService.log(
+        'thumbnail',
+        'failed to store captured standalone remote favourite cover image',
+        data: {
+          'trigger': trigger,
+          'uri': entry.uri,
+          'path': entry.path,
+          'error': '$error',
+        },
+      );
+      await reportService.recordError(error, stack);
+    }
+  }
+
+  Future<void> storeRemotePreviewCapturedCover(
+    AvesEntry entry,
+    Uint8List bytes, {
+    String trigger = 'grid_preview_capture',
+  }) async {
+    if (bytes.isEmpty || !supportsRemotePreviewCover(entry)) return;
+    final ref = _virtualRemoteRefs[entry.uri];
+    final key = getRemotePreviewCoverKeyForEntry(entry);
+    if (ref == null || key == null) return;
+
+    try {
+      final coverFile = await _getRemotePreviewCoverFile(ref.$1, ref.$2);
+      await coverFile.writeAsBytes(bytes, flush: true);
+      _remotePreviewCoverImageFiles[key] = coverFile.path;
+      entry.visualChangeNotifier.notify();
+      await remoteMediaLogService.log(
+        'thumbnail',
+        'stored captured remote preview cover image',
+        data: {
+          'trigger': trigger,
+          'uri': entry.uri,
+          'path': entry.path,
+          'file': coverFile.path,
+          'byteCount': bytes.length,
+          'mimeType': entry.mimeType,
+          'protocol': ref.$1.protocol.name,
+        },
+      );
+    } catch (error, stack) {
+      await remoteMediaLogService.log(
+        'thumbnail',
+        'failed to store captured remote preview cover image',
+        data: {
+          'trigger': trigger,
+          'uri': entry.uri,
+          'path': entry.path,
           'error': '$error',
         },
       );
@@ -877,6 +1131,7 @@ class RemoteMediaService {
     entry.path = file.path;
     entry.sizeBytes = await file.length();
     _virtualRemoteRefs[fileUri] = ref;
+    await _hydrateRemotePreviewCoverPath(fileUri, ref.$1, ref.$2, entry: entry);
     await _refreshEntryMetadataFromLocalFile(entry, fileUri);
     entry.visualChangeNotifier.notify();
     await remoteMediaLogService.log(
@@ -3778,6 +4033,7 @@ class RemoteMediaService {
       final sink = cacheFile.openWrite();
       await resp.stream.pipe(sink);
       await sink.close();
+      await _applyRemoteModifiedTimeToCacheFile(cacheFile, node: node);
       await _scanDownloadedFileIfNeeded(server: server, node: node, cacheFile: cacheFile);
       await _enforceCacheLimit(server.id, trigger: 'webdav_download');
       await remoteMediaLogService.log('auto_download', 'download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
@@ -3818,6 +4074,7 @@ class RemoteMediaService {
       if (!changed || name.isEmpty) return null;
       final ok = await ftp.downloadFile(name, cacheFile);
       if (!ok) return null;
+      await _applyRemoteModifiedTimeToCacheFile(cacheFile, node: node);
       await _scanDownloadedFileIfNeeded(server: server, node: node, cacheFile: cacheFile);
       await _enforceCacheLimit(server.id, trigger: 'ftp_download');
       await remoteMediaLogService.log('auto_download', 'ftp download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
@@ -3863,6 +4120,7 @@ class RemoteMediaService {
       final sink = cacheFile.openWrite();
       await remoteFile.read().forEach(sink.add);
       await sink.close();
+      await _applyRemoteModifiedTimeToCacheFile(cacheFile, node: node);
       await _scanDownloadedFileIfNeeded(server: server, node: node, cacheFile: cacheFile);
       await _enforceCacheLimit(server.id, trigger: 'sftp_download');
       await remoteMediaLogService.log('auto_download', 'sftp download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
@@ -3901,6 +4159,7 @@ class RemoteMediaService {
       await stream.forEach(sink.add);
       await sink.flush();
       await sink.close();
+      await _applyRemoteModifiedTimeToCacheFile(cacheFile, node: node);
       await _scanDownloadedFileIfNeeded(server: server, node: node, cacheFile: cacheFile);
       await _enforceCacheLimit(server.id, trigger: 'smb_download');
       await remoteMediaLogService.log('auto_download', 'smb download success', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
@@ -4154,6 +4413,17 @@ class RemoteMediaService {
     return hash;
   }
 
+  Future<void> _applyRemoteModifiedTimeToCacheFile(
+    File file, {
+    required RemoteBrowseNode node,
+  }) async {
+    final modifiedMillis = node.modifiedMillis;
+    if (modifiedMillis == null || modifiedMillis <= 0) return;
+    try {
+      await file.setLastModified(DateTime.fromMillisecondsSinceEpoch(modifiedMillis));
+    } catch (_) {}
+  }
+
   Future<File> _buildCacheFile(RemoteServer server, RemoteBrowseNode node) async {
     final cacheDir = await getConnectionCacheDirectory(server.id);
     final cacheKey = _stableCacheKey('${server.id}|${node.path}|${node.name}');
@@ -4168,6 +4438,24 @@ class RemoteMediaService {
       await dir.create(recursive: true);
     }
     return dir;
+  }
+
+  Future<File> _getStandaloneFavouriteCoverFile(RemoteServer server, RemoteBrowseNode node, {bool createIfMissing = true}) async {
+    final cacheDir = await getConnectionCacheDirectory(server.id);
+    if (createIfMissing && !await cacheDir.exists()) {
+      await cacheDir.create(recursive: true);
+    }
+    final coverKey = _stableCacheKey('${server.id}|${node.path}|standalone_cover');
+    return File('${cacheDir.path}${Platform.pathSeparator}.standalone_cover_$coverKey.png');
+  }
+
+  Future<File> _getRemotePreviewCoverFile(RemoteServer server, RemoteBrowseNode node, {bool createIfMissing = true}) async {
+    final cacheDir = await getConnectionCacheDirectory(server.id);
+    if (createIfMissing && !await cacheDir.exists()) {
+      await cacheDir.create(recursive: true);
+    }
+    final coverKey = _stableCacheKey('${server.id}|${node.path}|remote_preview_cover');
+    return File('${cacheDir.path}${Platform.pathSeparator}.remote_preview_cover_$coverKey.png');
   }
 
   Future<File> _buildStreamChunkFile({
@@ -4223,6 +4511,7 @@ class RemoteMediaService {
             } catch (_) {}
           }
           await candidate.rename(cacheFile.path);
+          await _applyRemoteModifiedTimeToCacheFile(cacheFile, node: node);
           await remoteMediaLogService.log(
             'cache',
             'migrated legacy remote cache file name',
@@ -4242,6 +4531,7 @@ class RemoteMediaService {
     }
     return candidate;
   }
+
 
   Future<File?> getExistingCacheFile(RemoteServer server, RemoteBrowseNode node) => _getExistingCacheFile(server, node);
 
@@ -4317,6 +4607,7 @@ class RemoteMediaService {
   Future<File> _getOrCreateCacheFile(RemoteServer server, RemoteBrowseNode node) async {
     final cacheFile = await _getExistingCacheFile(server, node) ?? await _buildCacheFile(server, node);
     if (await cacheFile.exists() && await cacheFile.length() > 0) {
+      await _applyRemoteModifiedTimeToCacheFile(cacheFile, node: node);
       await remoteMediaLogService.log('auto_download', 'cache hit', data: {'server': server.name, 'path': node.path, 'file': cacheFile.path});
       return cacheFile;
     }
@@ -4696,6 +4987,7 @@ class RemoteMediaService {
           await fullFile.delete();
         }
         await tempFile.rename(fullFile.path);
+        await _applyRemoteModifiedTimeToCacheFile(fullFile, node: node);
         final chunkDir = await _getStreamChunkDirectory(server, node, createIfMissing: false);
         if (await chunkDir.exists()) {
           try {

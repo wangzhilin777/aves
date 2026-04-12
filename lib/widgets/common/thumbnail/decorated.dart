@@ -78,7 +78,19 @@ class DecoratedThumbnail extends StatelessWidget {
         }
 
         Widget buildBaseThumbnail({required bool suppressForLargeRemoteCurrentVideo}) {
-          if (suppressForLargeRemoteCurrentVideo) {
+          final hasRemotePreviewCover =
+              entry.isVideo &&
+              (remoteMediaService.getStandaloneFavouriteThumbnailProvider(
+                        entry,
+                        extent: math.max(thumbnailWidth, thumbnailHeight),
+                      ) !=
+                      null ||
+                  remoteMediaService.getRemotePreviewThumbnailProvider(
+                        entry,
+                        extent: math.max(thumbnailWidth, thumbnailHeight),
+                      ) !=
+                      null);
+          if (suppressForLargeRemoteCurrentVideo && !hasRemotePreviewCover) {
             return const SizedBox.expand();
           }
           if (isRemoteManagedEntry && entry.isVideo) {
@@ -156,7 +168,7 @@ class DecoratedThumbnail extends StatelessWidget {
   }
 }
 
-class _RemoteCachedThumbnailImage extends StatelessWidget {
+class _RemoteCachedThumbnailImage extends StatefulWidget {
   final AvesEntry entry;
   final double width;
   final double height;
@@ -170,22 +182,58 @@ class _RemoteCachedThumbnailImage extends StatelessWidget {
   });
 
   @override
+  State<_RemoteCachedThumbnailImage> createState() => _RemoteCachedThumbnailImageState();
+}
+
+class _RemoteCachedThumbnailImageState extends State<_RemoteCachedThumbnailImage> {
+  bool _warmupRequested = false;
+
+  void _scheduleWarmupIfNeeded(AvesEntry entry) {
+    if (_warmupRequested) return;
+    final isStandaloneFavourite = remoteMediaService.isStandaloneFavouriteEntry(
+      entry,
+      settings.remoteStandaloneFavouritePaths,
+    );
+    if (!isStandaloneFavourite || !entry.isVideo) return;
+    _warmupRequested = true;
+    unawaited(
+      remoteMediaService.warmupStandaloneFavouriteThumbnailIfNeeded(
+        entry,
+        trigger: 'favourite_tab_return',
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final provider = entry.cachedThumbnails.sortedBy<num>((provider) => provider.key.extent).lastOrNull;
+    final entry = widget.entry;
+    final standaloneFavouriteProvider = remoteMediaService.getStandaloneFavouriteThumbnailProvider(
+      entry,
+      extent: math.max(widget.width, widget.height),
+    );
+    final remotePreviewProvider = remoteMediaService.getRemotePreviewThumbnailProvider(
+      entry,
+      extent: math.max(widget.width, widget.height),
+    );
+    final provider =
+        standaloneFavouriteProvider ??
+        remotePreviewProvider ??
+        entry.cachedThumbnails.sortedBy<num>((provider) => provider.key.extent).lastOrNull;
     if (provider == null) {
+      _scheduleWarmupIfNeeded(entry);
       return ThumbnailImage(
         entry: entry,
-        extent: math.max(width, height),
+        extent: math.max(widget.width, widget.height),
         devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-        fit: fit,
+        fit: widget.fit,
         showLoadingBackground: false,
       );
     }
     return Image(
       image: provider,
-      width: width,
-      height: height,
-      fit: fit,
+      width: widget.width,
+      height: widget.height,
+      fit: widget.fit,
       gaplessPlayback: true,
       filterQuality: FilterQuality.low,
     );
@@ -242,6 +290,10 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   String? _lastSurfaceDecisionKey;
   String? _lastControllerLifecycleKey;
   String? _lastTileSurfaceSnapshotKey;
+  bool _standaloneFavouriteCoverCaptureInFlight = false;
+  bool _standaloneFavouriteCoverCaptured = false;
+  bool _remotePreviewCoverCaptureInFlight = false;
+  bool _remotePreviewCoverCaptured = false;
 
   ViewerPopResult? get _viewerReturn => widget.viewerReturnNotifier?.value;
 
@@ -359,6 +411,10 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       _ftpPreviewVisualSettled = false;
       _playRequestedForCurrentFocus = false;
       _hasPlaybackProgress = false;
+      _standaloneFavouriteCoverCaptureInFlight = false;
+      _standaloneFavouriteCoverCaptured = false;
+      _remotePreviewCoverCaptureInFlight = false;
+      _remotePreviewCoverCaptured = false;
     }
     _onCurrentChanged();
   }
@@ -637,6 +693,16 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final hasFirstFrameRendered = controller.firstFrameRenderedNotifier.value;
     final hasPreviewFrame = hasDecodedFrame || hasFirstFrameRendered;
     final hasRenderableFrame = hasDecodedFrame || hasFirstFrameRendered || _hasPlaybackProgress || controller.currentPosition > 0;
+    _scheduleStandaloneFavouriteCoverCaptureIfNeeded(
+      controller: controller,
+      hasRenderableFrame: hasRenderableFrame,
+      hasFirstFrameRendered: hasFirstFrameRendered,
+    );
+    _scheduleRemotePreviewCoverCaptureIfNeeded(
+      controller: controller,
+      hasRenderableFrame: hasRenderableFrame,
+      hasFirstFrameRendered: hasFirstFrameRendered,
+    );
     if (hasDecodedFrame) {
       _lastDecodedFrameAtMillisByUri[entry.uri] = DateTime.now().millisecondsSinceEpoch;
     }
@@ -801,6 +867,127 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         });
       }
     });
+  }
+
+  void _scheduleStandaloneFavouriteCoverCaptureIfNeeded({
+    required AvesVideoController controller,
+    required bool hasRenderableFrame,
+    required bool hasFirstFrameRendered,
+  }) {
+    if (_standaloneFavouriteCoverCaptured || _standaloneFavouriteCoverCaptureInFlight) return;
+    final isStandaloneFavourite = remoteMediaService.isStandaloneFavouriteEntry(
+      entry,
+      settings.remoteStandaloneFavouritePaths,
+    );
+    if (!isStandaloneFavourite || !entry.isVideo) return;
+    if (!hasRenderableFrame || (!hasFirstFrameRendered && controller.currentPosition <= 0)) return;
+    debugPrint('STANDALONE_COVER schedule uri=${entry.uri} path=${entry.path} '
+        'renderable=$hasRenderableFrame firstFrame=$hasFirstFrameRendered position=${controller.currentPosition} status=${controller.status.name}');
+    unawaited(
+      remoteMediaLogService.log(
+        'thumbnail',
+        'schedule standalone favourite cover capture from grid preview',
+        data: {
+          'uri': entry.uri,
+          'path': entry.path,
+          'hasRenderableFrame': hasRenderableFrame,
+          'hasFirstFrameRendered': hasFirstFrameRendered,
+          'positionMillis': controller.currentPosition,
+          'status': controller.status.name,
+        },
+      ),
+    );
+    _standaloneFavouriteCoverCaptureInFlight = true;
+    unawaited(_captureStandaloneFavouriteCover(controller));
+  }
+
+  Future<void> _captureStandaloneFavouriteCover(AvesVideoController controller) async {
+    try {
+      debugPrint('STANDALONE_COVER capture attempt uri=${entry.uri} path=${entry.path} '
+          'position=${controller.currentPosition} status=${controller.status.name} '
+          'isPlaying=${controller.isPlaying} isReady=${controller.isReady} firstFrame=${controller.firstFrameRenderedNotifier.value}');
+      await remoteMediaLogService.log(
+        'thumbnail',
+        'attempt standalone favourite cover capture from controller',
+        data: {
+          'uri': entry.uri,
+          'path': entry.path,
+          'positionMillis': controller.currentPosition,
+          'status': controller.status.name,
+          'isPlaying': controller.isPlaying,
+          'isReady': controller.isReady,
+          'firstFrameRendered': controller.firstFrameRenderedNotifier.value,
+        },
+      );
+      final bytes = await controller.captureFrame();
+      if (bytes != null && bytes.isNotEmpty) {
+        debugPrint('STANDALONE_COVER capture success uri=${entry.uri} bytes=${bytes.length}');
+        await remoteMediaService.storeStandaloneFavouriteCapturedCover(
+          entry,
+          bytes,
+          trigger: 'grid_preview_first_frame',
+        );
+        _standaloneFavouriteCoverCaptured = true;
+      } else {
+        debugPrint('STANDALONE_COVER capture empty uri=${entry.uri}');
+        await remoteMediaLogService.log(
+          'thumbnail',
+          'controller returned empty standalone favourite cover capture',
+          data: {
+            'uri': entry.uri,
+            'path': entry.path,
+            'status': controller.status.name,
+            'positionMillis': controller.currentPosition,
+          },
+        );
+      }
+    } catch (error, stack) {
+      debugPrint('STANDALONE_COVER capture failed uri=${entry.uri} error=$error');
+      await remoteMediaLogService.log(
+        'thumbnail',
+        'failed standalone favourite cover capture from controller',
+        data: {
+          'uri': entry.uri,
+          'path': entry.path,
+          'status': controller.status.name,
+          'positionMillis': controller.currentPosition,
+          'error': '$error',
+        },
+      );
+      await reportService.recordError(error, stack);
+    } finally {
+      _standaloneFavouriteCoverCaptureInFlight = false;
+    }
+  }
+
+  void _scheduleRemotePreviewCoverCaptureIfNeeded({
+    required AvesVideoController controller,
+    required bool hasRenderableFrame,
+    required bool hasFirstFrameRendered,
+  }) {
+    if (_remotePreviewCoverCaptured || _remotePreviewCoverCaptureInFlight) return;
+    if (!remoteMediaService.supportsRemotePreviewCover(entry)) return;
+    if (!hasRenderableFrame || (!hasFirstFrameRendered && controller.currentPosition <= 0)) return;
+    _remotePreviewCoverCaptureInFlight = true;
+    unawaited(_captureRemotePreviewCover(controller));
+  }
+
+  Future<void> _captureRemotePreviewCover(AvesVideoController controller) async {
+    try {
+      final bytes = await controller.captureFrame();
+      if (bytes != null && bytes.isNotEmpty) {
+        await remoteMediaService.storeRemotePreviewCapturedCover(
+          entry,
+          bytes,
+          trigger: 'grid_preview_first_frame',
+        );
+        _remotePreviewCoverCaptured = true;
+      }
+    } catch (error, stack) {
+      await reportService.recordError(error, stack);
+    } finally {
+      _remotePreviewCoverCaptureInFlight = false;
+    }
   }
 
   bool _isAutoPlayEnabled(Settings settings) {
@@ -1248,7 +1435,8 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             final ftpForceVisible = isCurrent && _playRequestedForCurrentFocus && hasFirstFrameRendered;
             final sftpForceVisible = isCurrent && _playRequestedForCurrentFocus && hasPreviewFrame;
             final smbForceVisible = isCurrent && _playRequestedForCurrentFocus && hasPreviewFrame;
-            final webdavForceVisible = isCurrent && _playRequestedForCurrentFocus && controller.status != VideoStatus.error;
+            final webdavForceVisible =
+                isCurrent && _playRequestedForCurrentFocus && hasRenderableFrame && controller.status != VideoStatus.error;
             final remoteForceVisible = isFtpPreview
                 ? ftpForceVisible
                 : isSftpPreview
@@ -1297,6 +1485,18 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
             final displaySize = decodedSize ?? entry.displaySize;
             final displayAspectRatio = decodedSize != null && decodedSize.height > 0 ? decodedSize.width / decodedSize.height : entry.displayAspectRatio;
             final shouldShowFtpThumbnailUnderlay = isFtpPreview && !hasFirstFrameRendered;
+            final hasStableCover =
+                remoteMediaService.getStandaloneFavouriteThumbnailProvider(
+                  entry,
+                  extent: tileHeight,
+                ) !=
+                null ||
+                remoteMediaService.getRemotePreviewThumbnailProvider(
+                  entry,
+                  extent: tileHeight,
+                ) !=
+                null;
+            final prefersStableCoverBeforePreview = hasStableCover;
             final tileWidth = widget.isMosaic
                 ? tileHeight *
                       displayAspectRatio.clamp(
@@ -1305,8 +1505,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                       )
                 : tileHeight;
             final ftpPreviewSurfaceReady = !isFtpPreview || _ftpPreviewVisualSettled;
-            final previewVideoOpacity = isFtpPreview ? (_videoSurfaceVisible && _ftpPreviewVisualSettled ? 1.0 : 0.0) : (show ? 1.0 : 0.0);
-            final ftpShouldMountPreviewView = !isFtpPreview || ftpPreviewSurfaceReady;
+            final canRevealMountedPreview = prefersStableCoverBeforePreview
+                ? (keepLastFrameVisible || hasDecodedFrame)
+                : hasRenderableFrame;
+            final canMountPreviewView = isFtpPreview
+                ? (_videoSurfaceVisible && ftpPreviewSurfaceReady && hasFirstFrameRendered)
+                : (show && canRevealMountedPreview);
+            final previewVideoOpacity = canMountPreviewView ? 1.0 : 0.0;
             return SizedBox(
               width: tileWidth,
               height: tileHeight,
@@ -1329,7 +1534,7 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                       child: FittedBox(
                         fit: widget.isMosaic ? BoxFit.cover : BoxFit.contain,
                         clipBehavior: Clip.hardEdge,
-                        child: ftpShouldMountPreviewView
+                        child: canMountPreviewView
                             ? SizedBox(
                                 width: displaySize.width,
                                 height: displaySize.height,
