@@ -140,10 +140,12 @@ class RemoteMediaService {
   static const _smbPreviewPreheatDelayThresholdBytes = 96 * 1024 * 1024;
   static const _largeWebDavViewerBootstrapChunkCount = 3;
   static const _initialVideoChunkRefetchAttempts = 2;
+  static const _ftpStreamChunkSizeBytes = 8 * 1024 * 1024;
   static const _streamChunkSizeBytes = 2 * 1024 * 1024;
   static const _smbStreamChunkSizeBytes = 4 * 1024 * 1024;
-  static const _streamChunkCacheVersion = 4;
+  static const _streamChunkCacheVersion = 5;
   static const _streamChunkPrefetchCount = 2;
+  static const _ftpStreamChunkPrefetchCount = 4;
   static const _previewInitialWarmupChunkCount = 1;
   static const _viewerInitialWarmupChunkCount = 2;
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
@@ -172,13 +174,21 @@ class RemoteMediaService {
 
   int _chunkSizeForProtocol(RemoteProtocol protocol) {
     switch (protocol) {
+      case RemoteProtocol.ftp:
+        return _ftpStreamChunkSizeBytes;
       case RemoteProtocol.smb:
         return _smbStreamChunkSizeBytes;
       case RemoteProtocol.webdav:
-      case RemoteProtocol.ftp:
       case RemoteProtocol.sftp:
         return _streamChunkSizeBytes;
     }
+  }
+
+  int _streamChunkPrefetchCountForProtocol(RemoteProtocol protocol) {
+    return switch (protocol) {
+      RemoteProtocol.ftp => _ftpStreamChunkPrefetchCount,
+      RemoteProtocol.webdav || RemoteProtocol.sftp || RemoteProtocol.smb => _streamChunkPrefetchCount,
+    };
   }
 
   int _initialWarmupChunkCount({
@@ -193,6 +203,9 @@ class RemoteMediaService {
     }
     if (normalizedTrigger.contains('grid_preview')) {
       return _previewInitialWarmupChunkCount;
+    }
+    if (protocol == RemoteProtocol.ftp && (normalizedTrigger.contains('viewer_init') || normalizedTrigger.contains('viewer_autoplay'))) {
+      return 3;
     }
     if (normalizedTrigger.contains('viewer_init') || normalizedTrigger.contains('viewer_autoplay')) {
       return _viewerInitialWarmupChunkCount;
@@ -2564,7 +2577,8 @@ class RemoteMediaService {
       requestedRange: requestedRange,
       totalLength: totalLength,
     );
-    final prefetchCount = min(maxPrefetchCount, min(_streamChunkPrefetchCount, lastChunk - firstChunk + 1));
+    final protocolPrefetchCount = _streamChunkPrefetchCountForProtocol(server.protocol);
+    final prefetchCount = min(maxPrefetchCount, min(protocolPrefetchCount, lastChunk - firstChunk + 1));
     if (prefetchCount > 0) {
       unawaited(
         _prefetchUpcomingStreamChunks(

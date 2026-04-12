@@ -153,10 +153,10 @@ class _VideoViewState extends State<VideoView> {
             final allowDecodedFrameRenderOnError = !widget.preferStableRemoteInit || !isChunkedRemoteProtocol;
             final hasLocalRecoverableFrame = !isRemoteManagedEntry && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
             final hasRemotePreviewFrame = hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0;
-            final hasFtpPreviewFrame = hasFirstFrameRendered || currentPosition > 0;
+            final hasFtpPreviewFrame = hasDecodedFrame || hasFirstFrameRendered;
             final withinRemoteInitialErrorGrace = isRemoteStream && !hasDecodedFrame && DateTime.now().isBefore(_initialErrorGraceDeadline);
             final withinChunkedProgressRevealGrace = widget.preferStableRemoteInit && isRemoteStream && isChunkedRemoteProtocol && _chunkedProgressRevealDeadline != null && DateTime.now().isBefore(_chunkedProgressRevealDeadline!);
-            final allowFtpStableDetailRender = widget.preferStableRemoteInit && isFtpProtocol && (hasDecodedFrame || hasFirstFrameRendered || currentPosition > 0);
+            final allowFtpStableDetailRender = widget.preferStableRemoteInit && isFtpProtocol && (hasDecodedFrame || hasFirstFrameRendered);
             final allowSftpStableDetailRender = widget.preferStableRemoteInit && isSftpProtocol && (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
             final allowSmbStableDetailRender = widget.preferStableRemoteInit && isSmbProtocol && (hasDecodedFrame || hasFirstFrameRendered || (currentPosition > 0 && !withinChunkedProgressRevealGrace));
             final allowLargeWebdavDetailRender = isLargeWebdavDetail && hasRenderableFrame;
