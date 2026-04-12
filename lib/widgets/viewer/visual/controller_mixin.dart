@@ -385,36 +385,21 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
   Future<AvesVideoController> _primeFtpViewerControllerForDetailPreheat(AvesEntry entry, AvesVideoController controller) async {
     try {
-      await controller.untilReady.timeout(const Duration(milliseconds: 900));
+      await controller.untilReady.timeout(const Duration(milliseconds: 1200));
     } catch (_) {}
     if (_hasRenderableRemoteDetailPreheatFrame(controller)) {
       return controller;
     }
 
-    final wasMuted = controller.isMuted;
     try {
-      await controller.mute(true);
-      await controller.play();
-      await _waitForRemoteDetailPreheatFrame(controller, const Duration(milliseconds: 2200));
+      await _waitForRemoteDetailPreheatFrame(controller, const Duration(milliseconds: 1400));
     } catch (_) {
       // best-effort ftp detail preheat
-    } finally {
-      try {
-        await controller.pause();
-      } catch (_) {}
-      try {
-        await controller.seekTo(0);
-      } catch (_) {}
-      if (!wasMuted) {
-        try {
-          await controller.mute(false);
-        } catch (_) {}
-      }
     }
     unawaited(
       remoteMediaLogService.log(
         'autoplay',
-        'viewer applied ftp detail preview-style preheat',
+        'viewer applied ftp detail conservative preheat',
         data: {
           'uri': entry.uri,
           'hasRenderableFrame': _hasRenderableRemoteDetailPreheatFrame(controller),
