@@ -10,6 +10,7 @@ import 'package:aves/widgets/common/providers/viewer_entry_provider.dart';
 import 'package:aves/widgets/common/thumbnail/decorated.dart';
 import 'package:aves/widgets/common/thumbnail/notifications.dart';
 import 'package:aves/widgets/viewer/hero.dart';
+import 'package:aves/widgets/viewer/viewer_pop_result.dart';
 import 'package:aves_model/aves_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -22,6 +23,7 @@ class InteractiveTile extends StatelessWidget {
   final TileLayout tileLayout;
   final ValueNotifier<bool>? isScrollingNotifier;
   final ValueListenable<AvesEntry?>? playbackFocusNotifier;
+  final ValueNotifier<ViewerPopResult?>? viewerReturnNotifier;
 
   const InteractiveTile({
     super.key,
@@ -31,6 +33,7 @@ class InteractiveTile extends StatelessWidget {
     required this.tileLayout,
     this.isScrollingNotifier,
     this.playbackFocusNotifier,
+    this.viewerReturnNotifier,
   });
 
   @override
@@ -68,6 +71,7 @@ class InteractiveTile extends StatelessWidget {
           highlightable: true,
           isScrollingNotifier: isScrollingNotifier,
           playbackFocusNotifier: playbackFocusNotifier,
+          viewerReturnNotifier: viewerReturnNotifier,
           heroTagger: () => EntryHeroInfo(collection, entry).tag,
         ),
       ),
@@ -82,6 +86,7 @@ class Tile extends StatelessWidget {
   final bool selectable, highlightable;
   final ValueNotifier<bool>? isScrollingNotifier;
   final ValueListenable<AvesEntry?>? playbackFocusNotifier;
+  final ValueNotifier<ViewerPopResult?>? viewerReturnNotifier;
   final Object? Function()? heroTagger;
 
   const Tile({
@@ -93,6 +98,7 @@ class Tile extends StatelessWidget {
     this.highlightable = false,
     this.isScrollingNotifier,
     this.playbackFocusNotifier,
+    this.viewerReturnNotifier,
     this.heroTagger,
   });
 
@@ -129,6 +135,7 @@ class Tile extends StatelessWidget {
     // in this case we pause the image retrieval task to get it out of the queue
     cancellableNotifier: isScrollingNotifier,
     playbackFocusNotifier: playbackFocusNotifier,
+    viewerReturnNotifier: viewerReturnNotifier,
     isScrollingNotifier: isScrollingNotifier,
     selectable: selectable,
     highlightable: highlightable,

@@ -109,6 +109,7 @@ class SettingKeys {
   static const showOverlayThumbnailPreviewKey = 'show_overlay_thumbnail_preview';
   static const viewerGestureSideTapNextKey = 'viewer_gesture_side_tap_next';
   static const viewerUseCutoutKey = 'viewer_use_cutout';
+  static const viewerResumeFromPreviewEnabledKey = 'viewer_resume_from_preview_enabled';
   static const enableMotionPhotoAutoPlayKey = 'motion_photo_auto_play';
   static const imageBackgroundKey = 'image_background';
 

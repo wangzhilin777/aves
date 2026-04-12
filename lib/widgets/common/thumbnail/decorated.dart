@@ -16,6 +16,7 @@ import 'package:aves/widgets/common/thumbnail/image.dart';
 import 'package:aves/widgets/common/thumbnail/notifications.dart';
 import 'package:aves/widgets/common/thumbnail/overlay.dart';
 import 'package:aves/widgets/viewer/video/conductor.dart';
+import 'package:aves/widgets/viewer/viewer_pop_result.dart';
 import 'package:aves/widgets/viewer/visual/video/video_view.dart';
 import 'package:aves_video/aves_video.dart';
 import 'package:collection/collection.dart';
@@ -28,6 +29,7 @@ class DecoratedThumbnail extends StatelessWidget {
   final double tileExtent;
   final ValueNotifier<bool>? cancellableNotifier;
   final ValueListenable<AvesEntry?>? playbackFocusNotifier;
+  final ValueNotifier<ViewerPopResult?>? viewerReturnNotifier;
   final ValueListenable<bool>? isScrollingNotifier;
   final bool isMosaic, selectable, highlightable;
   final Object? Function()? heroTagger;
@@ -44,6 +46,7 @@ class DecoratedThumbnail extends StatelessWidget {
     required this.tileExtent,
     this.cancellableNotifier,
     this.playbackFocusNotifier,
+    this.viewerReturnNotifier,
     this.isScrollingNotifier,
     this.isMosaic = false,
     this.selectable = true,
@@ -126,6 +129,7 @@ class DecoratedThumbnail extends StatelessWidget {
                 entry: entry,
                 isCurrentNotifier: playbackFocusNotifier!,
                 isScrollingNotifier: isScrollingNotifier,
+                viewerReturnNotifier: viewerReturnNotifier,
                 isMosaic: isMosaic,
                 tileExtent: tileExtent,
               ),
@@ -191,6 +195,7 @@ class _AutoPlayVideoThumbnail extends StatefulWidget {
   final AvesEntry entry;
   final ValueListenable<AvesEntry?> isCurrentNotifier;
   final ValueListenable<bool>? isScrollingNotifier;
+  final ValueNotifier<ViewerPopResult?>? viewerReturnNotifier;
   final bool isMosaic;
   final double tileExtent;
 
@@ -198,6 +203,7 @@ class _AutoPlayVideoThumbnail extends StatefulWidget {
     required this.entry,
     required this.isCurrentNotifier,
     this.isScrollingNotifier,
+    this.viewerReturnNotifier,
     required this.isMosaic,
     required this.tileExtent,
   });
@@ -228,11 +234,15 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   Timer? _videoSurfaceRevealTimer;
   Timer? _ftpPreviewSettleTimer;
   ViewerEntryNotifier? _viewerEntryNotifier;
+  late Settings _settings;
+  late VideoConductor _videoConductor;
   bool _hasPlaybackProgress = false;
   final Map<String, int> _lastLocalCacheProbeAtMillisByUri = {};
   String? _lastSurfaceDecisionKey;
   String? _lastControllerLifecycleKey;
   String? _lastTileSurfaceSnapshotKey;
+
+  ViewerPopResult? get _viewerReturn => widget.viewerReturnNotifier?.value;
 
   bool _shouldAttachPreheatedControllerForNonCurrentTile({
     required RemoteProtocol remoteProtocol,
@@ -314,9 +324,20 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     super.initState();
     widget.isCurrentNotifier.addListener(_onCurrentChanged);
     widget.isScrollingNotifier?.addListener(_onCurrentChanged);
-    _viewerEntryNotifier = context.read<ViewerEntryNotifier>();
-    _viewerEntryNotifier?.addListener(_onCurrentChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _onCurrentChanged());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _settings = context.read<Settings>();
+    _videoConductor = context.read<VideoConductor>();
+    final viewerEntryNotifier = context.read<ViewerEntryNotifier>();
+    if (!identical(_viewerEntryNotifier, viewerEntryNotifier)) {
+      _viewerEntryNotifier?.removeListener(_onCurrentChanged);
+      _viewerEntryNotifier = viewerEntryNotifier;
+      _viewerEntryNotifier?.addListener(_onCurrentChanged);
+    }
   }
 
   @override
@@ -430,6 +451,67 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         },
       ),
     );
+  }
+
+  Future<bool> _tryPlayController(
+    AvesVideoController controller, {
+    required String stage,
+    RemoteProtocol? remoteProtocol,
+  }) async {
+    try {
+      await controller.play();
+      return true;
+    } catch (error) {
+      _playRequestedForCurrentFocus = false;
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'grid preview play skipped because controller was no longer usable',
+          data: {
+            'uri': entry.uri,
+            'stage': stage,
+            'protocol': remoteProtocol?.name,
+            'error': '$error',
+          },
+        ),
+      );
+      return false;
+    }
+  }
+
+  Future<void> _applyViewerReturnResumeIfNeeded(
+    AvesVideoController controller,
+    RemoteProtocol? remoteProtocol,
+  ) async {
+    final viewerReturn = _viewerReturn;
+    final positionMillis = viewerReturn?.previewPositionMillis;
+    if (viewerReturn?.entry.uri != entry.uri || positionMillis == null || positionMillis <= 0) return;
+
+    try {
+      if (remoteProtocol == RemoteProtocol.webdav) {
+        await controller.seekTo(positionMillis);
+      } else if (remoteProtocol == RemoteProtocol.ftp) {
+        await controller.seekTo(positionMillis);
+      } else if (remoteProtocol == RemoteProtocol.sftp) {
+        await controller.seekTo(positionMillis);
+      } else if (remoteProtocol == RemoteProtocol.smb) {
+        await controller.seekTo(positionMillis);
+      } else {
+        await controller.seekTo(positionMillis);
+      }
+      widget.viewerReturnNotifier?.value = null;
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'applied viewer return preview resume position',
+          data: {
+            'uri': entry.uri,
+            'protocol': remoteProtocol?.name,
+            'positionMillis': positionMillis,
+          },
+        ),
+      );
+    } catch (_) {}
   }
 
   void _logTileSurfaceSnapshot({
@@ -767,9 +849,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final token = ++_playToken;
       if (!mounted) return;
 
-      final settings = context.read<Settings>();
+      final settings = _settings;
       final isViewerActive = _viewerEntryNotifier?.value != null;
-      final conductor = context.read<VideoConductor>();
+      final conductor = _videoConductor;
       final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
       _logControllerLifecycle(
         event: 'focus_evaluation',
@@ -955,7 +1037,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       if (!isChunkedRemotePreview && hasRecentDecodedFrame && _hasDecodedFrame(controller)) {
         await conductor.pauseOthers(controller);
         await controller.mute(_shouldMute(settings));
-        await controller.play();
+        await _applyViewerReturnResumeIfNeeded(controller, remoteProtocol);
+        final resumed = await _tryPlayController(
+          controller,
+          stage: 'resume_preheated_frame',
+          remoteProtocol: remoteProtocol,
+        );
+        if (!resumed) return;
         _playRequestedForCurrentFocus = true;
         unawaited(
           remoteMediaLogService.log(
@@ -1047,7 +1135,13 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       // SMB preview is more stable when we keep a single controller/source path.
       // We avoid automatic stream->cache promotion and controller recreation in grid preview.
       await controller.mute(_shouldMute(settings));
-      await controller.play();
+      await _applyViewerReturnResumeIfNeeded(controller, remoteProtocol);
+      final started = await _tryPlayController(
+        controller,
+        stage: 'start_grid_preview',
+        remoteProtocol: remoteProtocol,
+      );
+      if (!started) return;
       _playRequestedForCurrentFocus = true;
       unawaited(
         remoteMediaLogService.log(
@@ -1074,7 +1168,11 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         _lastDecodedFrameAtMillisByUri[entry.uri] = DateTime.now().millisecondsSinceEpoch;
       }
       if (mounted && token == _playToken && isCurrent && !controller.isPlaying && controller.status != VideoStatus.error) {
-        await controller.play();
+        await _tryPlayController(
+          controller,
+          stage: 'retry_grid_preview_after_delay',
+          remoteProtocol: remoteProtocol,
+        );
       } else if (mounted && token == _playToken && isCurrent && controller.status == VideoStatus.error) {
         final failedUri = entry.uri;
         _playRequestedForCurrentFocus = false;

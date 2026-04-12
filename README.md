@@ -76,6 +76,12 @@ Aves is a gallery and metadata explorer app. It is built for Android, with Flutt
   - 焦点令牌机制，降低抖动与竞态播放
   - 自动播放与焦点切换关键日志覆盖
   - CollectionPage 网格/马赛克预览已统一支持本地与远程视频自动播放、同屏单视频播放、预览内静音/有声切换
+- 新增查看器相关可选能力：
+  - 可在“查看器”设置中开启“进入详情时沿用预览进度”，支持本地与远程视频
+  - “网格/马赛克预览播放视频”默认关闭
+  - “允许缩放到单列预览”默认关闭
+- 远程媒体默认策略调整：
+  - “仅在 Wi-Fi 下自动加载”默认开启
 <div align="left">
 
 ## Features
