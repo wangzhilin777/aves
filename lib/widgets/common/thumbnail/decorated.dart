@@ -77,7 +77,7 @@ class DecoratedThumbnail extends StatelessWidget {
           if (suppressForLargeRemoteCurrentVideo) {
             return const SizedBox.expand();
           }
-          if (isRemoteManagedEntry) {
+          if (isRemoteManagedEntry && entry.isVideo) {
             return _RemoteCachedThumbnailImage(
               entry: entry,
               width: thumbnailWidth,
