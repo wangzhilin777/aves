@@ -870,7 +870,26 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         unawaited(remoteMediaService.prepareInitialStreamPlaybackForEntry(entry, trigger: 'viewer_init'));
       }
     }
-    var controller = await context.read<VideoConductor>().getOrCreateController(entry);
+    final videoConductor = context.read<VideoConductor>();
+    var controller = await videoConductor.getOrCreateController(entry);
+    final isLargeRemoteVideo = isRemoteStream && remoteMediaService.isLargeRemoteVideoEntry(entry);
+    if (isLargeRemoteVideo && (controller.currentPosition > 0 || controller.isPlaying || controller.status == VideoStatus.error)) {
+      unawaited(
+        remoteMediaLogService.log(
+          'autoplay',
+          'viewer recreates large remote video controller to avoid reusing preview session',
+          data: {
+            'uri': entry.uri,
+            'status': controller.status.name,
+            'isPlaying': controller.isPlaying,
+            'isReady': controller.isReady,
+            'positionMillis': controller.currentPosition,
+            'protocol': remoteProtocol?.name,
+          },
+        ),
+      );
+      controller = await videoConductor.recreateController(entry);
+    }
     if (isRemoteStream && shouldApplyRemoteDetailPreviewPreheat) {
       if (remoteProtocol == RemoteProtocol.webdav) {
         controller = await _primeWebdavViewerControllerForDetailPreheat(entry, controller);
@@ -1133,8 +1152,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
       await videoController.mute(true);
     }
 
-    final prefersImmediatePlayback =
-        isRemoteStreamUri && (remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb);
+    final prefersImmediatePlayback = isRemoteStreamUri && (remoteProtocol == RemoteProtocol.ftp || remoteProtocol == RemoteProtocol.sftp || remoteProtocol == RemoteProtocol.smb);
     var localPrimed = false;
     if (prefersImmediatePlayback) {
       unawaited(
@@ -1147,10 +1165,7 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
           },
         ),
       );
-      if (controllerEntry is AvesEntry &&
-          !controllerEntry.isRemoteCachedMedia &&
-          !controllerEntry.uri.startsWith('http://') &&
-          !controllerEntry.uri.startsWith('https://')) {
+      if (controllerEntry is AvesEntry && !controllerEntry.isRemoteCachedMedia && !controllerEntry.uri.startsWith('http://') && !controllerEntry.uri.startsWith('https://')) {
         unawaited(_logLocalCacheUsage(controllerEntry, 'viewer_playback_requested'));
       }
     } else {

@@ -139,6 +139,7 @@ class RemoteMediaService {
   static const _sftpPreviewPreheatDelayThresholdBytes = 64 * 1024 * 1024;
   static const _smbPreviewPreheatDelayThresholdBytes = 96 * 1024 * 1024;
   static const _largeWebDavViewerBootstrapChunkCount = 3;
+  static const _largeWebDavGridPreviewBootstrapChunkCount = 8;
   static const _streamChunkSizeBytes = 2 * 1024 * 1024;
   static const _smbStreamChunkSizeBytes = 4 * 1024 * 1024;
   static const _streamChunkCacheVersion = 4;
@@ -186,6 +187,10 @@ class RemoteMediaService {
     required String trigger,
   }) {
     final normalizedTrigger = trigger.toLowerCase();
+    final isLargeWebDavGridPreview = protocol == RemoteProtocol.webdav && node != null && node.isVideo && normalizedTrigger.contains('grid_preview') && (node.sizeBytes ?? 0) >= _webDavDirectPassthroughThresholdBytes;
+    if (isLargeWebDavGridPreview) {
+      return _largeWebDavGridPreviewBootstrapChunkCount;
+    }
     final isLargeWebDavViewerInit = protocol == RemoteProtocol.webdav && node != null && node.isVideo && normalizedTrigger.contains('viewer_init') && (node.sizeBytes ?? 0) >= _webDavDirectPassthroughThresholdBytes;
     if (isLargeWebDavViewerInit) {
       return _largeWebDavViewerBootstrapChunkCount;
