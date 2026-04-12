@@ -11,6 +11,7 @@ import 'package:aves/model/grouping/common.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/model/source/album.dart';
 import 'package:aves/model/source/collection_source.dart';
+import 'package:aves/model/remote/remote_server.dart';
 import 'package:aves/theme/icons.dart';
 import 'package:aves/widgets/common/extensions/build_context.dart';
 import 'package:aves/widgets/common/identity/empty.dart';
@@ -45,12 +46,26 @@ class AlbumListPage extends StatelessWidget {
         // to access filter group provider from subtree context
         builder: (context) {
           final source = context.read<CollectionSource>();
-          return Selector<Settings, (AlbumChipSectionFactor, ChipSortFactor, bool, Set<CollectionFilter>, Set<CollectionFilter>)>(
-            selector: (context, s) => (s.albumSectionFactor, s.albumSortFactor, s.albumSortReverse, s.hiddenFilters, s.pinnedFilters),
+          return Selector<Settings, (AlbumChipSectionFactor, ChipSortFactor, bool, Set<CollectionFilter>, Set<CollectionFilter>, List<RemotePinnedFolder>, List<RemoteServer>)>(
+            selector: (context, s) => (
+              s.albumSectionFactor,
+              s.albumSortFactor,
+              s.albumSortReverse,
+              s.hiddenFilters,
+              s.pinnedFilters,
+              s.remotePinnedFolders,
+              s.remoteServers,
+            ),
             shouldRebuild: (t1, t2) {
               // `Selector` by default uses `DeepCollectionEquality`, which does not go deep in collections within records
               const eq = DeepCollectionEquality();
-              return !(eq.equals(t1.$1, t2.$1) && eq.equals(t1.$2, t2.$2) && eq.equals(t1.$3, t2.$3) && eq.equals(t1.$4, t2.$4) && eq.equals(t1.$5, t2.$5));
+              return !(eq.equals(t1.$1, t2.$1) &&
+                  eq.equals(t1.$2, t2.$2) &&
+                  eq.equals(t1.$3, t2.$3) &&
+                  eq.equals(t1.$4, t2.$4) &&
+                  eq.equals(t1.$5, t2.$5) &&
+                  eq.equals(t1.$6, t2.$6) &&
+                  eq.equals(t1.$7, t2.$7));
             },
             builder: (context, s, child) {
               return ValueListenableBuilder<bool>(

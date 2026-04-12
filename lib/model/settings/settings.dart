@@ -512,6 +512,7 @@ class Settings
           case SettingKeys.remoteServersKey:
           case SettingKeys.remotePinnedFoldersKey:
           case SettingKeys.remoteStandaloneFavouritePathsKey:
+          case SettingKeys.remoteStandaloneFavouriteEntriesKey:
           case SettingKeys.homeCustomCollectionKey:
           case SettingKeys.drawerTypeBookmarksKey:
           case SettingKeys.drawerAlbumBookmarksKey:

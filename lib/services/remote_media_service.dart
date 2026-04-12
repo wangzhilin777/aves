@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import 'package:aves/model/remote/remote_protocol.dart';
 import 'package:aves/model/remote/remote_server.dart';
 import 'package:aves/model/entry/entry.dart';
+import 'package:aves/model/entry/cache.dart';
 import 'package:aves/model/entry/extensions/catalog.dart';
 import 'package:aves/model/entry/extensions/props.dart';
 import 'package:aves/model/entry/origins.dart';
@@ -16,6 +17,7 @@ import 'package:aves/model/settings/enums/remote_stream_mode.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/model/source/events.dart';
 import 'package:aves/ref/mime_types.dart';
+import 'package:aves/image_providers/thumbnail_provider.dart';
 import 'package:aves/services/common/services.dart';
 import 'package:aves/services/runtime_collection_source.dart';
 import 'package:aves/services/remote_stream_proxy_service.dart';
@@ -132,6 +134,61 @@ class _ChunkFileSegment {
   });
 }
 
+class _PersistedStandaloneFavouriteEntry {
+  final String key;
+  final String serverId;
+  final String remotePath;
+  final String mimeType;
+  final String? title;
+  final int? sizeBytes;
+  final int? modifiedMillis;
+  final int width;
+  final int height;
+  final int? durationMillis;
+
+  const _PersistedStandaloneFavouriteEntry({
+    required this.key,
+    required this.serverId,
+    required this.remotePath,
+    required this.mimeType,
+    required this.title,
+    required this.sizeBytes,
+    required this.modifiedMillis,
+    required this.width,
+    required this.height,
+    required this.durationMillis,
+  });
+
+  factory _PersistedStandaloneFavouriteEntry.fromJson(String jsonString) {
+    final map = jsonDecode(jsonString) as Map;
+    return _PersistedStandaloneFavouriteEntry(
+      key: map['key'] as String,
+      serverId: map['serverId'] as String,
+      remotePath: map['remotePath'] as String,
+      mimeType: map['mimeType'] as String,
+      title: map['title'] as String?,
+      sizeBytes: map['sizeBytes'] as int?,
+      modifiedMillis: map['modifiedMillis'] as int?,
+      width: map['width'] as int? ?? 1,
+      height: map['height'] as int? ?? 1,
+      durationMillis: map['durationMillis'] as int?,
+    );
+  }
+
+  String toJson() => jsonEncode({
+    'key': key,
+    'serverId': serverId,
+    'remotePath': remotePath,
+    'mimeType': mimeType,
+    'title': title,
+    'sizeBytes': sizeBytes,
+    'modifiedMillis': modifiedMillis,
+    'width': width,
+    'height': height,
+    'durationMillis': durationMillis,
+  });
+}
+
 class RemoteMediaService {
   static const _webDavDirectPassthroughThresholdBytes = 128 * 1024 * 1024;
   static const _webDavPreviewPreheatDelayThresholdBytes = 128 * 1024 * 1024;
@@ -156,6 +213,7 @@ class RemoteMediaService {
   final Map<String, Future<File>> _streamChunkInFlight = {};
   final Set<String> _loggedInitialChunkSignatures = {};
   final Map<String, Future<bool>> _imageMetadataInFlight = {};
+  final Map<String, AvesEntry> _standaloneFavouriteEntries = {};
 
   RemoteMediaService() {
     remoteStreamProxyService.remoteRequestHandler = _handleProxyRequest;
@@ -425,6 +483,348 @@ class RemoteMediaService {
 
   (RemoteServer server, RemoteBrowseNode node)? getVirtualRemoteRef(String uri) => _virtualRemoteRefs[uri];
 
+  String? getStandaloneFavouriteKeyForEntry(AvesEntry entry) {
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref != null) {
+      return 'remote:${ref.$1.id}:${ref.$2.path}';
+    }
+    if (entry.isRemoteCachedMedia) {
+      return entry.path;
+    }
+    return null;
+  }
+
+  bool isStandaloneFavouriteEntry(
+    AvesEntry entry,
+    Set<String> standaloneKeys,
+  ) {
+    final key = getStandaloneFavouriteKeyForEntry(entry);
+    return key != null && standaloneKeys.contains(key);
+  }
+
+  String? getStandaloneFavouriteKeyForUri(String uri) {
+    final ref = _virtualRemoteRefs[uri];
+    if (ref == null) return null;
+    return 'remote:${ref.$1.id}:${ref.$2.path}';
+  }
+
+  List<_PersistedStandaloneFavouriteEntry> _loadPersistedStandaloneFavouriteEntries() {
+    return settings.remoteStandaloneFavouriteEntries.map((jsonString) {
+      try {
+        return _PersistedStandaloneFavouriteEntry.fromJson(jsonString);
+      } catch (_) {
+        return null;
+      }
+    }).nonNulls.toList();
+  }
+
+  Set<String> _loadPersistedStandaloneFavouriteKeys() => _loadPersistedStandaloneFavouriteEntries().map((entry) => entry.key).toSet();
+
+  void _savePersistedStandaloneFavouriteEntries(Iterable<_PersistedStandaloneFavouriteEntry> entries) {
+    settings.remoteStandaloneFavouriteEntries = entries.map((entry) => entry.toJson()).toList();
+  }
+
+  void _persistStandaloneFavouriteEntrySnapshot(String key, AvesEntry entry) {
+    final ref = _virtualRemoteRefs[entry.uri];
+    if (ref == null) return;
+
+    final persistedMap = Map.fromEntries(_loadPersistedStandaloneFavouriteEntries().map((entry) => MapEntry(entry.key, entry)));
+    persistedMap[key] = _PersistedStandaloneFavouriteEntry(
+      key: key,
+      serverId: ref.$1.id,
+      remotePath: ref.$2.path,
+      mimeType: entry.mimeType,
+      title: entry.sourceTitle,
+      sizeBytes: entry.sizeBytes,
+      modifiedMillis: entry.dateModifiedMillis,
+      width: entry.width,
+      height: entry.height,
+      durationMillis: entry.durationMillis,
+    );
+    _savePersistedStandaloneFavouriteEntries(persistedMap.values);
+  }
+
+  void _notifyStandaloneFavouriteEntryUpdated(AvesEntry entry) {
+    entry.visualChangeNotifier.notify();
+
+    final source = runtimeCollectionSource;
+    if (source == null) return;
+
+    source.onAspectRatioChanged();
+    source.eventBus.fire(EntryRefreshedEvent({entry}));
+  }
+
+  bool allowProxyVideoThumbnailForUri(String uri) {
+    final key = getStandaloneFavouriteKeyForUri(uri);
+    return key != null && settings.remoteStandaloneFavouritePaths.contains(key);
+  }
+
+  int _syntheticStandaloneFavouriteEntryId(String key) {
+    final hash = key.hashCode & 0x3fffffff;
+    return -(hash + 1);
+  }
+
+  String _buildRemotePseudoPath(String serverId, String remotePath) {
+    final normalized = remotePath.replaceAll('/', Platform.pathSeparator);
+    return '${Platform.pathSeparator}remote${Platform.pathSeparator}$serverId$normalized';
+  }
+
+  Uri _buildDeferredRemoteUri(String serverId, String remotePath) {
+    final normalizedPath = remotePath.startsWith('/') ? remotePath : '/$remotePath';
+    return Uri(
+      scheme: 'aves-remote',
+      host: serverId,
+      path: normalizedPath,
+    );
+  }
+
+  AvesEntry _buildPersistedStandaloneFavouriteEntry({
+    required _PersistedStandaloneFavouriteEntry persisted,
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required Uri uri,
+    String? actualPath,
+  }) {
+    final entryId = _syntheticStandaloneFavouriteEntryId(persisted.key);
+    return AvesEntry(
+      id: entryId,
+      uri: uri.toString(),
+      path: actualPath ?? _buildRemotePseudoPath(server.id, node.path),
+      contentId: entryId,
+      pageId: null,
+      sourceMimeType: MimeTypes.normalize(persisted.mimeType),
+      width: max(1, persisted.width),
+      height: max(1, persisted.height),
+      sourceRotationDegrees: 0,
+      sizeBytes: persisted.sizeBytes,
+      sourceTitle: persisted.title,
+      dateAddedSecs: (persisted.modifiedMillis ?? DateTime.now().millisecondsSinceEpoch) ~/ 1000,
+      dateModifiedMillis: persisted.modifiedMillis,
+      sourceDateTakenMillis: persisted.modifiedMillis,
+      durationMillis: persisted.durationMillis,
+      trashed: false,
+      origin: EntryOrigins.mediaStoreContent,
+    );
+  }
+
+  Future<void> restoreStandaloneFavouriteEntries({
+    String trigger = 'startup_restore',
+  }) async {
+    _standaloneFavouriteEntries.values.forEach((entry) => entry.dispose());
+    _standaloneFavouriteEntries.clear();
+
+    final persistedEntries = _loadPersistedStandaloneFavouriteEntries();
+    if (persistedEntries.isEmpty) return;
+
+    final serversById = Map.fromEntries(settings.remoteServers.map((server) => MapEntry(server.id, server)));
+    for (final persisted in persistedEntries) {
+      final server = serversById[persisted.serverId];
+      if (server == null) continue;
+
+      final node = RemoteBrowseNode(
+        path: persisted.remotePath,
+        name: persisted.title ?? persisted.remotePath.split('/').where((v) => v.isNotEmpty).lastOrNull ?? persisted.remotePath,
+        isDirectory: false,
+        isVideo: MimeTypes.isVideo(persisted.mimeType),
+        isImage: MimeTypes.isImage(persisted.mimeType),
+        sizeBytes: persisted.sizeBytes,
+        modifiedMillis: persisted.modifiedMillis,
+      );
+      final cachedFile = await _getExistingCacheFile(server, node);
+      final uri = cachedFile != null ? Uri.file(cachedFile.path) : (buildStreamUri(server: server, node: node) ?? _buildDeferredRemoteUri(server.id, node.path));
+      registerVirtualRemoteRef(
+        uri: uri.toString(),
+        server: server,
+        node: node,
+      );
+      final entry = _buildPersistedStandaloneFavouriteEntry(
+        persisted: persisted,
+        server: server,
+        node: node,
+        uri: uri,
+        actualPath: cachedFile?.path,
+      );
+      _standaloneFavouriteEntries[persisted.key] = entry;
+      unawaited(_prepareStandaloneFavouriteDisplayAssets(entry, trigger: trigger));
+    }
+  }
+
+  Future<void> registerStandaloneFavouriteEntries(
+    Set<AvesEntry> entries, {
+    String trigger = 'favourite_add',
+  }) async {
+    final keys = <String>{};
+    final virtualEntries = <(String key, AvesEntry entry)>[];
+    for (final entry in entries) {
+      final key = getStandaloneFavouriteKeyForEntry(entry);
+      if (key == null) continue;
+      keys.add(key);
+
+      final ref = _virtualRemoteRefs[entry.uri];
+      if (ref == null) continue;
+      virtualEntries.add((key, entry));
+    }
+
+    await registerStandaloneFavouritePaths(
+      keys,
+      trigger: trigger,
+    );
+
+    final persistedMap = Map.fromEntries(_loadPersistedStandaloneFavouriteEntries().map((entry) => MapEntry(entry.key, entry)));
+    for (final item in virtualEntries) {
+      final key = item.$1;
+      final sourceEntry = item.$2;
+      final ref = _virtualRemoteRefs[sourceEntry.uri];
+      if (ref == null) continue;
+
+      final standaloneEntry = sourceEntry.copyWith(
+        id: _syntheticStandaloneFavouriteEntryId(key),
+      );
+      standaloneEntry.dateAddedSecs = (standaloneEntry.dateModifiedMillis ?? DateTime.now().millisecondsSinceEpoch) ~/ 1000;
+      _standaloneFavouriteEntries[key] = standaloneEntry;
+      _persistStandaloneFavouriteEntrySnapshot(key, standaloneEntry);
+      _notifyStandaloneFavouriteEntryUpdated(standaloneEntry);
+
+      await _prepareStandaloneFavouriteDisplayAssets(
+        standaloneEntry,
+        trigger: trigger,
+      );
+      persistedMap[key] = _PersistedStandaloneFavouriteEntry(
+        key: key,
+        serverId: ref.$1.id,
+        remotePath: ref.$2.path,
+        mimeType: standaloneEntry.mimeType,
+        title: standaloneEntry.sourceTitle,
+        sizeBytes: standaloneEntry.sizeBytes,
+        modifiedMillis: standaloneEntry.dateModifiedMillis,
+        width: standaloneEntry.width,
+        height: standaloneEntry.height,
+        durationMillis: standaloneEntry.durationMillis,
+      );
+    }
+    _savePersistedStandaloneFavouriteEntries(persistedMap.values);
+  }
+
+  Iterable<AvesEntry> getStandaloneFavouriteEntries(Set<String> keys) sync* {
+    for (final key in keys) {
+      final entry = _standaloneFavouriteEntries[key];
+      if (entry != null) {
+        yield entry;
+      }
+    }
+  }
+
+  Future<void> _prepareStandaloneFavouriteDisplayAssets(
+    AvesEntry entry, {
+    required String trigger,
+  }) async {
+    final standaloneKey = getStandaloneFavouriteKeyForEntry(entry);
+
+    bool requiresLocalImageBinding() {
+      if (entry.isVideo || !hasVirtualRemoteRef(entry.uri)) return false;
+      final uri = Uri.tryParse(entry.uri);
+      if (uri == null) return false;
+      return uri.scheme == 'http' || uri.scheme == 'https' || uri.scheme == 'aves-remote';
+    }
+
+    await ensureEntryMetadata(entry, trigger: '${trigger}_display_metadata');
+
+    if (entry.isVideo) {
+      await prepareInitialStreamPlaybackForEntry(
+        entry,
+        trigger: '${trigger}_first_frame',
+      );
+      final videoSizeBytes = entry.sizeBytes ?? _virtualRemoteRefs[entry.uri]?.$2.sizeBytes ?? 0;
+      final allowStableLocalPlaybackBinding = videoSizeBytes > 0 && videoSizeBytes <= settings.remoteAutoDownloadVideoMaxBytes;
+      await prepareEntryForPlayback(
+        entry,
+        trigger: '${trigger}_bind_playback_source',
+        allowDownload: allowStableLocalPlaybackBinding,
+      );
+      await entry.catalog(background: false, force: true, persist: false);
+      await _primeStandaloneFavouriteThumbnail(
+        entry,
+        trigger: '${trigger}_first_frame',
+      );
+      if (standaloneKey != null) {
+        _persistStandaloneFavouriteEntrySnapshot(standaloneKey, entry);
+        _notifyStandaloneFavouriteEntryUpdated(entry);
+      }
+      return;
+    }
+
+    if (!entry.isSized || requiresLocalImageBinding()) {
+      await ensureViewerImageDisplayMetadata(
+        entry,
+        trigger: '${trigger}_display_metadata',
+      );
+    }
+    await _primeStandaloneFavouriteThumbnail(
+      entry,
+      trigger: '${trigger}_thumbnail',
+    );
+    if (standaloneKey != null) {
+      _persistStandaloneFavouriteEntrySnapshot(standaloneKey, entry);
+      _notifyStandaloneFavouriteEntryUpdated(entry);
+    }
+  }
+
+  Future<void> _primeStandaloneFavouriteThumbnail(
+    AvesEntry entry, {
+    required String trigger,
+  }) async {
+    try {
+      await EntryCache.evict(
+        entry.uri,
+        entry.mimeType,
+        entry.dateModifiedMillis,
+        entry.rotationDegrees,
+        entry.isFlipped,
+        entry.isAnimated,
+      );
+      final codec = await mediaFetchService.getThumbnail(
+        decoded: false,
+        request: ThumbnailProviderKey(
+          uri: entry.uri,
+          mimeType: entry.mimeType,
+          pageId: entry.pageId,
+          rotationDegrees: entry.rotationDegrees,
+          isFlipped: entry.isFlipped,
+          dateModifiedMillis: entry.dateModifiedMillis ?? -1,
+          extent: 256,
+        ),
+        taskKey: 'standalone_favourite_thumb|${entry.uri}|$trigger',
+      );
+      codec.dispose();
+      entry.visualChangeNotifier.notify();
+      await remoteMediaLogService.log(
+        'thumbnail',
+        'primed standalone remote favourite thumbnail',
+        data: {
+          'trigger': trigger,
+          'uri': entry.uri,
+          'path': entry.path,
+          'mimeType': entry.mimeType,
+          'width': entry.width,
+          'height': entry.height,
+        },
+      );
+    } catch (error, stack) {
+      await remoteMediaLogService.log(
+        'thumbnail',
+        'failed to prime standalone remote favourite thumbnail',
+        data: {
+          'trigger': trigger,
+          'uri': entry.uri,
+          'path': entry.path,
+          'mimeType': entry.mimeType,
+          'error': '$error',
+        },
+      );
+      await reportService.recordError(error, stack);
+    }
+  }
+
   RemoteProtocol? getRemoteProtocolForEntry(AvesEntry entry) => _virtualRemoteRefs[entry.uri]?.$1.protocol;
 
   int? previewVideoPreheatDelayThresholdBytesForEntry(AvesEntry entry) {
@@ -518,8 +918,9 @@ class RemoteMediaService {
       return existing;
     }
     if (!allowDownload) return null;
-
-    return ensureDownloadedForEntry(entry, trigger: '${trigger}_download');
+    final downloaded = await ensureDownloadedForEntry(entry, trigger: '${trigger}_download');
+    if (downloaded == null) return null;
+    return await bindExistingCacheFileForEntry(entry, trigger: '${trigger}_bind_downloaded') ?? downloaded;
   }
 
   Future<AvesEntry?> ensureIndexedCacheEntryForEntry(
@@ -666,7 +1067,14 @@ class RemoteMediaService {
     String trigger = 'viewer_image_metadata',
   }) async {
     if (entry.isVideo || !entry.isDecodingSupported) return false;
-    if (entry.width > 1 && entry.height > 1) return true;
+    bool needsLocalDisplaySource() {
+      if (!hasVirtualRemoteRef(entry.uri)) return false;
+      final uri = Uri.tryParse(entry.uri);
+      if (uri == null) return false;
+      return uri.scheme == 'http' || uri.scheme == 'https' || uri.scheme == 'aves-remote';
+    }
+
+    if (entry.width > 1 && entry.height > 1 && !needsLocalDisplaySource()) return true;
 
     final localPath = entry.path;
     if (localPath != null) {
@@ -702,7 +1110,7 @@ class RemoteMediaService {
 
     Future<bool> run() async {
       await ensureEntryMetadata(entry, trigger: trigger);
-      if (entry.width > 1 && entry.height > 1) {
+      if (entry.width > 1 && entry.height > 1 && !needsLocalDisplaySource()) {
         return true;
       }
 
@@ -729,7 +1137,7 @@ class RemoteMediaService {
         entry,
         trigger: '${trigger}_download',
       );
-      final resolved = downloadedFile != null && entry.width > 1 && entry.height > 1;
+      final resolved = downloadedFile != null && entry.width > 1 && entry.height > 1 && !needsLocalDisplaySource();
       await remoteMediaLogService.log(
         'metadata',
         resolved ? 'resolved remote image display metadata from download' : 'failed to resolve remote image display metadata',
@@ -1148,6 +1556,10 @@ class RemoteMediaService {
     if (!await dir.exists()) return true;
     try {
       await dir.delete(recursive: true);
+      await _rebindStandaloneFavouriteEntriesAfterCacheChange(
+        serverId: serverId,
+        trigger: 'clear_connection_cache',
+      );
       await remoteMediaLogService.log('remote_load', 'cleared remote cache for server', data: {'serverId': serverId});
       return true;
     } catch (error, stack) {
@@ -1223,6 +1635,11 @@ class RemoteMediaService {
           'path': folderPath,
           'deletedCount': deleted,
         },
+      );
+      await _rebindStandaloneFavouriteEntriesAfterCacheChange(
+        serverId: server.id,
+        folderPath: folderPath,
+        trigger: 'clear_pinned_folder_cache',
       );
       return true;
     } catch (error, stack) {
@@ -3967,7 +4384,10 @@ class RemoteMediaService {
     }
 
     final protectedPaths = await _loadProtectedRemoteCachePaths();
-    settings.remoteStandaloneFavouritePaths = protectedPaths;
+    settings.remoteStandaloneFavouritePaths = {
+      ...protectedPaths,
+      ..._loadPersistedStandaloneFavouriteKeys(),
+    };
     await _notifyStandaloneFavouriteVisibilityChanged();
   }
 
@@ -3997,6 +4417,11 @@ class RemoteMediaService {
     String trigger = 'favourite_remove',
   }) async {
     if (paths.isEmpty) return;
+    for (final key in paths) {
+      _standaloneFavouriteEntries.remove(key);
+    }
+    final persistedMap = Map.fromEntries(_loadPersistedStandaloneFavouriteEntries().map((entry) => MapEntry(entry.key, entry)))..removeWhere((key, _) => paths.contains(key));
+    _savePersistedStandaloneFavouriteEntries(persistedMap.values);
     final next = {
       ...settings.remoteStandaloneFavouritePaths,
     }..removeAll(paths);
@@ -4056,6 +4481,79 @@ class RemoteMediaService {
     if (source == null) return;
     source.invalidateEntries();
     source.eventBus.fire(EntryRefreshedEvent(source.allEntries));
+  }
+
+  Future<void> _rebindStandaloneFavouriteEntriesAfterCacheChange({
+    String? serverId,
+    String? folderPath,
+    required String trigger,
+  }) async {
+    final persistedEntries = _loadPersistedStandaloneFavouriteEntries();
+    if (persistedEntries.isEmpty) return;
+
+    final serversById = Map.fromEntries(settings.remoteServers.map((server) => MapEntry(server.id, server)));
+    var changed = false;
+
+    for (final persisted in persistedEntries) {
+      if (serverId != null && persisted.serverId != serverId) continue;
+      if (folderPath != null && !persisted.remotePath.startsWith(folderPath)) continue;
+
+      final server = serversById[persisted.serverId];
+      if (server == null) continue;
+
+      final node = RemoteBrowseNode(
+        path: persisted.remotePath,
+        name: persisted.title ?? persisted.remotePath.split('/').where((v) => v.isNotEmpty).lastOrNull ?? persisted.remotePath,
+        isDirectory: false,
+        isVideo: MimeTypes.isVideo(persisted.mimeType),
+        isImage: MimeTypes.isImage(persisted.mimeType),
+        sizeBytes: persisted.sizeBytes,
+        modifiedMillis: persisted.modifiedMillis,
+      );
+      final cachedFile = await _getExistingCacheFile(server, node);
+      final reboundUri = cachedFile != null ? Uri.file(cachedFile.path) : (buildStreamUri(server: server, node: node) ?? _buildDeferredRemoteUri(server.id, node.path));
+      registerVirtualRemoteRef(
+        uri: reboundUri.toString(),
+        server: server,
+        node: node,
+      );
+
+      final entry = _standaloneFavouriteEntries[persisted.key];
+      if (entry == null) continue;
+
+      final nextPath = cachedFile?.path ?? _buildRemotePseudoPath(server.id, node.path);
+      final nextUri = reboundUri.toString();
+      final nextSizeBytes = cachedFile != null ? await cachedFile.length() : (persisted.sizeBytes ?? entry.sizeBytes);
+
+      if (entry.uri == nextUri && entry.path == nextPath && entry.sizeBytes == nextSizeBytes) continue;
+
+      entry.uri = nextUri;
+      entry.path = nextPath;
+      entry.sizeBytes = nextSizeBytes;
+      entry.dateModifiedMillis = persisted.modifiedMillis;
+      entry.sourceDateTakenMillis = persisted.modifiedMillis;
+      entry.visualChangeNotifier.notify();
+      unawaited(
+        _prepareStandaloneFavouriteDisplayAssets(
+          entry,
+          trigger: '${trigger}_reprepare_display_assets',
+        ),
+      );
+      changed = true;
+    }
+
+    if (changed) {
+      await remoteMediaLogService.log(
+        'remote_load',
+        'rebound standalone favourites after cache change',
+        data: {
+          'trigger': trigger,
+          'serverId': serverId,
+          'folderPath': folderPath,
+        },
+      );
+      await _notifyStandaloneFavouriteVisibilityChanged();
+    }
   }
 
   Future<void> _attachIndexedRemoteCacheEntryToRuntimeSource({

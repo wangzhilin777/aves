@@ -101,7 +101,7 @@ class ThumbnailProvider extends ImageProvider<ThumbnailProviderKey> {
   }
 
   Future<ui.Codec> _loadAsync(ThumbnailProviderKey key, ImageDecoderCallback decode) async {
-    if (_isLocalProxyRemoteVideoStream(key)) {
+    if (_isLocalProxyRemoteVideoStream(key) && !remoteMediaService.allowProxyVideoThumbnailForUri(key.uri)) {
       // For loopback remote video streams, let playback/first-frame and cached covers win.
       // Platform thumbnail extraction on the same proxy stream can contend with startup.
       return decode(await ui.ImmutableBuffer.fromUint8List(Uint8List.fromList(_transparentPngBytes)));

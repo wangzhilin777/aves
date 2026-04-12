@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/entry/extensions/images.dart';
@@ -172,12 +173,12 @@ class _RemoteCachedThumbnailImage extends StatelessWidget {
   Widget build(BuildContext context) {
     final provider = entry.cachedThumbnails.sortedBy<num>((provider) => provider.key.extent).lastOrNull;
     if (provider == null) {
-      return SizedBox(
-        width: width,
-        height: height,
-        child: const ColoredBox(
-          color: Colors.transparent,
-        ),
+      return ThumbnailImage(
+        entry: entry,
+        extent: math.max(width, height),
+        devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+        fit: fit,
+        showLoadingBackground: false,
       );
     }
     return Image(
@@ -614,6 +615,16 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
   void _onControllerVisualStateChanged() {
     final controller = _controller;
     if (!mounted || controller == null) return;
+    final decodedSize = controller.decodedVideoSizeNotifier.value;
+    if (decodedSize != null && decodedSize.width > 1 && decodedSize.height > 1) {
+      final nextWidth = decodedSize.width.round();
+      final nextHeight = decodedSize.height.round();
+      if (entry.width != nextWidth || entry.height != nextHeight) {
+        entry.width = nextWidth;
+        entry.height = nextHeight;
+        entry.visualChangeNotifier.notify();
+      }
+    }
     final isViewerActive = _viewerEntryNotifier?.value != null;
     final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
     final isFtpPreview = remoteProtocol == RemoteProtocol.ftp;

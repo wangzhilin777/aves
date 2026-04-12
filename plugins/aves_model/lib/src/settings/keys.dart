@@ -169,6 +169,7 @@ class SettingKeys {
   static const remoteCacheInSmartCollectionsKey = 'remote_cache_in_smart_collections';
   static const remoteStandaloneFavouriteModeKey = 'remote_standalone_favourite_mode';
   static const remoteStandaloneFavouritePathsKey = 'remote_standalone_favourite_paths';
+  static const remoteStandaloneFavouriteEntriesKey = 'remote_standalone_favourite_entries';
   static const remoteGridVideoAutoPlayKey = 'remote_grid_video_auto_play';
   static const remoteGridVideoSoundOnKey = 'remote_grid_video_sound_on';
   static const remotePreviewPreheatEnabledKey = 'remote_preview_preheat_enabled';

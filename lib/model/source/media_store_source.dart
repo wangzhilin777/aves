@@ -63,6 +63,7 @@ class MediaStoreSource extends CollectionSource {
     await localMediaDb.init();
     await vaults.init();
     await favourites.init();
+    await remoteMediaService.restoreStandaloneFavouriteEntries();
     albumGrouping.init();
     albumGrouping.setGroups(settings.albumGroups);
     albumGrouping.registerSource(this);

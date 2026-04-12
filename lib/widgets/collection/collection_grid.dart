@@ -507,6 +507,39 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   }
 
   @override
+  void didUpdateWidget(covariant _CollectionSectionedContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final currentPreview = widget.previewPlayingEntryNotifier.value;
+    if (currentPreview == null) return;
+
+    final entries = collection.sortedEntries;
+    final stillVisible = entries.any((entry) => entry.uri == currentPreview.uri);
+    if (!stillVisible) {
+      widget.previewPlayingEntryNotifier.value = null;
+      _pendingFocusTarget = null;
+      _focusDebounceTimer?.cancel();
+      _deferredPrefetchTimer?.cancel();
+      return;
+    }
+
+    final firstEntry = entries.firstOrNull;
+    final nearTop =
+        scrollController.hasClients &&
+        scrollController.offset <= scrollController.position.minScrollExtent + 24;
+    if (nearTop && firstEntry != null && !firstEntry.isVideo && currentPreview.uri != firstEntry.uri) {
+      widget.previewPlayingEntryNotifier.value = null;
+      _pendingFocusTarget = null;
+      _focusDebounceTimer?.cancel();
+      _deferredPrefetchTimer?.cancel();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _onScrollOrLayoutChanged();
+      });
+    }
+  }
+
+  @override
   void dispose() {
     scrollController.removeListener(_onScrollOrLayoutChanged);
     widget.isScrollingNotifier.removeListener(_onScrollingStateChanged);
@@ -680,25 +713,34 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       }
       if (target != null) break;
     }
-    final edgeTarget = _resolveEdgeFocusTarget(
-      layout: layout,
-      size: size,
-      viewportTopY: viewportTopY,
-      currentOffset: currentOffset,
-      minScrollExtent: minScrollExtent,
-      maxScrollExtent: maxScrollExtent,
-      scrollingTowardBottom: scrollingTowardBottom,
-      probesX: probesX,
-      firstVisibleCandidate: firstVisibleCandidate,
-      lastVisibleCandidate: lastVisibleCandidate,
-      fallbackAnchor: lastVisibleCandidate ?? anchor,
-    );
-    target = edgeTarget ?? target;
-    target ??= _resolveInitialTopFocusTarget(
-      currentOffset: currentOffset,
-      minScrollExtent: minScrollExtent,
-      fallbackAnchor: lastVisibleCandidate ?? anchor,
-    );
+    final preserveLeadingNonVideoAtTop =
+        widget.previewPlayingEntryNotifier.value == null &&
+        currentOffset <= minScrollExtent + size.height * .18 &&
+        firstVisibleCandidate != null &&
+        !firstVisibleCandidate.isVideo;
+    if (!preserveLeadingNonVideoAtTop) {
+      final edgeTarget = _resolveEdgeFocusTarget(
+        layout: layout,
+        size: size,
+        viewportTopY: viewportTopY,
+        currentOffset: currentOffset,
+        minScrollExtent: minScrollExtent,
+        maxScrollExtent: maxScrollExtent,
+        scrollingTowardBottom: scrollingTowardBottom,
+        probesX: probesX,
+        firstVisibleCandidate: firstVisibleCandidate,
+        lastVisibleCandidate: lastVisibleCandidate,
+        fallbackAnchor: lastVisibleCandidate ?? anchor,
+      );
+      target = edgeTarget ?? target;
+      target ??= _resolveInitialTopFocusTarget(
+        currentOffset: currentOffset,
+        minScrollExtent: minScrollExtent,
+        fallbackAnchor: lastVisibleCandidate ?? anchor,
+      );
+    } else {
+      target = null;
+    }
     unawaited(_prefetchRemoteWindow(anchor));
     _scheduleFocusUpdate(target);
   }

@@ -156,7 +156,7 @@ abstract class CollectionSource with SourceBase, AlbumMixin, CountryMixin, Place
     };
     final standaloneRemoteFavouritePaths = settings.remoteStandaloneFavouritePaths;
     return entries.where((entry) {
-      if (standaloneRemoteFavouritePaths.contains(entry.path)) {
+      if (remoteMediaService.isStandaloneFavouriteEntry(entry, standaloneRemoteFavouritePaths)) {
         return false;
       }
       return !hiddenFilters.any((filter) => filter.test(entry));

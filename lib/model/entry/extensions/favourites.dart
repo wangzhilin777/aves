@@ -1,8 +1,10 @@
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/favourites.dart';
+import 'package:aves/model/settings/settings.dart';
+import 'package:aves/services/common/services.dart';
 
 extension ExtraAvesEntryFav on AvesEntry {
-  bool get isFavourite => favourites.isFavourite(this);
+  bool get isFavourite => favourites.isFavourite(this) || (!settings.remoteCacheInSmartCollections && remoteMediaService.isStandaloneFavouriteEntry(this, settings.remoteStandaloneFavouritePaths));
 
   Future<void> toggleFavourite() async {
     if (isFavourite) {
