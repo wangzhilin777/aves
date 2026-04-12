@@ -140,6 +140,7 @@ class RemoteMediaService {
   static const _smbPreviewPreheatDelayThresholdBytes = 96 * 1024 * 1024;
   static const _largeWebDavViewerBootstrapChunkCount = 3;
   static const _largeWebDavGridPreviewBootstrapChunkCount = 8;
+  static const _initialVideoChunkRefetchAttempts = 2;
   static const _streamChunkSizeBytes = 2 * 1024 * 1024;
   static const _smbStreamChunkSizeBytes = 4 * 1024 * 1024;
   static const _streamChunkCacheVersion = 4;
@@ -2684,7 +2685,13 @@ class RemoteMediaService {
             file: file,
           );
           if (!isUsable) {
-            await file.delete();
+            await _purgeStreamChunkCache(
+              server: server,
+              node: node,
+              trigger: 'invalid_cached_chunk',
+              reason: 'cached initial chunk validation failed',
+              range: range,
+            );
           } else {
             await remoteMediaLogService.log(
               'cache',
@@ -2705,48 +2712,88 @@ class RemoteMediaService {
         }
       }
 
-      List<int> bytes;
-      try {
-        bytes = await fetchChunk(range);
-      } catch (error, stack) {
+      final maxAttempts = node.isVideo && range.start == 0 ? _initialVideoChunkRefetchAttempts : 1;
+      Object? lastError;
+      StackTrace? lastStack;
+      for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+        List<int> bytes;
+        try {
+          bytes = await fetchChunk(range);
+        } catch (error, stack) {
+          lastError = error;
+          lastStack = stack;
+          await remoteMediaLogService.log(
+            'stream',
+            'failed to fetch remote stream chunk',
+            data: {
+              'server': server.name,
+              'protocol': server.protocol.name,
+              'path': node.path,
+              'start': range.start,
+              'end': range.endInclusive,
+              'attempt': attempt,
+              'error': '$error',
+              'stack': _trimStackTrace(stack),
+            },
+          );
+          if (attempt >= maxAttempts) rethrow;
+          continue;
+        }
+
+        final isUsable = await _validateFetchedStreamChunk(
+          server: server,
+          node: node,
+          range: range,
+          bytes: bytes,
+          attempt: attempt,
+        );
+        if (!isUsable) {
+          lastError = StateError('Fetched invalid initial remote stream chunk');
+          if (attempt < maxAttempts) {
+            await _purgeStreamChunkCache(
+              server: server,
+              node: node,
+              trigger: 'invalid_fetched_chunk_retry',
+              reason: 'fetched initial chunk validation failed, retrying',
+              range: range,
+            );
+            continue;
+          }
+          throw lastError;
+        }
+
+        await file.create(recursive: true);
+        await file.writeAsBytes(bytes, flush: true);
+        await _logInitialChunkSignature(
+          server: server,
+          node: node,
+          range: range,
+          bytes: bytes,
+          source: 'fetched',
+        );
         await remoteMediaLogService.log(
-          'stream',
-          'failed to fetch remote stream chunk',
+          'cache',
+          'stored remote stream chunk',
           data: {
             'server': server.name,
-            'protocol': server.protocol.name,
             'path': node.path,
             'start': range.start,
             'end': range.endInclusive,
-            'error': '$error',
-            'stack': _trimStackTrace(stack),
+            'bytes': bytes.length,
+            'attempt': attempt,
+            'file': file.path,
           },
         );
-        rethrow;
+        await _enforceCacheLimit(server.id, trigger: 'stream_chunk');
+        return file;
       }
-      await file.create(recursive: true);
-      await file.writeAsBytes(bytes, flush: true);
-      await _logInitialChunkSignature(
-        server: server,
-        node: node,
-        range: range,
-        bytes: bytes,
-        source: 'fetched',
-      );
-      await remoteMediaLogService.log(
-        'cache',
-        'stored remote stream chunk',
-        data: {
-          'server': server.name,
-          'path': node.path,
-          'start': range.start,
-          'end': range.endInclusive,
-          'bytes': bytes.length,
-          'file': file.path,
-        },
-      );
-      await _enforceCacheLimit(server.id, trigger: 'stream_chunk');
-      return file;
+
+      if (lastError != null && lastStack != null) {
+        final error = lastError;
+        final stack = lastStack;
+        Error.throwWithStackTrace(error, stack);
+      }
+      throw StateError('Unable to create remote stream chunk');
     }
 
     final chunkKey = file.path;
@@ -2827,6 +2874,81 @@ class RemoteMediaService {
       );
       return false;
     }
+  }
+
+  Future<bool> _validateFetchedStreamChunk({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required RemoteByteRange range,
+    required List<int> bytes,
+    required int attempt,
+  }) async {
+    if (!node.isVideo || range.start != 0) {
+      return true;
+    }
+    final headBytes = bytes.take(min(64, bytes.length)).toList(growable: false);
+    await _logInitialChunkSignature(
+      server: server,
+      node: node,
+      range: range,
+      bytes: headBytes,
+      source: 'fetched_attempt_$attempt',
+    );
+    final looksValid = _looksLikePlayableVideoHeader(headBytes);
+    if (!looksValid) {
+      await remoteMediaLogService.log(
+        'cache',
+        'discard invalid fetched initial video stream chunk',
+        data: {
+          'server': server.name,
+          'protocol': server.protocol.name,
+          'path': node.path,
+          'start': range.start,
+          'end': range.endInclusive,
+          'attempt': attempt,
+          'bytes': bytes.length,
+        },
+      );
+    }
+    return looksValid;
+  }
+
+  Future<void> _purgeStreamChunkCache({
+    required RemoteServer server,
+    required RemoteBrowseNode node,
+    required String trigger,
+    required String reason,
+    RemoteByteRange? range,
+  }) async {
+    final chunkDir = await _getStreamChunkDirectory(server, node, createIfMissing: false);
+    if (await chunkDir.exists()) {
+      try {
+        await chunkDir.delete(recursive: true);
+      } catch (_) {}
+    }
+
+    if (range != null) {
+      final file = await _buildStreamChunkFile(server: server, node: node, range: range);
+      if (await file.exists()) {
+        try {
+          await file.delete();
+        } catch (_) {}
+      }
+    }
+
+    _loggedInitialChunkSignatures.removeWhere((key) => key.startsWith('${server.id}|${node.path}|'));
+    await remoteMediaLogService.log(
+      'cache',
+      'purged remote stream chunk cache',
+      data: {
+        'server': server.name,
+        'protocol': server.protocol.name,
+        'path': node.path,
+        'trigger': trigger,
+        'reason': reason,
+        'range': range != null ? '${range.start}-${range.endInclusive}' : null,
+      },
+    );
   }
 
   Future<void> _logInitialChunkSignature({
