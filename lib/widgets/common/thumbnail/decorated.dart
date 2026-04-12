@@ -572,7 +572,9 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
     final suppressNonCurrentSmbPreviewSurfaceWhileScrolling = !isCurrent && isSmbPreview && widget.isScrollingNotifier?.value == true;
     final suppressNonCurrentRemotePreviewSurfaceWhileScrolling =
         suppressNonCurrentWebdavPreviewSurfaceWhileScrolling || suppressNonCurrentFtpPreviewSurfaceWhileScrolling || suppressNonCurrentSftpPreviewSurfaceWhileScrolling || suppressNonCurrentSmbPreviewSurfaceWhileScrolling;
-    final canReveal = !isViewerActive && !suppressNonCurrentRemotePreviewSurfaceWhileScrolling && ((currentReadyForReveal) || (!isCurrent && isRemotePreviewCandidate && !isChunkedRemotePreview && holdLastFrame && hasRenderableFrame));
+    final shouldKeepExistingSurfaceForHandoff = !isCurrent && holdLastFrame && hasRenderableFrame;
+    final canReveal =
+        !isViewerActive && (!suppressNonCurrentRemotePreviewSurfaceWhileScrolling || shouldKeepExistingSurfaceForHandoff) && ((currentReadyForReveal) || (!isCurrent && isRemotePreviewCandidate && holdLastFrame && hasRenderableFrame));
     if (!canReveal) {
       _logSurfaceDecision(
         event: _videoSurfaceVisible ? 'hide_surface' : 'cannot_reveal_surface',
@@ -661,10 +663,11 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
       final suppressNonCurrentSmbPreviewSurfaceWhileScrolling = !isCurrent && activeIsSmbPreview && widget.isScrollingNotifier?.value == true;
       final suppressNonCurrentRemotePreviewSurfaceWhileScrolling =
           suppressNonCurrentWebdavPreviewSurfaceWhileScrolling || suppressNonCurrentFtpPreviewSurfaceWhileScrolling || suppressNonCurrentSftpPreviewSurfaceWhileScrolling || suppressNonCurrentSmbPreviewSurfaceWhileScrolling;
+      final shouldKeepExistingSurfaceForHandoff = !isCurrent && activeHoldLastFrame && activeHasRenderableFrame;
       final shouldReveal =
           (_viewerEntryNotifier?.value == null) &&
-          !suppressNonCurrentRemotePreviewSurfaceWhileScrolling &&
-          ((currentReadyForReveal) || (!isCurrent && isActiveRemotePreviewCandidate && !activeIsChunkedRemotePreview && activeHoldLastFrame && activeHasRenderableFrame));
+          (!suppressNonCurrentRemotePreviewSurfaceWhileScrolling || shouldKeepExistingSurfaceForHandoff) &&
+          ((currentReadyForReveal) || (!isCurrent && isActiveRemotePreviewCandidate && activeHoldLastFrame && activeHasRenderableFrame));
       if (!shouldReveal || _videoSurfaceVisible) {
         _logSurfaceDecision(
           event: !shouldReveal ? 'reveal_timer_completed_without_reveal' : 'reveal_timer_completed_but_already_visible',
@@ -1157,24 +1160,15 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
                 : isRemoteManagedEntry
                 ? (keepLastFrameVisible && hasRenderableFrame)
                 : (keepLastFrameVisible || hasDecodedFrame);
-            final nonCurrentRemoteShow = !isCurrent && isRemoteManagedEntry
-                ? (isFtpPreview
-                      ? false
-                      : isSftpPreview
-                      ? false
-                      : isSmbPreview
-                      ? false
-                      : isWebdavPreview
-                      ? false
-                      : (keepLastFrameVisible && hasRenderableFrame))
-                : false;
+            final nonCurrentRemoteShow = !isCurrent && isRemoteManagedEntry ? (holdLastFrame && hasRenderableFrame) : false;
             final hideFtpPreviewWhileViewerActive = isViewerActive && isFtpPreview;
             final hideSftpPreviewWhileViewerActive = isViewerActive && isSftpPreview;
             final hideSmbPreviewWhileViewerActive = isViewerActive && isSmbPreview;
             final hideWebdavPreviewWhileViewerActive = isViewerActive && isWebdavPreview;
             final hideChunkedPreviewWhileViewerActive = hideFtpPreviewWhileViewerActive || hideSftpPreviewWhileViewerActive || hideSmbPreviewWhileViewerActive || hideWebdavPreviewWhileViewerActive;
             final baseShow = _videoSurfaceVisible || currentProtocolShow || remoteForceVisible || nonCurrentRemoteShow;
-            final show = suppressNonCurrentChunkedPreviewSurface || suppressNonCurrentRemotePreviewSurfaceWhileScrolling || hideChunkedPreviewWhileViewerActive ? false : baseShow;
+            final shouldKeepExistingSurfaceForHandoff = nonCurrentRemoteShow;
+            final show = ((suppressNonCurrentChunkedPreviewSurface || suppressNonCurrentRemotePreviewSurfaceWhileScrolling) && !shouldKeepExistingSurfaceForHandoff) || hideChunkedPreviewWhileViewerActive ? false : baseShow;
             final ftpPreviewOpacityDuration = isFtpPreview ? Duration.zero : const Duration(milliseconds: 180);
             _logTileSurfaceSnapshot(
               controller: controller,
