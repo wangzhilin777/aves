@@ -730,5 +730,101 @@
     "settingsViewerShowZoomLevel": "显示缩放级别",
     "settingsEnabled": "已启用",
     "settingsForced": "已强制",
-    "collectionActionExportGpx": "导出 GPX"
+    "collectionActionExportGpx": "导出 GPX",
+    "remoteActionClearMetadata": "清除元信息",
+    "remoteActionClearCache": "清除缓存",
+    "remoteActionClearMetadataAndCache": "清除元信息和缓存",
+    "remoteFolderActionClearMetadata": "清除目录元信息",
+    "remoteFolderActionClearCache": "清除目录缓存",
+    "remoteDialogClearMetadataTitle": "清除远程元信息？",
+    "remoteDialogClearMetadataMessage": "这会清除此连接已保存的首帧和预览封面元信息。",
+    "remoteDialogClearMetadataAndCacheTitle": "清除元信息和缓存？",
+    "remoteFeedbackMetadataCleared": "元信息已清除",
+    "remoteFeedbackNoMetadataToClear": "没有可清除的元信息",
+    "remoteFeedbackMetadataAndCacheCleared": "元信息和缓存已清除",
+    "remoteFeedbackFailedClearMetadataAndCache": "清除元信息和缓存失败",
+    "remoteFolderFeedbackMetadataCleared": "目录元信息已清除",
+    "remoteFolderFeedbackNoMetadataToClear": "没有可清除的目录元信息",
+    "remoteFolderFeedbackMetadataAndCacheCleared": "目录元信息和缓存已清除",
+    "remoteFolderFeedbackFailedClearMetadataAndCache": "清除目录元信息和缓存失败",
+    "remoteManagerPageTitle": "远程媒体管理",
+    "remoteAddTooltip": "添加",
+    "remoteEmptyMessage": "还没有远程连接，点击右上角添加",
+    "remoteCacheLabel": "缓存",
+    "remoteBrowseManage": "浏览与管理",
+    "remoteSelectFolderForAlbums": "选择文件夹加入相册",
+    "remoteAlbumListTitle": "远程相册列表（{count}）",
+    "@remoteAlbumListTitle": {
+        "placeholders": {
+            "count": {
+                "type": "int",
+                "format": "decimalPattern"
+            }
+        }
+    },
+    "remoteConnectionFolderActions": "连接 -> 目录 -> 操作",
+    "remoteNoPinnedFolder": "暂无已加入目录",
+    "remoteMoreConnectionActions": "连接更多操作",
+    "remoteEditAction": "编辑",
+    "remoteTestConnection": "测试连接",
+    "remoteDeleteAction": "删除",
+    "remoteWebdavAddress": "WebDAV 地址",
+    "remoteFtpHost": "FTP 主机",
+    "remoteSftpHost": "SFTP 主机",
+    "remoteSmbHost": "SMB 主机",
+    "remoteDeleteServerTitle": "删除远程连接？",
+    "remoteDeleteServerMessage": "将移除此连接及其固定目录。",
+    "remoteCurrentCacheSize": "当前缓存大小：{size}",
+    "@remoteCurrentCacheSize": {
+        "placeholders": {
+            "size": {
+                "type": "String"
+            }
+        }
+    },
+    "remoteDialogClearCacheTitle": "清理远程缓存？",
+    "remoteFeedbackCacheCleared": "缓存已清理",
+    "remoteFeedbackFailedClearCache": "清理缓存失败",
+    "remoteTapRefreshForCacheSize": "点击刷新后再检查缓存大小",
+    "remoteOpenFolder": "打开目录",
+    "remoteRefreshCacheSize": "刷新缓存大小",
+    "remoteRemoveFromAlbums": "从相册移除",
+    "remoteAutoClearFolderCache": "自动清理目录缓存",
+    "remoteFolderFeedbackCacheCleared": "目录缓存已清理",
+    "remoteFolderFeedbackFailedClearCache": "目录缓存清理失败",
+    "remoteFolderFeedbackRemovedAndCacheCleared": "已移除并清理缓存",
+    "remoteFolderFeedbackRemoved": "已从相册移除",
+    "remoteAddServerTitle": "新增远程连接",
+    "remoteEditServerTitle": "编辑远程连接",
+    "remoteDisplayName": "显示名称",
+    "remoteProtocolLabel": "协议",
+    "remoteWebdavUrl": "WebDAV 地址",
+    "remoteHostLabel": "主机",
+    "remotePortLabel": "端口",
+    "remoteBasePath": "基础路径",
+    "remoteUsername": "用户名",
+    "remotePassword": "密码",
+    "remoteAnonymousLogin": "匿名登录",
+    "remotePassiveMode": "被动模式",
+    "remoteSmbDomain": "SMB 域",
+    "remoteSftpPrivateKey": "SFTP 私钥",
+    "remoteSftpPassphrase": "SFTP 私钥口令",
+    "remoteSftpAdvancedConfig": "SFTP 高级配置（JSON）",
+    "remoteValidationDisplayNameRequired": "显示名称不能为空",
+    "remoteValidationWebdavUrl": "请输入有效的 WebDAV 地址",
+    "remoteValidationHostRequired": "主机不能为空",
+    "remoteValidationPortRange": "端口必须在 1 到 65535 之间",
+    "remoteValidationSftpUsernameRequired": "SFTP 用户名不能为空",
+    "remoteValidationSftpAdvancedJson": "SFTP 高级配置必须是有效 JSON",
+    "remoteAlbumsTitle": "远程相册列表",
+    "remoteConnectionFolder": "连接 -> 文件夹",
+    "remoteFoldersCount": "{count, plural, =1{1 个文件夹} other{{count} 个文件夹}}",
+    "@remoteFoldersCount": {
+        "placeholders": {
+            "count": {
+                "type": "int",
+                "format": "decimalPattern"
+            }
+        }
+    }
 }
