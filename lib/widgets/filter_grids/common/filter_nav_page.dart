@@ -278,6 +278,9 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
           actualPath: cachedFile?.path,
         );
         entries.add(entry);
+        if (cachedFile != null && (entry.width <= 1 || entry.height <= 1)) {
+          unawaited(remoteMediaService.bindExistingCacheFileForEntry(entry, trigger: 'collection_inject_bind_existing'));
+        }
         if (entry.sizeBytes == null || entry.dateModifiedMillis == null) {
           unawaited(remoteMediaService.ensureEntryMetadata(entry, trigger: 'collection_inject'));
         }

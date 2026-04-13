@@ -1189,6 +1189,11 @@ class RemoteMediaService {
 
     final fileUri = Uri.file(file.path).toString();
     if (entry.uri == fileUri && entry.path == file.path) {
+      await _hydrateRemotePreviewCoverPath(fileUri, ref.$1, ref.$2, entry: entry);
+      final visualChanged = await _refreshEntryMetadataFromLocalFile(entry, fileUri);
+      if (visualChanged) {
+        entry.visualChangeNotifier.notify();
+      }
       return file;
     }
 
@@ -1197,8 +1202,10 @@ class RemoteMediaService {
     entry.sizeBytes = await file.length();
     _virtualRemoteRefs[fileUri] = ref;
     await _hydrateRemotePreviewCoverPath(fileUri, ref.$1, ref.$2, entry: entry);
-    await _refreshEntryMetadataFromLocalFile(entry, fileUri);
-    entry.visualChangeNotifier.notify();
+    final visualChanged = await _refreshEntryMetadataFromLocalFile(entry, fileUri);
+    if (visualChanged) {
+      entry.visualChangeNotifier.notify();
+    }
     await remoteMediaLogService.log(
       'auto_download',
       'entry switched to existing cached file',
@@ -1782,7 +1789,14 @@ class RemoteMediaService {
     }
   }
 
-  Future<void> _refreshEntryMetadataFromLocalFile(AvesEntry entry, String fileUri) async {
+  Future<bool> _refreshEntryMetadataFromLocalFile(AvesEntry entry, String fileUri) async {
+    final previousWidth = entry.width;
+    final previousHeight = entry.height;
+    final previousRotation = entry.sourceRotationDegrees;
+    final previousDuration = entry.durationMillis;
+    final previousDateAddedSecs = entry.dateAddedSecs;
+    final previousDateModifiedMillis = entry.dateModifiedMillis;
+    final previousSourceDateTakenMillis = entry.sourceDateTakenMillis;
     try {
       final fetched = await mediaFetchService.getEntry(fileUri, entry.sourceMimeType, allowUnsized: true);
       if (fetched != null) {
@@ -1802,6 +1816,17 @@ class RemoteMediaService {
       if (entry.width <= 1 || entry.height <= 1) {
         await entry.catalog(background: false, force: true, persist: false);
       }
+      final visualChanged =
+          previousWidth != entry.width || previousHeight != entry.height || previousRotation != entry.sourceRotationDegrees;
+      final metadataChanged =
+          previousDuration != entry.durationMillis ||
+          previousDateAddedSecs != entry.dateAddedSecs ||
+          previousDateModifiedMillis != entry.dateModifiedMillis ||
+          previousSourceDateTakenMillis != entry.sourceDateTakenMillis;
+      if (metadataChanged) {
+        entry.metadataChangeNotifier.notify();
+      }
+      return visualChanged;
     } catch (error, stack) {
       await remoteMediaLogService.log(
         'lazy_load',
@@ -1812,6 +1837,7 @@ class RemoteMediaService {
         },
       );
       await reportService.recordError(error, stack);
+      return false;
     }
   }
 
