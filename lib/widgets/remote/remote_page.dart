@@ -31,8 +31,6 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
   final Set<String> _loadingCacheBytes = {};
   final Set<String> _loadingPinnedFolderCacheBytes = {};
 
-  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
-
   @override
   void initState() {
     super.initState();
@@ -44,12 +42,12 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
   Widget build(BuildContext context) {
     return AvesScaffold(
       appBar: AppBar(
-        title: Text(_tr(context, 'Remote Media Manager', '远程媒体管理')),
+        title: Text(context.l10n.remoteManagerPageTitle),
         actions: [
           IconButton(
             onPressed: _busy ? null : _showEditor,
             icon: const Icon(AIcons.add),
-            tooltip: _tr(context, 'Add', '添加'),
+            tooltip: context.l10n.remoteAddTooltip,
           ),
         ],
       ),
@@ -60,7 +58,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
             if (servers.isEmpty) {
               return EmptyContent(
                 icon: AIcons.storageMain,
-                text: _tr(context, 'No remote server yet, tap + to add one', '还没有远程连接，点击右上角添加'),
+                text: context.l10n.remoteEmptyMessage,
               );
             }
             return ListView.builder(
@@ -74,12 +72,12 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
                 return ExpansionTile(
                   leading: const Icon(AIcons.storageMain),
                   title: Text(server.name),
-                  subtitle: Text('${_subtitle(context, server)}\n${_tr(context, 'Cache', '缓存')}: $cacheText'),
+                  subtitle: Text('${_subtitle(context, server)}\n${context.l10n.remoteCacheLabel}: $cacheText'),
                   childrenPadding: const EdgeInsets.only(bottom: 8),
                   children: [
                     ListTile(
                       leading: const Icon(AIcons.folder),
-                      title: Text(_tr(context, 'Browse / Manage', '浏览与管理')),
+                      title: Text(context.l10n.remoteBrowseManage),
                       onTap: () {
                         Navigator.maybeOf(context)?.push(
                           MaterialPageRoute(
@@ -91,31 +89,33 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
                     ),
                     ListTile(
                       leading: const Icon(AIcons.pin),
-                      title: Text(_tr(context, 'Select folder for albums', '选择文件夹加入相册')),
+                      title: Text(context.l10n.remoteSelectFolderForAlbums),
                       onTap: () => _onServerAction(server, 'select_folder'),
                     ),
                     ListTile(
                       leading: const Icon(AIcons.image),
-                      title: Text(_tr(context, 'Remote album list (${0})', '远程相册列表（${0}）').replaceFirst('{0}', '${pinnedFolders.length}')),
-                      subtitle: Text(_tr(context, 'Connection -> Folder -> Actions', '连接 -> 目录 -> 操作')),
+                      title: Text(context.l10n.remoteAlbumListTitle(pinnedFolders.length)),
+                      subtitle: Text(context.l10n.remoteConnectionFolderActions),
                     ),
                     if (pinnedFolders.isEmpty)
                       ListTile(
                         dense: true,
                         leading: const SizedBox(width: 20),
-                        title: Text(_tr(context, 'No pinned folder', '暂无已加入目录')),
+                        title: Text(context.l10n.remoteNoPinnedFolder),
                       ),
                     ...pinnedFolders.map((folder) => _buildPinnedFolderTile(server, folder)),
                     ListTile(
                       leading: const Icon(AIcons.more),
-                      title: Text(_tr(context, 'More connection actions', '连接更多操作')),
+                      title: Text(context.l10n.remoteMoreConnectionActions),
                       trailing: PopupMenuButton<String>(
                         onSelected: (action) => _onServerAction(server, action),
                         itemBuilder: (context) => [
-                          PopupMenuItem(value: 'edit', child: Text(_tr(context, 'Edit', '编辑'))),
-                          PopupMenuItem(value: 'test', child: Text(_tr(context, 'Test Connection', '测试连接'))),
-                          PopupMenuItem(value: 'clear_cache', child: Text(_tr(context, 'Clear Cache', '清理缓存'))),
-                          PopupMenuItem(value: 'delete', child: Text(_tr(context, 'Delete', '删除'))),
+                          PopupMenuItem(value: 'edit', child: Text(context.l10n.remoteEditAction)),
+                          PopupMenuItem(value: 'test', child: Text(context.l10n.remoteTestConnection)),
+                          PopupMenuItem(value: 'clear_metadata', child: Text(context.l10n.remoteActionClearMetadata)),
+                          PopupMenuItem(value: 'clear_cache', child: Text(context.l10n.remoteActionClearCache)),
+                          PopupMenuItem(value: 'clear_all_cache', child: Text(context.l10n.remoteActionClearMetadataAndCache)),
+                          PopupMenuItem(value: 'delete', child: Text(context.l10n.remoteDeleteAction)),
                         ],
                       ),
                     ),
@@ -132,13 +132,13 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
   String _subtitle(BuildContext context, RemoteServer server) {
     switch (server.protocol) {
       case RemoteProtocol.webdav:
-        return '${_tr(context, 'WebDAV address', 'WebDAV 地址')}: ${server.webdavUrl ?? ''}';
+        return '${context.l10n.remoteWebdavAddress}: ${server.webdavUrl ?? ''}';
       case RemoteProtocol.ftp:
-        return '${_tr(context, 'FTP host', 'FTP 主机')}: ${server.host ?? ''}${server.port != null ? ':${server.port}' : ''}';
+        return '${context.l10n.remoteFtpHost}: ${server.host ?? ''}${server.port != null ? ':${server.port}' : ''}';
       case RemoteProtocol.sftp:
-        return '${_tr(context, 'SFTP host', 'SFTP 主机')}: ${server.host ?? ''}${server.port != null ? ':${server.port}' : ''}';
+        return '${context.l10n.remoteSftpHost}: ${server.host ?? ''}${server.port != null ? ':${server.port}' : ''}';
       case RemoteProtocol.smb:
-        return '${_tr(context, 'SMB host', 'SMB 主机')}: ${server.host ?? ''}${server.port != null ? ':${server.port}' : ''}';
+        return '${context.l10n.remoteSmbHost}: ${server.host ?? ''}${server.port != null ? ':${server.port}' : ''}';
     }
   }
 
@@ -166,8 +166,8 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
         final ok = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: Text(_tr(context, 'Delete remote server?', '删除远程连接？')),
-            content: Text(_tr(context, 'This will remove the server and pinned folders.', '将移除此连接及其固定目录。')),
+            title: Text(context.l10n.remoteDeleteServerTitle),
+            content: Text(context.l10n.remoteDeleteServerMessage),
             actions: [
               TextButton(onPressed: () => Navigator.maybeOf(context)?.pop(false), child: Text(MaterialLocalizations.of(context).cancelButtonLabel)),
               TextButton(onPressed: () => Navigator.maybeOf(context)?.pop(true), child: Text(MaterialLocalizations.of(context).okButtonLabel)),
@@ -185,14 +185,66 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
             setState(() {});
           }
         }
+      case 'clear_metadata':
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(context.l10n.remoteDialogClearMetadataTitle),
+            content: Text(context.l10n.remoteDialogClearMetadataMessage),
+            actions: [
+              TextButton(onPressed: () => Navigator.maybeOf(context)?.pop(false), child: Text(MaterialLocalizations.of(context).cancelButtonLabel)),
+              TextButton(onPressed: () => Navigator.maybeOf(context)?.pop(true), child: Text(MaterialLocalizations.of(context).okButtonLabel)),
+            ],
+          ),
+        );
+        if (ok == true) {
+          final deleted = await remoteMediaService.clearConnectionMetadata(server.id);
+          if (mounted) {
+            showFeedback(
+              context,
+              FeedbackType.info,
+              deleted > 0 ? context.l10n.remoteFeedbackMetadataCleared : context.l10n.remoteFeedbackNoMetadataToClear,
+            );
+            setState(() {});
+          }
+        }
+      case 'clear_all_cache':
+        final bytes = await remoteMediaService.getConnectionCacheBytes(server.id);
+        final hint = formatFileSize(context.locale, bytes, round: 1);
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(context.l10n.remoteDialogClearMetadataAndCacheTitle),
+            content: Text(context.l10n.remoteCurrentCacheSize(hint)),
+            actions: [
+              TextButton(onPressed: () => Navigator.maybeOf(context)?.pop(false), child: Text(MaterialLocalizations.of(context).cancelButtonLabel)),
+              TextButton(onPressed: () => Navigator.maybeOf(context)?.pop(true), child: Text(MaterialLocalizations.of(context).okButtonLabel)),
+            ],
+          ),
+        );
+        if (ok == true) {
+          final cleared = await remoteMediaService.clearConnectionAllCache(server.id);
+          if (cleared) {
+            _cacheBytesByServer[server.id] = 0;
+            _setPinnedFolderCacheBytesForServer(server.id, 0);
+          }
+          if (mounted) {
+            showFeedback(
+              context,
+              cleared ? FeedbackType.info : FeedbackType.warn,
+              cleared ? context.l10n.remoteFeedbackMetadataAndCacheCleared : context.l10n.remoteFeedbackFailedClearMetadataAndCache,
+            );
+            setState(() {});
+          }
+        }
       case 'clear_cache':
         final bytes = await remoteMediaService.getConnectionCacheBytes(server.id);
         final hint = formatFileSize(context.locale, bytes, round: 1);
         final ok = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: Text(_tr(context, 'Clear remote cache?', '清理远程缓存？')),
-            content: Text(_tr(context, 'Current cache size: $hint', '当前缓存大小：$hint')),
+            title: Text(context.l10n.remoteDialogClearCacheTitle),
+            content: Text(context.l10n.remoteCurrentCacheSize(hint)),
             actions: [
               TextButton(onPressed: () => Navigator.maybeOf(context)?.pop(false), child: Text(MaterialLocalizations.of(context).cancelButtonLabel)),
               TextButton(onPressed: () => Navigator.maybeOf(context)?.pop(true), child: Text(MaterialLocalizations.of(context).okButtonLabel)),
@@ -209,7 +261,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
             showFeedback(
               context,
               cleared ? FeedbackType.info : FeedbackType.warn,
-              cleared ? _tr(context, 'Cache cleared', '缓存已清理') : _tr(context, 'Failed to clear cache', '清理缓存失败'),
+              cleared ? context.l10n.remoteFeedbackCacheCleared : context.l10n.remoteFeedbackFailedClearCache,
             );
             setState(() {});
           }
@@ -226,24 +278,26 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
   Widget _buildPinnedFolderTile(RemoteServer server, RemotePinnedFolder folder) {
     final key = '${server.id}|${folder.path}';
     final cacheBytes = _cacheBytesByPinnedFolder[key];
-    final cacheText = cacheBytes == null ? _tr(context, 'Tap refresh to check cache size', '点击刷新后再检查缓存大小') : formatFileSize(context.locale, cacheBytes, round: 1);
+    final cacheText = cacheBytes == null ? context.l10n.remoteTapRefreshForCacheSize : formatFileSize(context.locale, cacheBytes, round: 1);
     return Padding(
       padding: const EdgeInsetsDirectional.only(start: 20),
       child: ListTile(
         dense: true,
         leading: const Icon(AIcons.folder),
         title: Text(_leafName(folder.path)),
-        subtitle: Text('${folder.path}\n${_tr(context, 'Cache', '缓存')}: $cacheText'),
+        subtitle: Text('${folder.path}\n${context.l10n.remoteCacheLabel}: $cacheText'),
         isThreeLine: true,
         onTap: () => _onPinnedFolderAction(server, folder, 'open'),
         onLongPress: () => _showPinnedFolderActionSheet(server, folder),
         trailing: PopupMenuButton<String>(
           onSelected: (action) => _onPinnedFolderAction(server, folder, action),
           itemBuilder: (context) => [
-            PopupMenuItem(value: 'open', child: Text(_tr(context, 'Open folder', '打开目录'))),
-            PopupMenuItem(value: 'refresh_cache', child: Text(_tr(context, 'Refresh cache size', '刷新缓存大小'))),
-            PopupMenuItem(value: 'clear_cache', child: Text(_tr(context, 'Clear folder cache', '清理目录缓存'))),
-            PopupMenuItem(value: 'remove', child: Text(_tr(context, 'Remove from albums', '从相册移除'))),
+            PopupMenuItem(value: 'open', child: Text(context.l10n.remoteOpenFolder)),
+            PopupMenuItem(value: 'refresh_cache', child: Text(context.l10n.remoteRefreshCacheSize)),
+            PopupMenuItem(value: 'clear_metadata', child: Text(context.l10n.remoteFolderActionClearMetadata)),
+            PopupMenuItem(value: 'clear_cache', child: Text(context.l10n.remoteFolderActionClearCache)),
+            PopupMenuItem(value: 'clear_all_cache', child: Text(context.l10n.remoteActionClearMetadataAndCache)),
+            PopupMenuItem(value: 'remove', child: Text(context.l10n.remoteRemoveFromAlbums)),
           ],
         ),
       ),
@@ -259,23 +313,33 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
           children: [
             ListTile(
               leading: const Icon(AIcons.folder),
-              title: Text(_tr(context, 'Open folder', '打开目录')),
+              title: Text(context.l10n.remoteOpenFolder),
               onTap: () => Navigator.maybeOf(sheetContext)?.pop('open'),
             ),
             ListTile(
               leading: const Icon(AIcons.refresh),
-              title: Text(_tr(context, 'Refresh cache size', '刷新缓存大小')),
+              title: Text(context.l10n.remoteRefreshCacheSize),
               onTap: () => Navigator.maybeOf(sheetContext)?.pop('refresh_cache'),
             ),
             ListTile(
+              leading: const Icon(AIcons.info),
+              title: Text(context.l10n.remoteFolderActionClearMetadata),
+              onTap: () => Navigator.maybeOf(sheetContext)?.pop('clear_metadata'),
+            ),
+            ListTile(
               leading: const Icon(AIcons.clear),
-              title: Text(_tr(context, 'Clear folder cache', '清理目录缓存')),
+              title: Text(context.l10n.remoteFolderActionClearCache),
               onTap: () => Navigator.maybeOf(sheetContext)?.pop('clear_cache'),
             ),
             ListTile(
+              leading: const Icon(AIcons.clear),
+              title: Text(context.l10n.remoteActionClearMetadataAndCache),
+              onTap: () => Navigator.maybeOf(sheetContext)?.pop('clear_all_cache'),
+            ),
+            ListTile(
               leading: const Icon(AIcons.unpin),
-              title: Text(_tr(context, 'Remove from albums', '从相册移除')),
-              subtitle: Text(_tr(context, 'Auto clear folder cache', '自动清理目录缓存')),
+              title: Text(context.l10n.remoteRemoveFromAlbums),
+              subtitle: Text(context.l10n.remoteAutoClearFolderCache),
               onTap: () => Navigator.maybeOf(sheetContext)?.pop('remove'),
             ),
           ],
@@ -302,6 +366,30 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
       case 'refresh_cache':
         await _refreshPinnedFolderCacheBytes(server: server, folderPath: folder.path, force: true);
         if (mounted) setState(() {});
+      case 'clear_metadata':
+        final deleted = await remoteMediaService.clearPinnedFolderMetadata(server: server, folderPath: folder.path);
+        if (mounted) {
+          showFeedback(
+            context,
+            FeedbackType.info,
+            deleted > 0 ? context.l10n.remoteFolderFeedbackMetadataCleared : context.l10n.remoteFolderFeedbackNoMetadataToClear,
+          );
+          setState(() {});
+        }
+      case 'clear_all_cache':
+        final cleared = await remoteMediaService.clearPinnedFolderAllCache(server: server, folderPath: folder.path);
+        if (cleared) {
+          _cacheBytesByPinnedFolder['${server.id}|${folder.path}'] = 0;
+          _ensureCacheBytes(server.id, force: true);
+        }
+        if (mounted) {
+          showFeedback(
+            context,
+            cleared ? FeedbackType.info : FeedbackType.warn,
+            cleared ? context.l10n.remoteFolderFeedbackMetadataAndCacheCleared : context.l10n.remoteFolderFeedbackFailedClearMetadataAndCache,
+          );
+          setState(() {});
+        }
       case 'clear_cache':
         final cleared = await remoteMediaService.clearPinnedFolderCache(server: server, folderPath: folder.path);
         if (cleared) {
@@ -312,7 +400,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
           showFeedback(
             context,
             cleared ? FeedbackType.info : FeedbackType.warn,
-            cleared ? _tr(context, 'Folder cache cleared', '目录缓存已清理') : _tr(context, 'Failed to clear folder cache', '目录缓存清理失败'),
+            cleared ? context.l10n.remoteFolderFeedbackCacheCleared : context.l10n.remoteFolderFeedbackFailedClearCache,
           );
           setState(() {});
         }
@@ -325,7 +413,7 @@ class _RemotePageState extends State<RemotePage> with FeedbackMixin {
           showFeedback(
             context,
             FeedbackType.info,
-            cleared ? _tr(context, 'Removed and cache cleared', '已移除并清理缓存') : _tr(context, 'Removed from albums', '已从相册移除'),
+            cleared ? context.l10n.remoteFolderFeedbackRemovedAndCacheCleared : context.l10n.remoteFolderFeedbackRemoved,
           );
           setState(() {});
         }
@@ -427,8 +515,6 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
   bool _ftpPassive = true;
   String? _validationError;
 
-  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
-
   @override
   void initState() {
     super.initState();
@@ -469,7 +555,7 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
   Widget build(BuildContext context) {
     final l10n = MaterialLocalizations.of(context);
     return AlertDialog(
-      title: Text(widget.initial == null ? _tr(context, 'Add Remote Server', '新增远程连接') : _tr(context, 'Edit Remote Server', '编辑远程连接')),
+      title: Text(widget.initial == null ? context.l10n.remoteAddServerTitle : context.l10n.remoteEditServerTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -483,12 +569,12 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
             ],
             TextField(
               controller: _nameController,
-              decoration: InputDecoration(labelText: _tr(context, 'Display name', '显示名称')),
+              decoration: InputDecoration(labelText: context.l10n.remoteDisplayName),
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<RemoteProtocol>(
               initialValue: _protocol,
-              decoration: InputDecoration(labelText: _tr(context, 'Protocol', '协议')),
+              decoration: InputDecoration(labelText: context.l10n.remoteProtocolLabel),
               items: RemoteProtocol.values
                   .map(
                     (v) => DropdownMenuItem(
@@ -505,47 +591,47 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
             if (_protocol == RemoteProtocol.webdav) ...[
               TextField(
                 controller: _webdavUrlController,
-                decoration: InputDecoration(labelText: _tr(context, 'WebDAV URL', 'WebDAV 地址')),
+                decoration: InputDecoration(labelText: context.l10n.remoteWebdavUrl),
               ),
               const SizedBox(height: 8),
             ] else ...[
               TextField(
                 controller: _hostController,
-                decoration: InputDecoration(labelText: _tr(context, 'Host', '主机')),
+                decoration: InputDecoration(labelText: context.l10n.remoteHostLabel),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: _portController,
-                decoration: InputDecoration(labelText: _tr(context, 'Port', '端口')),
+                decoration: InputDecoration(labelText: context.l10n.remotePortLabel),
                 keyboardType: TextInputType.number,
               ),
               const SizedBox(height: 8),
             ],
             TextField(
               controller: _basePathController,
-              decoration: InputDecoration(labelText: _tr(context, 'Base path', '基础路径')),
+              decoration: InputDecoration(labelText: context.l10n.remoteBasePath),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _usernameController,
-              decoration: InputDecoration(labelText: _tr(context, 'Username', '用户名')),
+              decoration: InputDecoration(labelText: context.l10n.remoteUsername),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _passwordController,
               obscureText: true,
-              decoration: InputDecoration(labelText: _tr(context, 'Password', '密码')),
+              decoration: InputDecoration(labelText: context.l10n.remotePassword),
             ),
             if (_protocol == RemoteProtocol.ftp) ...[
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: Text(_tr(context, 'Anonymous login', '匿名登录')),
+                title: Text(context.l10n.remoteAnonymousLogin),
                 value: _ftpAnonymous,
                 onChanged: (v) => setState(() => _ftpAnonymous = v),
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: Text(_tr(context, 'Passive mode', '被动模式')),
+                title: Text(context.l10n.remotePassiveMode),
                 value: _ftpPassive,
                 onChanged: (v) => setState(() => _ftpPassive = v),
               ),
@@ -553,25 +639,25 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
             if (_protocol == RemoteProtocol.smb) ...[
               TextField(
                 controller: _smbDomainController,
-                decoration: InputDecoration(labelText: _tr(context, 'SMB domain', 'SMB 域')),
+                decoration: InputDecoration(labelText: context.l10n.remoteSmbDomain),
               ),
             ],
             if (_protocol == RemoteProtocol.sftp) ...[
               TextField(
                 controller: _sftpPrivateKeyController,
-                decoration: InputDecoration(labelText: _tr(context, 'SFTP private key', 'SFTP 私钥')),
+                decoration: InputDecoration(labelText: context.l10n.remoteSftpPrivateKey),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: _sftpPassphraseController,
-                decoration: InputDecoration(labelText: _tr(context, 'SFTP passphrase', 'SFTP 私钥口令')),
+                decoration: InputDecoration(labelText: context.l10n.remoteSftpPassphrase),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: _sftpAdvancedController,
                 minLines: 2,
                 maxLines: 4,
-                decoration: InputDecoration(labelText: _tr(context, 'SFTP advanced config (JSON)', 'SFTP 高级配置（JSON）')),
+                decoration: InputDecoration(labelText: context.l10n.remoteSftpAdvancedConfig),
               ),
             ],
           ],
@@ -591,28 +677,28 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
     final parsedPort = int.tryParse(_portController.text.trim());
 
     if (name.isEmpty) {
-      setState(() => _validationError = _tr(context, 'Display name is required', '显示名称不能为空'));
+      setState(() => _validationError = context.l10n.remoteValidationDisplayNameRequired);
       return;
     }
     if (_protocol == RemoteProtocol.webdav) {
       final uri = Uri.tryParse(webdavUrl);
       final validScheme = uri != null && {'http', 'https'}.contains(uri.scheme.toLowerCase());
       if (webdavUrl.isEmpty || uri == null || !validScheme || uri.host.isEmpty) {
-        setState(() => _validationError = _tr(context, 'Please enter a valid WebDAV URL', '请输入有效的 WebDAV 地址'));
+        setState(() => _validationError = context.l10n.remoteValidationWebdavUrl);
         return;
       }
     } else {
       if (host.isEmpty) {
-        setState(() => _validationError = _tr(context, 'Host is required', '主机不能为空'));
+        setState(() => _validationError = context.l10n.remoteValidationHostRequired);
         return;
       }
       if (_portController.text.trim().isNotEmpty && (parsedPort == null || parsedPort < 1 || parsedPort > 65535)) {
-        setState(() => _validationError = _tr(context, 'Port must be between 1 and 65535', '端口必须在 1 到 65535 之间'));
+        setState(() => _validationError = context.l10n.remoteValidationPortRange);
         return;
       }
     }
     if (_protocol == RemoteProtocol.sftp && _usernameController.text.trim().isEmpty) {
-      setState(() => _validationError = _tr(context, 'SFTP username is required', 'SFTP 用户名不能为空'));
+      setState(() => _validationError = context.l10n.remoteValidationSftpUsernameRequired);
       return;
     }
     final sftpAdvancedText = _sftpAdvancedController.text.trim();
@@ -620,7 +706,7 @@ class _RemoteServerEditorDialogState extends State<_RemoteServerEditorDialog> {
       try {
         jsonDecode(sftpAdvancedText);
       } catch (_) {
-        setState(() => _validationError = _tr(context, 'SFTP advanced config must be valid JSON', 'SFTP 高级配置必须是有效 JSON'));
+        setState(() => _validationError = context.l10n.remoteValidationSftpAdvancedJson);
         return;
       }
     }

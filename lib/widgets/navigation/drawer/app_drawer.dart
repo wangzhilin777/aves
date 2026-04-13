@@ -95,8 +95,6 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver, Feed
   bool _profileSwitchPermissionRequested = false;
 
   CollectionLens? get currentCollection => widget.currentCollection;
-  String _tr(BuildContext context, String en, String zh) => context.locale.startsWith('zh') ? zh : en;
-
   @override
   void initState() {
     super.initState();
@@ -485,18 +483,28 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver, Feed
             children: [
               ListTile(
                 leading: const Icon(AIcons.folder),
-                title: Text(_tr(context, 'Open folder', '\u6253\u5f00\u76ee\u5f55')),
+                title: Text(context.l10n.remoteOpenFolder),
                 onTap: () => Navigator.maybeOf(sheetContext)?.pop('open'),
               ),
               ListTile(
+                leading: const Icon(AIcons.info),
+                title: Text(context.l10n.remoteFolderActionClearMetadata),
+                onTap: () => Navigator.maybeOf(sheetContext)?.pop('clear_metadata'),
+              ),
+              ListTile(
                 leading: const Icon(AIcons.clear),
-                title: Text(_tr(context, 'Clear folder cache', '\u6e05\u7406\u76ee\u5f55\u7f13\u5b58')),
+                title: Text(context.l10n.remoteFolderActionClearCache),
                 onTap: () => Navigator.maybeOf(sheetContext)?.pop('clear_cache'),
               ),
               ListTile(
+                leading: const Icon(AIcons.clear),
+                title: Text(context.l10n.remoteActionClearMetadataAndCache),
+                onTap: () => Navigator.maybeOf(sheetContext)?.pop('clear_all_cache'),
+              ),
+              ListTile(
                 leading: const Icon(AIcons.unpin),
-                title: Text(_tr(context, 'Remove from albums', '\u4ece\u76f8\u518c\u79fb\u9664')),
-                subtitle: Text(_tr(context, 'Auto clear folder cache', '\u81ea\u52a8\u6e05\u7406\u76ee\u5f55\u7f13\u5b58')),
+                title: Text(context.l10n.remoteRemoveFromAlbums),
+                subtitle: Text(context.l10n.remoteAutoClearFolderCache),
                 onTap: () => Navigator.maybeOf(sheetContext)?.pop('remove'),
               ),
             ],
@@ -506,13 +514,32 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver, Feed
       switch (action) {
         case 'open':
           await goToPinned(folder);
+
+        case 'clear_metadata':
+          final deleted = await remoteMediaService.clearPinnedFolderMetadata(server: server, folderPath: folder.path);
+          if (!mounted) return;
+          showFeedback(
+            context,
+            FeedbackType.info,
+            deleted > 0 ? context.l10n.remoteFolderFeedbackMetadataCleared : context.l10n.remoteFolderFeedbackNoMetadataToClear,
+          );
+          setState(() {});
+        case 'clear_all_cache':
+          final cleared = await remoteMediaService.clearPinnedFolderAllCache(server: server, folderPath: folder.path);
+          if (!mounted) return;
+          showFeedback(
+            context,
+            cleared ? FeedbackType.info : FeedbackType.warn,
+            cleared ? context.l10n.remoteFolderFeedbackMetadataAndCacheCleared : context.l10n.remoteFolderFeedbackFailedClearMetadataAndCache,
+          );
+          setState(() {});
         case 'clear_cache':
           final cleared = await remoteMediaService.clearPinnedFolderCache(server: server, folderPath: folder.path);
           if (!mounted) return;
           showFeedback(
             context,
             cleared ? FeedbackType.info : FeedbackType.warn,
-            cleared ? _tr(context, 'Folder cache cleared', '\u76ee\u5f55\u7f13\u5b58\u5df2\u6e05\u7406') : _tr(context, 'Failed to clear folder cache', '\u76ee\u5f55\u7f13\u5b58\u6e05\u7406\u5931\u8d25'),
+            cleared ? context.l10n.remoteFolderFeedbackCacheCleared : context.l10n.remoteFolderFeedbackFailedClearCache,
           );
           setState(() {});
         case 'remove':
@@ -522,7 +549,64 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver, Feed
           showFeedback(
             context,
             FeedbackType.info,
-            cleared ? _tr(context, 'Removed and cache cleared', '\u5df2\u79fb\u9664\u5e76\u6e05\u7406\u7f13\u5b58') : _tr(context, 'Removed from albums', '\u5df2\u4ece\u76f8\u518c\u79fb\u9664'),
+            cleared ? context.l10n.remoteFolderFeedbackRemovedAndCacheCleared : context.l10n.remoteFolderFeedbackRemoved,
+          );
+          setState(() {});
+      }
+    }
+
+    Future<void> manageServer(RemoteServer server) async {
+      final action = await showModalBottomSheet<String>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(AIcons.info),
+                title: Text(context.l10n.remoteActionClearMetadata),
+                onTap: () => Navigator.maybeOf(sheetContext)?.pop('clear_metadata'),
+              ),
+              ListTile(
+                leading: const Icon(AIcons.clear),
+                title: Text(context.l10n.remoteActionClearCache),
+                onTap: () => Navigator.maybeOf(sheetContext)?.pop('clear_cache'),
+              ),
+              ListTile(
+                leading: const Icon(AIcons.clear),
+                title: Text(context.l10n.remoteActionClearMetadataAndCache),
+                onTap: () => Navigator.maybeOf(sheetContext)?.pop('clear_all_cache'),
+              ),
+            ],
+          ),
+        ),
+      );
+      switch (action) {
+        case 'clear_metadata':
+          final deleted = await remoteMediaService.clearConnectionMetadata(server.id);
+          if (!mounted) return;
+          showFeedback(
+            context,
+            FeedbackType.info,
+            deleted > 0 ? context.l10n.remoteFeedbackMetadataCleared : context.l10n.remoteFeedbackNoMetadataToClear,
+          );
+          setState(() {});
+        case 'clear_all_cache':
+          final cleared = await remoteMediaService.clearConnectionAllCache(server.id);
+          if (!mounted) return;
+          showFeedback(
+            context,
+            cleared ? FeedbackType.info : FeedbackType.warn,
+            cleared ? context.l10n.remoteFeedbackMetadataAndCacheCleared : context.l10n.remoteFeedbackFailedClearMetadataAndCache,
+          );
+          setState(() {});
+        case 'clear_cache':
+          final cleared = await remoteMediaService.clearConnectionCache(server.id);
+          if (!mounted) return;
+          showFeedback(
+            context,
+            cleared ? FeedbackType.info : FeedbackType.warn,
+            cleared ? context.l10n.remoteFeedbackCacheCleared : context.l10n.remoteFeedbackFailedClearCache,
           );
           setState(() {});
       }
@@ -542,27 +626,31 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver, Feed
       const Divider(),
       ExpansionTile(
         leading: const Icon(AIcons.storageMain),
-        title: Text(_tr(context, 'Remote Albums', '\u8fdc\u7a0b\u76f8\u518c\u5217\u8868')),
-        subtitle: Text(_tr(context, 'Connection -> Folder', '\u8fde\u63a5 -> \u6587\u4ef6\u5939')),
+        title: Text(context.l10n.remoteAlbumsTitle),
+        subtitle: Text(context.l10n.remoteConnectionFolder),
         children: grouped.entries.map((entry) {
           final server = entry.key;
           final folders = entry.value;
-          return ExpansionTile(
-            leading: const Icon(AIcons.storageMain),
-            title: Text(server.name),
-            subtitle: Text(_tr(context, '${folders.length} folders', '${folders.length} \u4e2a\u6587\u4ef6\u5939')),
-            children: folders.map((folder) {
-              final pathParts = folder.path.split('/').where((v) => v.isNotEmpty).toList();
-              final leafName = pathParts.isEmpty ? '/' : pathParts.last;
-              return ListTile(
-                dense: true,
-                leading: const Icon(AIcons.folder),
-                title: Text(leafName),
-                subtitle: Text(folder.path),
-                onTap: () => goToPinned(folder),
-                onLongPress: () => managePinned(server, folder),
-              );
-            }).toList(),
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onLongPress: () => manageServer(server),
+            child: ExpansionTile(
+              leading: const Icon(AIcons.storageMain),
+              title: Text(server.name),
+              subtitle: Text(context.l10n.remoteFoldersCount(folders.length)),
+              children: folders.map((folder) {
+                final pathParts = folder.path.split('/').where((v) => v.isNotEmpty).toList();
+                final leafName = pathParts.isEmpty ? '/' : pathParts.last;
+                return ListTile(
+                  dense: true,
+                  leading: const Icon(AIcons.folder),
+                  title: Text(leafName),
+                  subtitle: Text(folder.path),
+                  onTap: () => goToPinned(folder),
+                  onLongPress: () => managePinned(server, folder),
+                );
+              }).toList(),
+            ),
           );
         }).toList(),
       ),

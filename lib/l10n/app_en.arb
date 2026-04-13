@@ -1125,5 +1125,102 @@
   "panoramaEnableSensorControl": "Enable sensor control",
   "panoramaDisableSensorControl": "Disable sensor control",
 
+  "remoteActionClearMetadata": "Clear metadata",
+  "remoteActionClearCache": "Clear cache",
+  "remoteActionClearMetadataAndCache": "Clear metadata and cache",
+  "remoteFolderActionClearMetadata": "Clear folder metadata",
+  "remoteFolderActionClearCache": "Clear folder cache",
+  "remoteDialogClearMetadataTitle": "Clear remote metadata?",
+  "remoteDialogClearMetadataMessage": "This will remove saved first-frame / preview-cover metadata for this connection.",
+  "remoteDialogClearMetadataAndCacheTitle": "Clear metadata and cache?",
+  "remoteFeedbackMetadataCleared": "Metadata cleared",
+  "remoteFeedbackNoMetadataToClear": "No metadata to clear",
+  "remoteFeedbackMetadataAndCacheCleared": "Metadata and cache cleared",
+  "remoteFeedbackFailedClearMetadataAndCache": "Failed to clear metadata and cache",
+  "remoteFolderFeedbackMetadataCleared": "Folder metadata cleared",
+  "remoteFolderFeedbackNoMetadataToClear": "No folder metadata to clear",
+  "remoteFolderFeedbackMetadataAndCacheCleared": "Folder metadata and cache cleared",
+  "remoteFolderFeedbackFailedClearMetadataAndCache": "Failed to clear folder metadata and cache",
+  "remoteManagerPageTitle": "Remote Media Manager",
+  "remoteAddTooltip": "Add",
+  "remoteEmptyMessage": "No remote server yet, tap + to add one",
+  "remoteCacheLabel": "Cache",
+  "remoteBrowseManage": "Browse / Manage",
+  "remoteSelectFolderForAlbums": "Select folder for albums",
+  "remoteAlbumListTitle": "Remote album list ({count})",
+  "@remoteAlbumListTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "remoteConnectionFolderActions": "Connection -> Folder -> Actions",
+  "remoteNoPinnedFolder": "No pinned folder",
+  "remoteMoreConnectionActions": "More connection actions",
+  "remoteEditAction": "Edit",
+  "remoteTestConnection": "Test Connection",
+  "remoteDeleteAction": "Delete",
+  "remoteWebdavAddress": "WebDAV address",
+  "remoteFtpHost": "FTP host",
+  "remoteSftpHost": "SFTP host",
+  "remoteSmbHost": "SMB host",
+  "remoteDeleteServerTitle": "Delete remote server?",
+  "remoteDeleteServerMessage": "This will remove the server and pinned folders.",
+  "remoteCurrentCacheSize": "Current cache size: {size}",
+  "@remoteCurrentCacheSize": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "remoteDialogClearCacheTitle": "Clear remote cache?",
+  "remoteFeedbackCacheCleared": "Cache cleared",
+  "remoteFeedbackFailedClearCache": "Failed to clear cache",
+  "remoteTapRefreshForCacheSize": "Tap refresh to check cache size",
+  "remoteOpenFolder": "Open folder",
+  "remoteRefreshCacheSize": "Refresh cache size",
+  "remoteRemoveFromAlbums": "Remove from albums",
+  "remoteAutoClearFolderCache": "Auto clear folder cache",
+  "remoteFolderFeedbackCacheCleared": "Folder cache cleared",
+  "remoteFolderFeedbackFailedClearCache": "Failed to clear folder cache",
+  "remoteFolderFeedbackRemovedAndCacheCleared": "Removed and cache cleared",
+  "remoteFolderFeedbackRemoved": "Removed from albums",
+  "remoteAddServerTitle": "Add Remote Server",
+  "remoteEditServerTitle": "Edit Remote Server",
+  "remoteDisplayName": "Display name",
+  "remoteProtocolLabel": "Protocol",
+  "remoteWebdavUrl": "WebDAV URL",
+  "remoteHostLabel": "Host",
+  "remotePortLabel": "Port",
+  "remoteBasePath": "Base path",
+  "remoteUsername": "Username",
+  "remotePassword": "Password",
+  "remoteAnonymousLogin": "Anonymous login",
+  "remotePassiveMode": "Passive mode",
+  "remoteSmbDomain": "SMB domain",
+  "remoteSftpPrivateKey": "SFTP private key",
+  "remoteSftpPassphrase": "SFTP passphrase",
+  "remoteSftpAdvancedConfig": "SFTP advanced config (JSON)",
+  "remoteValidationDisplayNameRequired": "Display name is required",
+  "remoteValidationWebdavUrl": "Please enter a valid WebDAV URL",
+  "remoteValidationHostRequired": "Host is required",
+  "remoteValidationPortRange": "Port must be between 1 and 65535",
+  "remoteValidationSftpUsernameRequired": "SFTP username is required",
+  "remoteValidationSftpAdvancedJson": "SFTP advanced config must be valid JSON",
+  "remoteAlbumsTitle": "Remote Albums",
+  "remoteConnectionFolder": "Connection -> Folder",
+  "remoteFoldersCount": "{count, plural, =1{1 folder} other{{count} folders}}",
+  "@remoteFoldersCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+
   "sourceViewerPageTitle": "Source"
 }

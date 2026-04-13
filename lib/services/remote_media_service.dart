@@ -207,6 +207,7 @@ class RemoteMediaService {
   static const _ftpStreamChunkPrefetchCount = 4;
   static const _previewInitialWarmupChunkCount = 1;
   static const _viewerInitialWarmupChunkCount = 2;
+  static const _previewDynamicWarmupMaxChunkCount = 3;
   final Map<String, (RemoteServer server, RemoteBrowseNode node)> _virtualRemoteRefs = {};
   final Map<String, Future<void>> _standaloneFavouriteThumbnailWarmupInFlight = {};
   final Map<String, String> _standaloneFavouriteCoverImageFiles = {};
@@ -258,6 +259,7 @@ class RemoteMediaService {
   int _initialWarmupChunkCount({
     required RemoteProtocol protocol,
     required RemoteBrowseNode? node,
+    required int? durationMillis,
     required String trigger,
   }) {
     final normalizedTrigger = trigger.toLowerCase();
@@ -266,7 +268,11 @@ class RemoteMediaService {
       return _largeWebDavViewerBootstrapChunkCount;
     }
     if (normalizedTrigger.contains('grid_preview')) {
-      return _previewInitialWarmupChunkCount;
+      return _dynamicPreviewInitialWarmupChunkCount(
+        protocol: protocol,
+        sizeBytes: node?.sizeBytes,
+        durationMillis: durationMillis,
+      );
     }
     if (protocol == RemoteProtocol.ftp && (normalizedTrigger.contains('viewer_init') || normalizedTrigger.contains('viewer_autoplay'))) {
       return 3;
@@ -600,6 +606,65 @@ class RemoteMediaService {
       RemoteProtocol.sftp => true,
       RemoteProtocol.smb => true,
     };
+  }
+
+  int _dynamicPreviewInitialWarmupChunkCount({
+    required RemoteProtocol protocol,
+    required int? sizeBytes,
+    required int? durationMillis,
+  }) {
+    if (sizeBytes == null || sizeBytes <= 0) return _previewInitialWarmupChunkCount;
+
+    final estimatedBitrateBps =
+        durationMillis != null && durationMillis > 0 ? (sizeBytes * 8 * 1000) ~/ durationMillis : null;
+    final bySize = switch (protocol) {
+      RemoteProtocol.webdav => sizeBytes >= 768 * 1024 * 1024
+          ? 3
+          : sizeBytes >= 192 * 1024 * 1024
+          ? 2
+          : 1,
+      RemoteProtocol.ftp => sizeBytes >= 512 * 1024 * 1024
+          ? 3
+          : sizeBytes >= 160 * 1024 * 1024
+          ? 2
+          : 1,
+      RemoteProtocol.sftp => sizeBytes >= 384 * 1024 * 1024
+          ? 3
+          : sizeBytes >= 128 * 1024 * 1024
+          ? 2
+          : 1,
+      RemoteProtocol.smb => sizeBytes >= 640 * 1024 * 1024
+          ? 3
+          : sizeBytes >= 192 * 1024 * 1024
+          ? 2
+          : 1,
+    };
+    final byEstimatedBitrate = switch (protocol) {
+      RemoteProtocol.webdav => estimatedBitrateBps != null && estimatedBitrateBps >= 36 * 1000 * 1000
+          ? 3
+          : estimatedBitrateBps != null && estimatedBitrateBps >= 14 * 1000 * 1000
+          ? 2
+          : 1,
+      RemoteProtocol.ftp => estimatedBitrateBps != null && estimatedBitrateBps >= 30 * 1000 * 1000
+          ? 3
+          : estimatedBitrateBps != null && estimatedBitrateBps >= 12 * 1000 * 1000
+          ? 2
+          : 1,
+      RemoteProtocol.sftp => estimatedBitrateBps != null && estimatedBitrateBps >= 24 * 1000 * 1000
+          ? 3
+          : estimatedBitrateBps != null && estimatedBitrateBps >= 10 * 1000 * 1000
+          ? 2
+          : 1,
+      RemoteProtocol.smb => estimatedBitrateBps != null && estimatedBitrateBps >= 28 * 1000 * 1000
+          ? 3
+          : estimatedBitrateBps != null && estimatedBitrateBps >= 12 * 1000 * 1000
+          ? 2
+          : 1,
+    };
+    return max(
+      _previewInitialWarmupChunkCount,
+      min(_previewDynamicWarmupMaxChunkCount, max(bySize, byEstimatedBitrate)),
+    );
   }
 
   ImageProvider? getRemotePreviewThumbnailProvider(
@@ -1578,6 +1643,7 @@ class RemoteMediaService {
       final initialChunkCount = _initialWarmupChunkCount(
         protocol: server.protocol,
         node: node,
+        durationMillis: entry.durationMillis,
         trigger: trigger,
       );
       final chunkSize = _chunkSizeForProtocol(server.protocol);
@@ -1806,6 +1872,60 @@ class RemoteMediaService {
     return bytes;
   }
 
+  bool _isStandaloneCoverFilePath(String path) => path.contains('${Platform.pathSeparator}.standalone_cover_') && path.endsWith('.png');
+
+  bool _isRemotePreviewCoverFilePath(String path) => path.contains('${Platform.pathSeparator}.remote_preview_cover_') && path.endsWith('.png');
+
+  bool _pathIsWithinFolder(String candidatePath, String folderPath) {
+    final normalizedFolder = _normalizePath(folderPath);
+    final normalizedCandidate = _normalizePath(candidatePath);
+    return normalizedCandidate == normalizedFolder || normalizedCandidate.startsWith('$normalizedFolder/');
+  }
+
+  void _notifyStandaloneFavouriteVisuals({
+    String? serverId,
+    String? folderPath,
+  }) {
+    for (final entry in _standaloneFavouriteEntries.values) {
+      final ref = _virtualRemoteRefs[entry.uri];
+      if (ref == null) continue;
+      if (serverId != null && ref.$1.id != serverId) continue;
+      if (folderPath != null && !_pathIsWithinFolder(ref.$2.path, folderPath)) continue;
+      entry.visualChangeNotifier.notify();
+    }
+  }
+
+  Future<int> clearConnectionMetadata(String serverId) async {
+    final dir = await getConnectionCacheDirectory(serverId);
+    if (!await dir.exists()) return 0;
+
+    final deletedPaths = <String>{};
+    await for (final entity in dir.list(recursive: true, followLinks: false)) {
+      if (entity is! File) continue;
+      final path = entity.path;
+      if (!_isStandaloneCoverFilePath(path) && !_isRemotePreviewCoverFilePath(path)) continue;
+      try {
+        await entity.delete();
+        deletedPaths.add(path);
+      } catch (_) {}
+    }
+
+    if (deletedPaths.isEmpty) return 0;
+
+    _standaloneFavouriteCoverImageFiles.removeWhere((_, path) => deletedPaths.contains(path));
+    _remotePreviewCoverImageFiles.removeWhere((_, path) => deletedPaths.contains(path));
+    _notifyStandaloneFavouriteVisuals(serverId: serverId);
+    await remoteMediaLogService.log(
+      'cache',
+      'cleared remote metadata cache for server',
+      data: {
+        'serverId': serverId,
+        'deletedCount': deletedPaths.length,
+      },
+    );
+    return deletedPaths.length;
+  }
+
   Future<bool> clearConnectionCache(String serverId) async {
     final dir = await getConnectionCacheDirectory(serverId);
     if (!await dir.exists()) return true;
@@ -1822,6 +1942,11 @@ class RemoteMediaService {
       await reportService.recordError(error, stack);
       return false;
     }
+  }
+
+  Future<bool> clearConnectionAllCache(String serverId) async {
+    await clearConnectionMetadata(serverId);
+    return await clearConnectionCache(serverId);
   }
 
   Future<void> enforceAllConnectionCacheLimits({
@@ -1910,6 +2035,73 @@ class RemoteMediaService {
       await reportService.recordError(error, stack);
       return false;
     }
+  }
+
+  Future<int> clearPinnedFolderMetadata({
+    required RemoteServer server,
+    required String folderPath,
+  }) async {
+    try {
+      final mediaNodes = await _collectMediaNodesRecursively(server: server, folderPath: folderPath);
+      final files = <File>{};
+      for (final node in mediaNodes) {
+        if (node.isDirectory) continue;
+        final standaloneCover = await _getStandaloneFavouriteCoverFile(server, node, createIfMissing: false);
+        if (await standaloneCover.exists()) files.add(standaloneCover);
+
+        final remotePreviewCover = await _getRemotePreviewCoverFile(server, node, createIfMissing: false);
+        if (await remotePreviewCover.exists()) files.add(remotePreviewCover);
+      }
+
+      var deleted = 0;
+      final deletedPaths = <String>{};
+      for (final file in files) {
+        try {
+          if (await file.exists()) {
+            await file.delete();
+            deleted++;
+            deletedPaths.add(file.path);
+          }
+        } catch (_) {}
+      }
+
+      if (deletedPaths.isNotEmpty) {
+        _standaloneFavouriteCoverImageFiles.removeWhere((_, path) => deletedPaths.contains(path));
+        _remotePreviewCoverImageFiles.removeWhere((_, path) => deletedPaths.contains(path));
+        _notifyStandaloneFavouriteVisuals(serverId: server.id, folderPath: folderPath);
+      }
+
+      await remoteMediaLogService.log(
+        'cache',
+        'cleared pinned folder metadata cache',
+        data: {
+          'server': server.name,
+          'folderPath': folderPath,
+          'deletedCount': deleted,
+        },
+      );
+      return deleted;
+    } catch (error, stack) {
+      await remoteMediaLogService.log(
+        'cache',
+        'failed to clear pinned folder metadata cache',
+        data: {
+          'server': server.name,
+          'folderPath': folderPath,
+          'error': '$error',
+        },
+      );
+      await reportService.recordError(error, stack);
+      return 0;
+    }
+  }
+
+  Future<bool> clearPinnedFolderAllCache({
+    required RemoteServer server,
+    required String folderPath,
+  }) async {
+    await clearPinnedFolderMetadata(server: server, folderPath: folderPath);
+    return await clearPinnedFolderCache(server: server, folderPath: folderPath);
   }
 
   Future<RemoteConnectionTestResult> testConnection(RemoteServer server) async {

@@ -28,6 +28,7 @@ class _VideoViewState extends State<VideoView> {
   static const _remoteInitialErrorGrace = Duration(milliseconds: 1400);
   static const _chunkedRemoteProgressRevealGrace = Duration(milliseconds: 180);
   static const _ftpVisibleProgressThreshold = 160;
+  static const _detailCoverCaptureMaxPositionMillis = 1200;
   AvesEntry get entry => widget.entry;
 
   AvesVideoController get controller => widget.controller;
@@ -37,6 +38,8 @@ class _VideoViewState extends State<VideoView> {
   bool _hadPlaybackProgress = false;
   String? _lastLocalRenderDecision;
   String? _lastRemoteRenderDecision;
+  bool _detailCoverCaptureInFlight = false;
+  bool _detailCoverCaptured = false;
 
   @override
   void initState() {
@@ -54,6 +57,8 @@ class _VideoViewState extends State<VideoView> {
       _initialErrorGraceDeadline = DateTime.now().add(_remoteInitialErrorGrace);
       _chunkedProgressRevealDeadline = null;
       _hadPlaybackProgress = false;
+      _detailCoverCaptureInFlight = false;
+      _detailCoverCaptured = false;
     }
     _unregisterWidget(oldWidget);
     _registerWidget(widget);
@@ -131,6 +136,85 @@ class _VideoViewState extends State<VideoView> {
     );
   }
 
+  void _scheduleDetailCoverCaptureIfNeeded({
+    required bool hasDecodedFrame,
+    required bool hasFirstFrameRendered,
+    required bool hasStableDetailFrame,
+    required bool isRemoteManagedEntry,
+    required int currentPosition,
+  }) {
+    if (!widget.preferStableRemoteInit || !isRemoteManagedEntry || !entry.isVideo) return;
+    if (_detailCoverCaptured || _detailCoverCaptureInFlight) return;
+
+    final shouldStoreStandaloneFavourite = remoteMediaService.isStandaloneFavouriteEntry(
+      entry,
+      settings.remoteStandaloneFavouritePaths,
+    );
+    final shouldStoreRemotePreview = remoteMediaService.supportsRemotePreviewCover(entry);
+    if (!shouldStoreStandaloneFavourite && !shouldStoreRemotePreview) return;
+
+    final hasStandaloneFavouriteCover =
+        shouldStoreStandaloneFavourite &&
+        remoteMediaService.getStandaloneFavouriteThumbnailProvider(entry, extent: 256) != null;
+    final hasRemotePreviewCover =
+        shouldStoreRemotePreview &&
+        remoteMediaService.getRemotePreviewThumbnailProvider(entry, extent: 256) != null;
+    if (hasStandaloneFavouriteCover || hasRemotePreviewCover) {
+      _detailCoverCaptured = true;
+      return;
+    }
+
+    if (currentPosition > _detailCoverCaptureMaxPositionMillis) return;
+
+    final canCapture = hasStableDetailFrame || hasDecodedFrame || hasFirstFrameRendered;
+    if (!canCapture) return;
+
+    _detailCoverCaptureInFlight = true;
+    unawaited(_captureDetailCover(
+      storeStandaloneFavourite: shouldStoreStandaloneFavourite,
+      storeRemotePreview: shouldStoreRemotePreview,
+    ));
+  }
+
+  Future<void> _captureDetailCover({
+    required bool storeStandaloneFavourite,
+    required bool storeRemotePreview,
+  }) async {
+    try {
+      debugPrint(
+        'DETAIL_COVER capture attempt uri=${entry.uri} '
+        'standalone=$storeStandaloneFavourite remotePreview=$storeRemotePreview '
+        'position=${controller.currentPosition} status=${controller.status.name}',
+      );
+      final bytes = await controller.captureFrame();
+      if (bytes == null || bytes.isEmpty) {
+        debugPrint('DETAIL_COVER capture empty uri=${entry.uri}');
+        return;
+      }
+      if (storeRemotePreview) {
+        await remoteMediaService.storeRemotePreviewCapturedCover(
+          entry,
+          bytes,
+          trigger: 'viewer_detail_first_frame',
+        );
+      }
+      if (storeStandaloneFavourite) {
+        await remoteMediaService.storeStandaloneFavouriteCapturedCover(
+          entry,
+          bytes,
+          trigger: 'viewer_detail_first_frame',
+        );
+      }
+      _detailCoverCaptured = true;
+      debugPrint('DETAIL_COVER capture success uri=${entry.uri} bytes=${bytes.length}');
+    } catch (error, stack) {
+      debugPrint('DETAIL_COVER capture failed uri=${entry.uri} error=$error');
+      await reportService.recordError(error, stack);
+    } finally {
+      _detailCoverCaptureInFlight = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<VideoStatus>(
@@ -184,6 +268,13 @@ class _VideoViewState extends State<VideoView> {
                 ((isChunkedRemoteProtocol && ((isFtpProtocol && !allowFtpStableDetailRender) || (isSftpProtocol && !allowSftpStableDetailRender) || (isSmbProtocol && !allowSmbStableDetailRender))) ||
                     (isLargeWebdavDetail && !allowLargeWebdavDetailRender));
             final shouldKeepLocalPlayerHiddenUntilFrame = !isRemoteManagedEntry && !hasLocalRecoverableFrame;
+            _scheduleDetailCoverCaptureIfNeeded(
+              hasDecodedFrame: hasDecodedFrame,
+              hasFirstFrameRendered: hasFirstFrameRendered,
+              hasStableDetailFrame: hasStableDetailFrame,
+              isRemoteManagedEntry: isRemoteManagedEntry,
+              currentPosition: currentPosition,
+            );
             if (allowFtpStableDetailRender) {
               _logRenderDecision(
                 decision: 'ftp_detail_render_player_with_preview_frame',
