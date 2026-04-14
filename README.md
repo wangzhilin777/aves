@@ -50,6 +50,10 @@ Aves is a gallery and metadata explorer app. It is built for Android, with Flutt
   - focus token guard to reduce jitter/racing playback
   - extra diagnostic logs for autoplay/focus transitions
   - CollectionPage grid/mosaic preview now auto-plays both local and remote videos with single-active playback and in-tile mute/unmute toggle
+- Remote image preheat/download notes:
+  - collection/viewer image preheat count only determines how many upcoming remote images may be prepared
+  - actual remote image download is still constrained by the image auto-download size limit
+  - current visible remote thumbnails/images may still fetch metadata or bind existing cache so they can display correctly, even when automatic preheat is disabled
 
 ### 远程媒体扩展功能摘要（中文）
 
@@ -90,6 +94,10 @@ Aves is a gallery and metadata explorer app. It is built for Android, with Flutt
   - 远程收藏视频与普通远程视频的预览封面缓存链路已拆开，避免统一规则相互干扰
   - 当前聚焦到大远程视频时，如已存在预览封面缓存，不再先清空底板造成白屏
   - 远程图片/视频完整缓存下载成功，或 chunk 合并为整文件后，会回写远端修改时间，避免缓存文件时间变成当前时间并误触发目录变动判断
+- 远程图片预热/下载补充说明：
+  - 集合页/详情页里的图片预热数量，只决定会尝试提前准备多少张后续远程图片
+  - 图片是否真的自动下载，仍然受“图片自动下载大小上限”约束
+  - 当前正在显示的远程微缩图/图片，为了正常展示，仍可能补元信息或绑定已有缓存；即使关闭自动预热，也不代表当前项完全不触发准备流程
 <div align="left">
 
 ## Features
