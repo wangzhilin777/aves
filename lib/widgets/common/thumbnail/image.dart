@@ -107,8 +107,8 @@ class _ThumbnailImageState extends State<ThumbnailImage> {
   void _initProvider() {
     if (!entry.isDecodingSupported) return;
 
-    if (_requiresRemoteImagePreparation()) {
-      _scheduleRemoteImagePreparation();
+    if (_requiresRemoteImageCacheBinding()) {
+      _scheduleRemoteImageCacheBinding();
       return;
     }
 
@@ -143,33 +143,33 @@ class _ThumbnailImageState extends State<ThumbnailImage> {
     _loadNextProvider();
   }
 
-  bool _requiresRemoteImagePreparation() {
+  bool _requiresRemoteImageCacheBinding() {
     if (!entry.isImage || !remoteMediaService.hasVirtualRemoteRef(entry.uri)) return false;
     final uri = Uri.tryParse(entry.uri);
     if (uri == null) return false;
     return uri.scheme == 'http' || uri.scheme == 'https' || uri.scheme == 'aves-remote';
   }
 
-  void _scheduleRemoteImagePreparation() {
+  void _scheduleRemoteImageCacheBinding() {
     if (_remoteImagePreparationInFlight) return;
     _remoteImagePreparationInFlight = true;
     _providers.clear();
     _currentProviderStream?.stopListening();
     _currentProviderStream = null;
     _replaceImage(null);
-    unawaited(_prepareRemoteImageThumbnail());
+    unawaited(_bindExistingRemoteImageCache());
   }
 
-  Future<void> _prepareRemoteImageThumbnail() async {
+  Future<void> _bindExistingRemoteImageCache() async {
     try {
-      await remoteMediaService.ensureViewerImageDisplayMetadata(
+      await remoteMediaService.bindExistingCacheFileForEntry(
         entry,
-        trigger: 'grid_thumbnail',
+        trigger: 'grid_thumbnail_bind_existing',
       );
     } finally {
       _remoteImagePreparationInFlight = false;
       if (mounted) {
-        if (_requiresRemoteImagePreparation()) {
+        if (_requiresRemoteImageCacheBinding()) {
           setState(() {});
         } else {
           _lastException = null;
@@ -207,8 +207,8 @@ class _ThumbnailImageState extends State<ThumbnailImage> {
 
   void _onError(Object exception, StackTrace? stackTrace) {
     if (!mounted) return;
-    if (_requiresRemoteImagePreparation()) {
-      _scheduleRemoteImagePreparation();
+    if (_requiresRemoteImageCacheBinding()) {
+      _scheduleRemoteImageCacheBinding();
       return;
     }
     setState(() => _lastException = exception);
