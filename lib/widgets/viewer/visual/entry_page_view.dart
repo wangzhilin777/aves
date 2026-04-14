@@ -182,11 +182,7 @@ class _EntryPageViewState extends State<EntryPageView> with TickerProviderStateM
   }
 
   bool get _isPendingRemoteImageMetadata {
-    return !entry.isVideo &&
-        !entry.isSvg &&
-        entry.isDecodingSupported &&
-        (entry.width <= 1 || entry.height <= 1 || entry.displaySize.isEmpty) &&
-        (entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri));
+    return !entry.isVideo && !entry.isSvg && entry.isDecodingSupported && (entry.width <= 1 || entry.height <= 1 || entry.displaySize.isEmpty) && (entry.isRemoteCachedMedia || remoteMediaService.hasVirtualRemoteRef(entry.uri));
   }
 
   Future<void> _ensureRemoteImageDisplayMetadata() async {
@@ -262,104 +258,104 @@ class _EntryPageViewState extends State<EntryPageView> with TickerProviderStateM
                 MagnifierGestureScaleUpdateCallback? onScaleUpdate;
                 MagnifierGestureScaleEndCallback? onScaleEnd;
 
-            if (useTapGesture) {
-              void _applyAction(EntryAction action, {IconData? Function()? icon}) {
-                _actionFeedbackChildNotifier.value = DecoratedIcon(
-                  icon?.call() ?? action.getIconData(),
-                  size: 48,
-                  color: Colors.white,
-                  shadows: const [
-                    Shadow(
-                      color: Colors.black,
-                      blurRadius: 4,
-                    ),
-                  ],
-                );
-                VideoActionNotification(
-                  controller: videoController,
-                  entry: entry,
-                  action: action,
-                ).dispatch(context);
-              }
+                if (useTapGesture) {
+                  void _applyAction(EntryAction action, {IconData? Function()? icon}) {
+                    _actionFeedbackChildNotifier.value = DecoratedIcon(
+                      icon?.call() ?? action.getIconData(),
+                      size: 48,
+                      color: Colors.white,
+                      shadows: const [
+                        Shadow(
+                          color: Colors.black,
+                          blurRadius: 4,
+                        ),
+                      ],
+                    );
+                    VideoActionNotification(
+                      controller: videoController,
+                      entry: entry,
+                      action: action,
+                    ).dispatch(context);
+                  }
 
-              onDoubleTap = (alignment) {
-                final x = alignment.x;
-                if (seekGesture) {
-                  final sideRatio = _getSideRatio();
-                  if (sideRatio != null) {
-                    if (x < sideRatio) {
-                      _applyAction(EntryAction.videoReplay10);
-                      return true;
-                    } else if (x > 1 - sideRatio) {
-                      _applyAction(EntryAction.videoSkip10);
+                  onDoubleTap = (alignment) {
+                    final x = alignment.x;
+                    if (seekGesture) {
+                      final sideRatio = _getSideRatio();
+                      if (sideRatio != null) {
+                        if (x < sideRatio) {
+                          _applyAction(EntryAction.videoReplay10);
+                          return true;
+                        } else if (x > 1 - sideRatio) {
+                          _applyAction(EntryAction.videoSkip10);
+                          return true;
+                        }
+                      }
+                    }
+                    if (playGesture) {
+                      _applyAction(
+                        EntryAction.videoTogglePlay,
+                        icon: () => videoController.isPlaying ? AIcons.pause : AIcons.play,
+                      );
                       return true;
                     }
-                  }
+                    return false;
+                  };
                 }
-                if (playGesture) {
-                  _applyAction(
-                    EntryAction.videoTogglePlay,
-                    icon: () => videoController.isPlaying ? AIcons.pause : AIcons.play,
-                  );
-                  return true;
+
+                if (useVerticalDragGesture) {
+                  SwipeAction? swipeAction;
+                  var move = Offset.zero;
+                  var dropped = false;
+                  double? startValue;
+                  ValueNotifier<double?>? valueNotifier;
+
+                  onScaleStart = (details, doubleTap, boundaries) {
+                    dropped = details.pointerCount > 1 || doubleTap;
+                    if (dropped) return;
+
+                    startValue = null;
+                    valueNotifier = ValueNotifier<double?>(null);
+                    final alignmentX = details.focalPoint.dx / boundaries.viewportSize.width;
+                    final action = alignmentX > .5 ? SwipeAction.volume : SwipeAction.brightness;
+                    action.get().then((v) => startValue = v);
+                    swipeAction = action;
+                    move = Offset.zero;
+                    _actionFeedbackOverlayEntry = OverlayEntry(
+                      builder: (context) => SwipeActionFeedback(
+                        action: action,
+                        valueNotifier: valueNotifier!,
+                      ),
+                    );
+                    Overlay.of(context).insert(_actionFeedbackOverlayEntry!);
+                  };
+                  onScaleUpdate = (details) {
+                    if (valueNotifier == null) return false;
+
+                    move += details.focalPointDelta;
+                    dropped |= details.pointerCount > 1;
+                    if (valueNotifier!.value == null) {
+                      dropped |= MagnifierGestureRecognizer.isXPan(move);
+                    }
+                    if (dropped) return false;
+
+                    final _startValue = startValue;
+                    if (_startValue != null) {
+                      final double value = (_startValue - move.dy / SwipeActionFeedback.height).clamp(0, 1);
+                      valueNotifier!.value = value;
+                      swipeAction?.set(value);
+                    }
+                    return true;
+                  };
+                  onScaleEnd = (details) {
+                    valueNotifier?.dispose();
+
+                    _actionFeedbackOverlayEntry
+                      ?..remove()
+                      ..dispose();
+                    _actionFeedbackOverlayEntry = null;
+                  };
                 }
-                return false;
-              };
-            }
-
-            if (useVerticalDragGesture) {
-              SwipeAction? swipeAction;
-              var move = Offset.zero;
-              var dropped = false;
-              double? startValue;
-              ValueNotifier<double?>? valueNotifier;
-
-              onScaleStart = (details, doubleTap, boundaries) {
-                dropped = details.pointerCount > 1 || doubleTap;
-                if (dropped) return;
-
-                startValue = null;
-                valueNotifier = ValueNotifier<double?>(null);
-                final alignmentX = details.focalPoint.dx / boundaries.viewportSize.width;
-                final action = alignmentX > .5 ? SwipeAction.volume : SwipeAction.brightness;
-                action.get().then((v) => startValue = v);
-                swipeAction = action;
-                move = Offset.zero;
-                _actionFeedbackOverlayEntry = OverlayEntry(
-                  builder: (context) => SwipeActionFeedback(
-                    action: action,
-                    valueNotifier: valueNotifier!,
-                  ),
-                );
-                Overlay.of(context).insert(_actionFeedbackOverlayEntry!);
-              };
-              onScaleUpdate = (details) {
-                if (valueNotifier == null) return false;
-
-                move += details.focalPointDelta;
-                dropped |= details.pointerCount > 1;
-                if (valueNotifier!.value == null) {
-                  dropped |= MagnifierGestureRecognizer.isXPan(move);
-                }
-                if (dropped) return false;
-
-                final _startValue = startValue;
-                if (_startValue != null) {
-                  final double value = (_startValue - move.dy / SwipeActionFeedback.height).clamp(0, 1);
-                  valueNotifier!.value = value;
-                  swipeAction?.set(value);
-                }
-                return true;
-              };
-              onScaleEnd = (details) {
-                valueNotifier?.dispose();
-
-                _actionFeedbackOverlayEntry
-                  ?..remove()
-                  ..dispose();
-                _actionFeedbackOverlayEntry = null;
-              };
-            }
 
                 Widget videoChild = Stack(
                   children: [

@@ -124,8 +124,8 @@ class _RemotePreviewPreheatTile extends StatelessWidget {
             SwitchListTile(
               value: viewerEnabled,
               onChanged: (v) => settings.remoteViewerPreheatEnabled = v,
-              title: Text(_tr(context, 'Enable viewer remote video preheat', '开启详情页远程视频预热')),
-              subtitle: Text(_tr(context, 'Uses the same next-video count setting below', '使用下方后续视频数量设置')),
+              title: Text(_tr(context, 'Enable viewer next-media preheat', '开启详情页后续媒体预热')),
+              subtitle: Text(_tr(context, 'Preheats upcoming remote videos and images using the counts below', '按下方数量设置预热后续远程视频和图片')),
             ),
             ListTile(
               enabled: enabled,

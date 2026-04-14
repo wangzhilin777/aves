@@ -5207,7 +5207,19 @@ class RemoteMediaService {
 
     final tempFile = File('${fullFile.path}.merging');
     if (await tempFile.exists()) {
-      await tempFile.delete();
+      try {
+        await tempFile.delete();
+      } on FileSystemException {
+        await remoteMediaLogService.log(
+          'cache',
+          'skip stale temporary merge file cleanup because it disappeared before delete',
+          data: {
+            'server': server.name,
+            'path': node.path,
+            'tempFile': tempFile.path,
+          },
+        );
+      }
     }
     await tempFile.create(recursive: true);
     final sink = tempFile.openWrite();
@@ -5217,12 +5229,65 @@ class RemoteMediaService {
       }
       await sink.flush();
       await sink.close();
-      final mergedLength = await tempFile.length();
-      if (mergedLength == totalLength) {
-        if (await fullFile.exists()) {
-          await fullFile.delete();
+      int? mergedLength;
+      try {
+        if (!await tempFile.exists()) {
+          await remoteMediaLogService.log(
+            'cache',
+            'skip merged chunk cache finalize because temporary merge file disappeared',
+            data: {
+              'server': server.name,
+              'path': node.path,
+              'tempFile': tempFile.path,
+            },
+          );
+          return;
         }
-        await tempFile.rename(fullFile.path);
+        mergedLength = await tempFile.length();
+      } on FileSystemException {
+        await remoteMediaLogService.log(
+          'cache',
+          'skip merged chunk cache finalize because temporary merge file length probe failed',
+          data: {
+            'server': server.name,
+            'path': node.path,
+            'tempFile': tempFile.path,
+          },
+        );
+        return;
+      }
+      if (mergedLength == totalLength) {
+        try {
+          if (await fullFile.exists()) {
+            await fullFile.delete();
+          }
+          if (!await tempFile.exists()) {
+            await remoteMediaLogService.log(
+              'cache',
+              'skip merged chunk cache rename because temporary merge file disappeared',
+              data: {
+                'server': server.name,
+                'path': node.path,
+                'tempFile': tempFile.path,
+                'file': fullFile.path,
+              },
+            );
+            return;
+          }
+          await tempFile.rename(fullFile.path);
+        } on FileSystemException {
+          await remoteMediaLogService.log(
+            'cache',
+            'skip merged chunk cache rename because temporary merge file rename failed',
+            data: {
+              'server': server.name,
+              'path': node.path,
+              'tempFile': tempFile.path,
+              'file': fullFile.path,
+            },
+          );
+          return;
+        }
         await _applyRemoteModifiedTimeToCacheFile(fullFile, node: node);
         final chunkDir = await _getStreamChunkDirectory(server, node, createIfMissing: false);
         if (await chunkDir.exists()) {

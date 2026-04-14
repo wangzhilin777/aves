@@ -29,6 +29,7 @@ class _VideoViewState extends State<VideoView> {
   static const _chunkedRemoteProgressRevealGrace = Duration(milliseconds: 180);
   static const _ftpVisibleProgressThreshold = 160;
   static const _detailCoverCaptureMaxPositionMillis = 1200;
+  static const _detailCoverCaptureMinPositionMillis = 180;
   AvesEntry get entry => widget.entry;
 
   AvesVideoController get controller => widget.controller;
@@ -153,12 +154,8 @@ class _VideoViewState extends State<VideoView> {
     final shouldStoreRemotePreview = remoteMediaService.supportsRemotePreviewCover(entry);
     if (!shouldStoreStandaloneFavourite && !shouldStoreRemotePreview) return;
 
-    final hasStandaloneFavouriteCover =
-        shouldStoreStandaloneFavourite &&
-        remoteMediaService.getStandaloneFavouriteThumbnailProvider(entry, extent: 256) != null;
-    final hasRemotePreviewCover =
-        shouldStoreRemotePreview &&
-        remoteMediaService.getRemotePreviewThumbnailProvider(entry, extent: 256) != null;
+    final hasStandaloneFavouriteCover = shouldStoreStandaloneFavourite && remoteMediaService.getStandaloneFavouriteThumbnailProvider(entry, extent: 256) != null;
+    final hasRemotePreviewCover = shouldStoreRemotePreview && remoteMediaService.getRemotePreviewThumbnailProvider(entry, extent: 256) != null;
     if (hasStandaloneFavouriteCover || hasRemotePreviewCover) {
       _detailCoverCaptured = true;
       return;
@@ -166,14 +163,16 @@ class _VideoViewState extends State<VideoView> {
 
     if (currentPosition > _detailCoverCaptureMaxPositionMillis) return;
 
-    final canCapture = hasStableDetailFrame || hasDecodedFrame || hasFirstFrameRendered;
+    final canCapture = hasStableDetailFrame && currentPosition >= _detailCoverCaptureMinPositionMillis;
     if (!canCapture) return;
 
     _detailCoverCaptureInFlight = true;
-    unawaited(_captureDetailCover(
-      storeStandaloneFavourite: shouldStoreStandaloneFavourite,
-      storeRemotePreview: shouldStoreRemotePreview,
-    ));
+    unawaited(
+      _captureDetailCover(
+        storeStandaloneFavourite: shouldStoreStandaloneFavourite,
+        storeRemotePreview: shouldStoreRemotePreview,
+      ),
+    );
   }
 
   Future<void> _captureDetailCover({

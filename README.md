@@ -98,6 +98,16 @@ Aves is a gallery and metadata explorer app. It is built for Android, with Flutt
   - 集合页/详情页里的图片预热数量，只决定会尝试提前准备多少张后续远程图片
   - 图片是否真的自动下载，仍然受“图片自动下载大小上限”约束
   - 当前正在显示的远程微缩图/图片，为了正常展示，仍可能补元信息或绑定已有缓存；即使关闭自动预热，也不代表当前项完全不触发准备流程
+- 最近一轮远程媒体预热/缓存修正：
+  - 网格页在快速滑动时，会统一暂停当前图片下载与后续图片/视频预热，待滚动稳定后再恢复，避免高速滚动时图片被整片拉取
+  - 详情页“后续媒体预热”已统一覆盖远程流媒体与远程缓存视频，避免小视频先落到缓存后反而掉出详情视频预热链
+  - 小视频 chunk 合并整文件缓存时，补充了 `.mp4.merging` 等临时文件清理/改名竞态容错，减少“明明快缓存完却仍回退流播放”的情况
+
+### Recent Remote Media Preheat/Cache Fixes (EN)
+
+- Grid fast scrolling now pauses both current-image download and upcoming image/video preheat, then resumes after scrolling settles.
+- Viewer next-media preheat now covers both remote streams and remote-cached videos, so small videos do not fall out of the detail preheat path after being cached.
+- Added extra race-condition guards around merged remote chunk finalize/rename for `.mp4.merging`-style temporary files, reducing cases where nearly completed small-video cache still falls back to streaming.
 <div align="left">
 
 ## Features
