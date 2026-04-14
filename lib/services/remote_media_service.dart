@@ -1225,6 +1225,7 @@ class RemoteMediaService {
     AvesEntry entry, {
     required String trigger,
     bool allowDownload = false,
+    bool bindToCachedFile = true,
   }) async {
     final ref = _virtualRemoteRefs[entry.uri];
     if (ref == null || !entry.isVideo) return null;
@@ -1240,13 +1241,18 @@ class RemoteMediaService {
       );
     }
 
-    final existing = await bindExistingCacheFileForEntry(entry, trigger: '${trigger}_bind_existing');
+    final existing = bindToCachedFile
+        ? await bindExistingCacheFileForEntry(entry, trigger: '${trigger}_bind_existing')
+        : await _getExistingCacheFile(server, node);
     if (existing != null) {
       return existing;
     }
     if (!allowDownload) return null;
     final downloaded = await ensureDownloadedForEntry(entry, trigger: '${trigger}_download');
     if (downloaded == null) return null;
+    if (!bindToCachedFile) {
+      return downloaded;
+    }
     return await bindExistingCacheFileForEntry(entry, trigger: '${trigger}_bind_downloaded') ?? downloaded;
   }
 
@@ -1304,6 +1310,8 @@ class RemoteMediaService {
     String trigger = 'remote_metadata',
   }) async {
     var changed = false;
+    final ref = _virtualRemoteRefs[entry.uri];
+    final preferredRemoteModifiedMillis = ref?.$2.modifiedMillis;
 
     final localPath = entry.path;
     if (localPath != null) {
@@ -1316,20 +1324,23 @@ class RemoteMediaService {
         }
         final stat = await localFile.stat();
         final modifiedMillis = stat.modified.millisecondsSinceEpoch;
-        if (modifiedMillis > 0) {
-          if (entry.dateModifiedMillis != modifiedMillis) {
-            entry.dateModifiedMillis = modifiedMillis;
+        final effectiveModifiedMillis =
+            preferredRemoteModifiedMillis != null && preferredRemoteModifiedMillis > 0
+                ? preferredRemoteModifiedMillis
+                : modifiedMillis;
+        if (effectiveModifiedMillis > 0) {
+          if (entry.dateModifiedMillis != effectiveModifiedMillis) {
+            entry.dateModifiedMillis = effectiveModifiedMillis;
             changed = true;
           }
           if (entry.sourceDateTakenMillis == null) {
-            entry.sourceDateTakenMillis = modifiedMillis;
+            entry.sourceDateTakenMillis = effectiveModifiedMillis;
             changed = true;
           }
         }
       }
     }
 
-    final ref = _virtualRemoteRefs[entry.uri];
     if (ref != null) {
       final server = ref.$1;
       final node = ref.$2;
@@ -1797,6 +1808,8 @@ class RemoteMediaService {
     final previousDateAddedSecs = entry.dateAddedSecs;
     final previousDateModifiedMillis = entry.dateModifiedMillis;
     final previousSourceDateTakenMillis = entry.sourceDateTakenMillis;
+    final ref = _virtualRemoteRefs[entry.uri] ?? _virtualRemoteRefs[fileUri];
+    final preferredRemoteModifiedMillis = ref?.$2.modifiedMillis;
     try {
       final fetched = await mediaFetchService.getEntry(fileUri, entry.sourceMimeType, allowUnsized: true);
       if (fetched != null) {
@@ -1807,8 +1820,13 @@ class RemoteMediaService {
         entry.height = fetched.height;
         entry.sourceRotationDegrees = fetched.sourceRotationDegrees;
         entry.dateAddedSecs = fetched.dateAddedSecs ?? entry.dateAddedSecs;
-        entry.dateModifiedMillis = fetched.dateModifiedMillis ?? entry.dateModifiedMillis;
-        entry.sourceDateTakenMillis = fetched.sourceDateTakenMillis ?? entry.sourceDateTakenMillis;
+        if (preferredRemoteModifiedMillis != null && preferredRemoteModifiedMillis > 0) {
+          entry.dateModifiedMillis = preferredRemoteModifiedMillis;
+          entry.sourceDateTakenMillis ??= preferredRemoteModifiedMillis;
+        } else {
+          entry.dateModifiedMillis = fetched.dateModifiedMillis ?? entry.dateModifiedMillis;
+          entry.sourceDateTakenMillis = fetched.sourceDateTakenMillis ?? entry.sourceDateTakenMillis;
+        }
         entry.durationMillis = fetched.durationMillis ?? entry.durationMillis;
       } else {
         await entry.catalog(background: false, force: true, persist: false);
