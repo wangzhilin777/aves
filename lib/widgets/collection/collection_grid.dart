@@ -988,6 +988,18 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     if (anchor == null || !mounted) return;
     final requestToken = ++_prefetchRequestToken;
     final now = DateTime.now();
+    if (await remoteMediaService.shouldBlockAutoLoadByWifiPolicy()) {
+      await remoteMediaLogService.log(
+        'lazy_load',
+        'skip remote collection image/video prefetch on non-wifi',
+        data: {
+          'focusUri': anchor.uri,
+          'isImage': anchor.isImage,
+          'isVideo': anchor.isVideo,
+        },
+      );
+      return;
+    }
 
     final fastScrollActive = widget.isScrollingNotifier.value && _lastScrollSpeedPxPerSecond >= 900;
     final fastScrollRecently = now.difference(_lastFastScrollAt).inMilliseconds < 650;
@@ -1116,6 +1128,17 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   }) async {
     if (!anchor.isImage) return;
     if (!remoteMediaService.hasVirtualRemoteRef(anchor.uri)) return;
+    if (await remoteMediaService.shouldBlockAutoLoadByWifiPolicy()) {
+      await remoteMediaLogService.log(
+        'lazy_load',
+        'skip focused remote image download on non-wifi',
+        data: {
+          'focusUri': anchor.uri,
+          'protocol': remoteMediaService.getRemoteProtocolForEntry(anchor)?.name,
+        },
+      );
+      return;
+    }
 
     final signature = _remotePrefetchIdentity(anchor);
     final duplicated = signature == _lastFocusedImageDownloadSignature && now.difference(_lastFocusedImageDownloadAt).inMilliseconds < _imagePrefetchDedupeWindowMillis(anchor);
@@ -1214,6 +1237,17 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
   }
 
   Future<void> _preheatNextRemoteVideo(AvesEntry entry, AvesEntry focusAnchor) async {
+    if (await remoteMediaService.shouldBlockAutoLoadByWifiPolicy()) {
+      await remoteMediaLogService.log(
+        'stream',
+        'skip next remote video preview preheat on non-wifi',
+        data: {
+          'focusUri': focusAnchor.uri,
+          'uri': entry.uri,
+        },
+      );
+      return;
+    }
     try {
       final remoteProtocol = remoteMediaService.getRemoteProtocolForEntry(entry);
       await remoteMediaService.prepareInitialStreamPlaybackForEntry(

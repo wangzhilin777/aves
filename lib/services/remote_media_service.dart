@@ -756,6 +756,7 @@ class RemoteMediaService {
 
     final persistedEntries = _loadPersistedStandaloneFavouriteEntries();
     if (persistedEntries.isEmpty) return;
+    final blockStartupDisplayRestore = trigger.startsWith('startup_restore') && await shouldBlockAutoLoadByWifiPolicy();
 
     final serversById = Map.fromEntries(settings.remoteServers.map((server) => MapEntry(server.id, server)));
     for (final persisted in persistedEntries) {
@@ -790,7 +791,21 @@ class RemoteMediaService {
       if (await coverFile.exists() && await coverFile.length() > 0) {
         _standaloneFavouriteCoverImageFiles[persisted.key] = coverFile.path;
       }
-      unawaited(_prepareStandaloneFavouriteDisplayAssets(entry, trigger: trigger));
+      if (blockStartupDisplayRestore) {
+        await remoteMediaLogService.log(
+          'remote_load',
+          'skipped proactive standalone remote favourite restore on non-wifi startup',
+          data: {
+            'trigger': trigger,
+            'uri': entry.uri,
+            'path': entry.path,
+            'isVideo': entry.isVideo,
+            'isImage': entry.isImage,
+          },
+        );
+      } else {
+        unawaited(_prepareStandaloneFavouriteDisplayAssets(entry, trigger: trigger));
+      }
     }
   }
 
@@ -981,6 +996,19 @@ class RemoteMediaService {
     final key = getStandaloneFavouriteKeyForEntry(entry);
     if (key == null || !settings.remoteStandaloneFavouritePaths.contains(key) || !entry.isVideo) return;
     if (entry.cachedThumbnails.isNotEmpty) return;
+    if (trigger == 'favourite_tab_return' && await shouldBlockAutoLoadByWifiPolicy()) {
+      await remoteMediaLogService.log(
+        'thumbnail',
+        'skipped proactive standalone remote favourite thumbnail warmup on non-wifi',
+        data: {
+          'trigger': trigger,
+          'uri': entry.uri,
+          'path': entry.path,
+          'mimeType': entry.mimeType,
+        },
+      );
+      return;
+    }
 
     final warmupKey = '$key|${entry.uri}';
     final inFlight = _standaloneFavouriteThumbnailWarmupInFlight[warmupKey];

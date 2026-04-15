@@ -1098,11 +1098,15 @@ class _AutoPlayVideoThumbnailState extends State<_AutoPlayVideoThumbnail> {
         }
       }
       final suppressWhileScrolling = _shouldSuppressAutoPlayWhileScrolling(remoteProtocol) && _controller?.isPlaying != true;
-      if (!_isAutoPlayEnabled(settings) || !isCurrent || isViewerActive || suppressWhileScrolling) {
+      final blockRemoteGridPreviewOnNonWifi =
+          remoteProtocol != null && await remoteMediaService.shouldBlockAutoLoadByWifiPolicy();
+      if (!_isAutoPlayEnabled(settings) || !isCurrent || isViewerActive || suppressWhileScrolling || blockRemoteGridPreviewOnNonWifi) {
         final reason = !_isAutoPlayEnabled(settings)
             ? 'autoplay_disabled_by_setting'
             : isViewerActive
             ? 'viewer_active'
+            : blockRemoteGridPreviewOnNonWifi
+            ? 'remote_non_wifi_blocked'
             : suppressWhileScrolling
             ? remoteProtocol == RemoteProtocol.webdav
                   ? 'webdav_scroll_suppressed'
