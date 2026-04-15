@@ -1044,11 +1044,16 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       focusIndex = 0;
     }
 
-    final candidates = <AvesEntry>[];
     final imagePreheatCount = max(0, settings.remotePreviewImageCount);
-    final upperBound = min(focusIndex + max(1, imagePreheatCount), entries.length);
-    for (var i = focusIndex; i < upperBound; i++) {
-      final entry = entries[i];
+    final nextVideoPreheatCount = max(0, settings.remotePreviewVideoCount);
+    final preheatWindow = _buildRemotePreheatWindow(
+      entries: entries,
+      focusIndex: focusIndex,
+      windowSize: imagePreheatCount + nextVideoPreheatCount,
+    );
+
+    final candidates = <AvesEntry>[];
+    for (final entry in preheatWindow) {
       if (!entry.isImage) continue;
       if (!remoteMediaService.hasVirtualRemoteRef(entry.uri)) continue;
       candidates.add(entry);
@@ -1093,10 +1098,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     }
 
     final nextVideos = <AvesEntry>[];
-    final nextVideoPreheatCount = max(0, settings.remotePreviewVideoCount);
     if (nextVideoPreheatCount <= 0) return;
-    for (var i = focusIndex + 1; i < entries.length; i++) {
-      final candidate = entries[i];
+    for (final candidate in preheatWindow) {
       if (!candidate.isVideo) continue;
       if (!remoteMediaService.hasVirtualRemoteRef(candidate.uri)) continue;
       nextVideos.add(candidate);
@@ -1170,6 +1173,18 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
     if (!mounted || _prefetchRequestToken != requestToken) return false;
     if (anchor.isImage) return true;
     return widget.previewPlayingEntryNotifier.value?.uri == anchor.uri;
+  }
+
+  List<AvesEntry> _buildRemotePreheatWindow({
+    required List<AvesEntry> entries,
+    required int focusIndex,
+    required int windowSize,
+  }) {
+    if (windowSize <= 0) return const [];
+    final start = focusIndex + 1;
+    if (start >= entries.length) return const [];
+    final end = min(start + windowSize, entries.length);
+    return entries.sublist(start, end);
   }
 
   bool _isActiveImagePrefetchRequest(int requestToken) {
