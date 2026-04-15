@@ -681,10 +681,15 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     final requestToken = ++_viewerRemotePreheatRequestToken;
 
     final focusEntry = entries[focusIndex];
+    final nextImagePreheatCount = max(0, settings.remotePreviewImageCount);
+    final preheatWindow = _buildViewerRemotePreheatWindow(
+      entries: entries,
+      focusIndex: focusIndex,
+      windowSize: nextImagePreheatCount + nextVideoPreheatCount,
+    );
 
     final nextVideos = <AvesEntry>[];
-    for (var i = focusIndex + 1; i < entries.length; i++) {
-      final candidate = entries[i];
+    for (final candidate in preheatWindow) {
       if (!_isViewerRemotePreheatCandidate(candidate)) continue;
       nextVideos.add(candidate);
       if (nextVideos.length >= nextVideoPreheatCount) break;
@@ -764,9 +769,14 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
     final requestToken = ++_viewerRemoteImagePreheatRequestToken;
 
     final focusEntry = entries[focusIndex];
+    final nextVideoPreheatCount = max(0, settings.remotePreviewVideoCount);
+    final preheatWindow = _buildViewerRemotePreheatWindow(
+      entries: entries,
+      focusIndex: focusIndex,
+      windowSize: nextImagePreheatCount + nextVideoPreheatCount,
+    );
     final nextImages = <AvesEntry>[];
-    for (var i = focusIndex + 1; i < entries.length; i++) {
-      final candidate = entries[i];
+    for (final candidate in preheatWindow) {
       if (!_isViewerRemoteImagePreheatCandidate(candidate)) continue;
       nextImages.add(candidate);
       if (nextImages.length >= nextImagePreheatCount) break;
@@ -821,6 +831,18 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
         );
       }
     }
+  }
+
+  List<AvesEntry> _buildViewerRemotePreheatWindow({
+    required List<AvesEntry> entries,
+    required int focusIndex,
+    required int windowSize,
+  }) {
+    if (windowSize <= 0) return const [];
+    final start = focusIndex + 1;
+    if (start >= entries.length) return const [];
+    final end = min(start + windowSize, entries.length);
+    return entries.sublist(start, end);
   }
 
   Future<void> _initVideoController(AvesEntry entry) async {
