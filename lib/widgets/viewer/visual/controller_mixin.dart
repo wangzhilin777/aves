@@ -672,6 +672,9 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
   Future<void> preheatViewerUpcomingRemoteVideos(List<AvesEntry> entries, int focusIndex) async {
     if (!settings.remoteViewerPreheatEnabled) return;
+    if (await remoteMediaService.shouldBlockAutoLoadByWifiPolicy()) {
+      return;
+    }
     final nextVideoPreheatCount = max(0, settings.remotePreviewVideoCount);
     if (nextVideoPreheatCount <= 0) return;
     if (focusIndex < 0 || focusIndex >= entries.length) return;
@@ -752,6 +755,9 @@ mixin EntryViewControllerMixin<T extends StatefulWidget> on State<T> {
 
   Future<void> preheatViewerUpcomingRemoteImages(List<AvesEntry> entries, int focusIndex) async {
     if (!settings.remoteViewerPreheatEnabled) return;
+    if (await remoteMediaService.shouldBlockAutoLoadByWifiPolicy()) {
+      return;
+    }
     final nextImagePreheatCount = max(0, settings.remotePreviewImageCount);
     if (nextImagePreheatCount <= 0) return;
     if (focusIndex < 0 || focusIndex >= entries.length) return;
