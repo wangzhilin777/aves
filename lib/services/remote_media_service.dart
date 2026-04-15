@@ -432,6 +432,20 @@ class RemoteMediaService {
     final sourceUri = entry.uri;
     final ref = _virtualRemoteRefs[sourceUri];
     if (ref == null) return null;
+    if (await shouldBlockAutoFileFetchByWifiPolicy(trigger: trigger)) {
+      await remoteMediaLogService.log(
+        'auto_download',
+        'blocked automatic remote file fetch by wifi-only policy',
+        data: {
+          'trigger': trigger,
+          'uri': sourceUri,
+          'server': ref.$1.name,
+          'protocol': ref.$1.protocol.name,
+          'path': ref.$2.path,
+        },
+      );
+      return null;
+    }
 
     final downloadKey = '${ref.$1.id}|${ref.$2.path}';
     final inFlight = _downloadInFlight[downloadKey];
@@ -2196,24 +2210,24 @@ class RemoteMediaService {
     return !onWifi;
   }
 
+  bool _isManualRemoteDownloadTrigger(String trigger) {
+    return trigger.startsWith('manual_') ||
+        trigger == 'stream_open_failed_fallback' ||
+        trigger == 'viewer_image_metadata_download';
+  }
+
+  Future<bool> shouldBlockAutoFileFetchByWifiPolicy({
+    required String trigger,
+  }) async {
+    if (_isManualRemoteDownloadTrigger(trigger)) return false;
+    return await shouldBlockAutoLoadByWifiPolicy();
+  }
+
   Future<RemoteFolderPageData> loadFolder({
     required RemoteServer server,
     required String path,
     bool force = false,
   }) async {
-    final blocked = !force && await shouldBlockAutoLoadByWifiPolicy();
-    if (blocked) {
-      await remoteMediaLogService.log(
-        'remote_load',
-        'blocked by wifi-only policy',
-        data: {
-          'server': server.name,
-          'path': path,
-        },
-      );
-      return RemoteFolderPageData(path: path, children: const [], blockedByWifiOnly: true);
-    }
-
     final nodes = await _listNodes(server, path);
     await remoteMediaLogService.log(
       'lazy_load',
@@ -2232,6 +2246,7 @@ class RemoteMediaService {
     required RemoteServer server,
     required RemoteBrowseNode node,
   }) async {
+    final blockedByWifiOnly = await shouldBlockAutoFileFetchByWifiPolicy(trigger: 'resolve_media_auto');
     final size = node.sizeBytes;
     final max = node.isVideo ? settings.remoteAutoDownloadVideoMaxBytes : settings.remoteAutoDownloadImageMaxBytes;
     final withinAutoLimit = size != null && size > 0 && size <= max;
@@ -2268,6 +2283,22 @@ class RemoteMediaService {
       );
     }
 
+    final effectivePlan = blockedByWifiOnly && plan.shouldAutoDownload
+        ? RemotePreviewPlan(
+            streamFirst: true,
+            shouldAutoDownload: false,
+            allowDownloadFallback: false,
+            reason: '${plan.reason}_blocked_by_wifi_only',
+          )
+        : blockedByWifiOnly && plan.allowDownloadFallback
+        ? RemotePreviewPlan(
+            streamFirst: true,
+            shouldAutoDownload: false,
+            allowDownloadFallback: false,
+            reason: '${plan.reason}_fallback_blocked_by_wifi_only',
+          )
+        : plan;
+
     await remoteMediaLogService.log(
       'autoplay',
       'remote preview plan decided',
@@ -2278,13 +2309,14 @@ class RemoteMediaService {
         'isImage': node.isImage,
         'sizeBytes': size,
         'streamMode': streamMode.name,
-        'streamFirst': plan.streamFirst,
-        'autoDownload': plan.shouldAutoDownload,
-        'allowFallback': plan.allowDownloadFallback,
-        'reason': plan.reason,
+        'streamFirst': effectivePlan.streamFirst,
+        'autoDownload': effectivePlan.shouldAutoDownload,
+        'allowFallback': effectivePlan.allowDownloadFallback,
+        'reason': effectivePlan.reason,
+        'blockedByWifiOnly': blockedByWifiOnly,
       },
     );
-    return plan;
+    return effectivePlan;
   }
 
   Future<RemoteMediaResolveResult> resolveMedia({
