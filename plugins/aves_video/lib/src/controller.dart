@@ -25,6 +25,8 @@ abstract class AvesVideoController extends Disposer with ABRepeatMixin {
 
   AvesEntryBase get entry => _entry;
 
+  bool get isDisposed => _disposed;
+
   static const resumeTimeSaveMinDuration = Duration(minutes: 2);
 
   AvesVideoController(

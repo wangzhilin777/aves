@@ -50,6 +50,23 @@ extension ExtraAvesEntryProps on AvesEntry {
     return size;
   }
 
+  Size resolveVideoDisplaySize(Size? decodedSize) {
+    if (decodedSize == null || decodedSize.width <= 0 || decodedSize.height <= 0) {
+      return displaySize;
+    }
+
+    final raw = decodedSize;
+    final rotated = Size(decodedSize.height, decodedSize.width);
+    final targetAspectRatio = displayAspectRatio;
+
+    double distanceToTarget(Size size) {
+      if (size.height == 0) return double.infinity;
+      return ((size.width / size.height) - targetAspectRatio).abs();
+    }
+
+    return distanceToTarget(rotated) + 0.0001 < distanceToTarget(raw) ? rotated : raw;
+  }
+
   // text
 
   String getResolutionText(String locale) {

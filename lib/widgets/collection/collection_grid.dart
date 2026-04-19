@@ -894,7 +894,11 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
             'keep current preview focus while actively scrolling',
             data: {
               'currentUri': current.uri,
+              'currentPath': current.path,
+              'currentTitle': current.bestTitle,
               'nextTargetUri': target.uri,
+              'nextTargetPath': target.path,
+              'nextTargetTitle': target.bestTitle,
               'speedPxPerSecond': _lastScrollSpeedPxPerSecond,
             },
           ),
@@ -978,6 +982,8 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
         'collection preview focus changed',
         data: {
           'uri': target?.uri,
+          'path': target?.path,
+          'title': target?.bestTitle,
           'isVideo': target?.isVideo,
         },
       ),
@@ -1008,6 +1014,21 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       _deferredPrefetchTimer = Timer(const Duration(milliseconds: 480), () {
         if (!mounted || widget.isScrollingNotifier.value) return;
         final target = widget.previewPlayingEntryNotifier.value ?? anchor;
+        unawaited(
+          remoteMediaLogService.log(
+            'lazy_load',
+            'run deferred remote preview prefetch after scroll settled',
+            data: {
+              'anchorUri': anchor.uri,
+              'anchorPath': anchor.path,
+              'anchorTitle': anchor.bestTitle,
+              'targetUri': target.uri,
+              'targetPath': target.path,
+              'targetTitle': target.bestTitle,
+              'speedPxPerSecond': _lastScrollSpeedPxPerSecond,
+            },
+          ),
+        );
         unawaited(_prefetchRemoteWindow(target));
       });
       unawaited(
@@ -1016,7 +1037,10 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
           'skip remote preview prefetch during fast scrolling and defer until settled',
           data: {
             'focusUri': anchor.uri,
+            'focusPath': anchor.path,
+            'focusTitle': anchor.bestTitle,
             'speedPxPerSecond': _lastScrollSpeedPxPerSecond,
+            'fastScrollActive': fastScrollActive,
             'fastScrollRecently': fastScrollRecently,
           },
         ),
@@ -1368,12 +1392,6 @@ class _CollectionSectionedContentState extends State<_CollectionSectionedContent
       }
 
       final refreshedSize = activeController.decodedVideoSizeNotifier.value;
-      if (refreshedSize != null && refreshedSize.width > 1 && refreshedSize.height > 1) {
-        entry.width = refreshedSize.width.round();
-        entry.height = refreshedSize.height.round();
-        entry.visualChangeNotifier.notify();
-        collection.source.onAspectRatioChanged();
-      }
 
       await remoteMediaLogService.log(
         'stream',

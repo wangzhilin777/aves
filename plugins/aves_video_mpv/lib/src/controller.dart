@@ -230,10 +230,13 @@ class MpvVideoController extends AvesVideoController {
   }
 
   Future<void> _init({int startMillis = 0}) async {
-    if (_openInProgress) return;
+    if (isDisposed || _openInProgress) return;
     _openInProgress = true;
     try {
+      if (isDisposed) return;
       _debugProxy('_init begin', {'startMillis': startMillis, 'playerPlaying': _mkPlayer.state.playing});
+      decodedVideoSizeNotifier.value = null;
+      sarNotifier.value = null;
       firstFrameRenderedNotifier.value = false;
       final playing = _mkPlayer.state.playing;
 
@@ -249,15 +252,20 @@ class MpvVideoController extends AvesVideoController {
         _mediaCandidates = [Media(entry.uri)];
       }
       _mediaCandidateIndex = 0;
+      if (isDisposed) return;
       await _mkPlayer.open(_mediaCandidates[_mediaCandidateIndex], play: playing);
+      if (isDisposed) return;
       await _mkPlayer.setSubtitleTrack(SubtitleTrack.no());
       if (startMillis > 0) {
         _debugProxy('_init requesting seekTo(startMillis)', {'startMillis': startMillis});
         await seekTo(startMillis);
       }
 
+      if (isDisposed) return;
       _fetchStreams();
       _statusStreamController.add(_mkPlayer.state.playing ? VideoStatus.playing : VideoStatus.paused);
+    } on AssertionError {
+      if (!isDisposed) rethrow;
     } finally {
       _openInProgress = false;
     }
@@ -323,15 +331,17 @@ class MpvVideoController extends AvesVideoController {
 
   void _debugProxy(String message, [Map<String, Object?> data = const {}]) {
     if (!_isLocalProxyRemoteStream) return;
-    debugPrint('FTP_PROXY_DEBUG $message ${{
-      'uri': entry.uri,
-      'status': _status.name,
-      'currentPosition': currentPosition,
-      'lastKnownPlaybackPositionMillis': _lastKnownPlaybackPositionMillis,
-      'firstFrameRendered': firstFrameRenderedNotifier.value,
-      'hasDecodedVideoFrame': _hasDecodedVideoFrame,
-      ...data,
-    }}');
+    debugPrint(
+      'FTP_PROXY_DEBUG $message ${{
+        'uri': entry.uri,
+        'status': _status.name,
+        'currentPosition': currentPosition,
+        'lastKnownPlaybackPositionMillis': _lastKnownPlaybackPositionMillis,
+        'firstFrameRendered': firstFrameRenderedNotifier.value,
+        'hasDecodedVideoFrame': _hasDecodedVideoFrame,
+        ...data,
+      }}',
+    );
   }
 
   Future<void> _waitForSurfaceAttachment() async {
@@ -444,6 +454,8 @@ class MpvVideoController extends AvesVideoController {
         hwdec = 'mediacodec';
     }
     final oldController = _mkControllerNotifier.value;
+    decodedVideoSizeNotifier.value = null;
+    sarNotifier.value = null;
     firstFrameRenderedNotifier.value = false;
     final newController =
         VideoController(
@@ -514,20 +526,18 @@ class MpvVideoController extends AvesVideoController {
 
   @override
   Future<void> play() async {
+    if (isDisposed) return;
     _debugProxy('play requested');
     final hadRenderableProxyFrameBeforeRecovery = _isLocalProxyRemoteStream && _hasRenderablePlaybackFrame;
-    if (_isLocalProxyRemoteStream) {
+    if (!_hasRenderablePlaybackFrame) {
       await _waitForSurfaceAttachment();
-      if (!hadRenderableProxyFrameBeforeRecovery) {
+      if (_isLocalProxyRemoteStream && !hadRenderableProxyFrameBeforeRecovery) {
         await Future.delayed(_proxyInitialSurfaceSettleDelay);
       }
     }
     if (status == VideoStatus.error) {
       await _recoverFromRemoteStreamError();
-      final shouldKeepExistingProxyController =
-          _isLocalProxyRemoteStream &&
-          _preferSoftwareDecodeForProxyStream &&
-          (hadRenderableProxyFrameBeforeRecovery || _hasRenderablePlaybackFrame);
+      final shouldKeepExistingProxyController = _isLocalProxyRemoteStream && _preferSoftwareDecodeForProxyStream && (hadRenderableProxyFrameBeforeRecovery || _hasRenderablePlaybackFrame);
       if (status == VideoStatus.error && !shouldKeepExistingProxyController) {
         _debugProxy('play requesting _init after error', {'startMillis': _safeResumePositionMillis});
         await _init(startMillis: _safeResumePositionMillis);
@@ -543,11 +553,18 @@ class MpvVideoController extends AvesVideoController {
   }
 
   @override
-  Future<void> pause() => _mkPlayer.pause();
+  Future<void> pause() {
+    if (isDisposed) return Future.value();
+    return _mkPlayer.pause();
+  }
 
   @override
   Future<void> seekTo(int targetMillis) async {
+    if (isDisposed) return;
     _debugProxy('seekTo requested', {'targetMillis': targetMillis});
+    if (!_hasRenderablePlaybackFrame) {
+      await _waitForSurfaceAttachment();
+    }
     if (!isReady) {
       await untilReady;
       // When the player gets ready, it can play from the beginning right away,
