@@ -116,7 +116,7 @@ class RemoteMediaLogService {
     }
 
     if (topic == 'autoplay') {
-      return kDebugMode;
+      return false;
     }
 
     return true;
