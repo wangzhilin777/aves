@@ -145,10 +145,9 @@ dependencies:
 
 dependency_overrides:
   media_kit_video:
-    git:
-      url: https://github.com/deckerst/media-kit.git
-      path: media_kit_video
-      ref: video_controller_disposal
+    path: plugins/vendor/media_kit_video
+  media_kit_libs_android_video:
+    path: plugins/vendor/media_kit_libs_android_video
 
 dev_dependencies:
   flutter_test:
