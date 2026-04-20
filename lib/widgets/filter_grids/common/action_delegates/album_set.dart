@@ -8,6 +8,7 @@ import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/filters/container/album_group.dart';
 import 'package:aves/model/filters/container/dynamic_album.dart';
 import 'package:aves/model/filters/covered/stored_album.dart';
+import 'package:aves/model/filters/covered/remote_album.dart';
 import 'package:aves/model/filters/filters.dart';
 import 'package:aves/model/grouping/common.dart';
 import 'package:aves/model/grouping/convert.dart';
@@ -47,8 +48,9 @@ import 'package:provider/provider.dart';
 
 class AlbumChipSetActionDelegate extends ChipSetActionDelegate<AlbumBaseFilter> with EntryEditorMixin, EntryStorageMixin {
   final Iterable<FilterGridItem<AlbumBaseFilter>> _items;
+  final bool allowAddToRemoteFolders;
 
-  AlbumChipSetActionDelegate(Iterable<FilterGridItem<AlbumBaseFilter>> items) : _items = items;
+  AlbumChipSetActionDelegate(Iterable<FilterGridItem<AlbumBaseFilter>> items, {this.allowAddToRemoteFolders = false}) : _items = items;
 
   @override
   Iterable<FilterGridItem<AlbumBaseFilter>> get allItems => _items;
@@ -70,6 +72,18 @@ class AlbumChipSetActionDelegate extends ChipSetActionDelegate<AlbumBaseFilter> 
 
   @override
   set tileLayout(TileLayout tileLayout) => settings.setTileLayout(AlbumListPage.routeName, tileLayout);
+
+  @override
+  bool get canAddToRemoteFolders => allowAddToRemoteFolders;
+
+  @override
+  String? getActionTextOverride(BuildContext context, ChipSetAction action) {
+    if (action != ChipSetAction.addToRemoteFolders || !allowAddToRemoteFolders) return null;
+    final selectedFilters = getSelectedFilters(context).whereType<RemoteAlbumFilter>().toSet();
+    if (selectedFilters.isEmpty) return null;
+    final allAdded = selectedFilters.every((filter) => settings.remotePinnedFolders.any((v) => v.serverId == filter.serverId && v.path == filter.path));
+    return context.locale.startsWith('zh') ? (allAdded ? '\u79fb\u51fa\u8fdc\u7a0b\u76f8\u518c' : '\u52a0\u5165\u8fdc\u7a0b\u6587\u4ef6\u5939\u9879') : (allAdded ? 'Remove from remote albums' : 'Add to remote folders');
+  }
 
   static const _sectionOptions = [
     AlbumChipSectionFactor.importance,

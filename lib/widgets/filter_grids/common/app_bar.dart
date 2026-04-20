@@ -66,7 +66,7 @@ class FilterGridAppBar<T extends CollectionFilter, CSAD extends ChipSetActionDel
   @override
   State<FilterGridAppBar<T, CSAD>> createState() => _FilterGridAppBarState<T, CSAD>();
 
-  static PopupMenuEntry<ChipSetAction> toMenuItem(BuildContext context, ChipSetAction action, {required bool enabled}) {
+  static PopupMenuEntry<ChipSetAction> toMenuItem(BuildContext context, ChipSetAction action, {required bool enabled, String? textOverride}) {
     late Widget child;
     switch (action) {
       case .toggleTitleSearch:
@@ -75,7 +75,7 @@ class FilterGridAppBar<T extends CollectionFilter, CSAD extends ChipSetActionDel
           isMenuItem: true,
         );
       default:
-        child = MenuRow(text: action.getText(context), icon: action.getIcon());
+        child = MenuRow(text: textOverride ?? action.getText(context), icon: action.getIcon());
     }
 
     return PopupMenuItem(
@@ -454,7 +454,7 @@ class _FilterGridAppBarState<T extends CollectionFilter, CSAD extends ChipSetAct
               ...contextualMenuActions.map(
                 (action) {
                   if (action == null) return const PopupMenuDivider();
-                  return FilterGridAppBar.toMenuItem(context, action, enabled: canApply(action));
+                  return FilterGridAppBar.toMenuItem(context, action, enabled: canApply(action), textOverride: actionDelegate.getActionTextOverride(context, action));
                 },
               ),
             ],

@@ -2,10 +2,12 @@ import 'package:aves/app_mode.dart';
 import 'package:aves/model/covers.dart';
 import 'package:aves/model/entry/entry.dart';
 import 'package:aves/model/filters/container/set_or.dart';
+import 'package:aves/model/filters/covered/remote_album.dart';
 import 'package:aves/model/filters/covered/stored_album.dart';
 import 'package:aves/model/filters/filters.dart';
 import 'package:aves/model/grouping/common.dart';
 import 'package:aves/model/query.dart';
+import 'package:aves/model/remote/remote_server.dart';
 import 'package:aves/model/selection.dart';
 import 'package:aves/model/settings/settings.dart';
 import 'package:aves/model/source/collection_lens.dart';
@@ -114,6 +116,8 @@ abstract class ChipSetActionDelegate<T extends CollectionFilter> with FeedbackMi
         return isMain && (hasSelection && settings.pinnedFilters.containsAll(selectedFilters));
       case .showCollection:
         return appMode.canNavigate;
+      case .addToRemoteFolders:
+        return isMain && canAddToRemoteFolders && hasSelection && selectedFilters.every((v) => v is RemoteAlbumFilter);
       case .delete:
       case .remove:
       case .group:
@@ -168,6 +172,7 @@ abstract class ChipSetActionDelegate<T extends CollectionFilter> with FeedbackMi
       case .lockVault:
       case .showCountryStates:
       case .showCollection:
+      case .addToRemoteFolders:
         return hasSelection;
       // selecting (single filter)
       case .rename:
@@ -218,6 +223,8 @@ abstract class ChipSetActionDelegate<T extends CollectionFilter> with FeedbackMi
         browse(context);
       case .showCollection:
         _goToCollection(context);
+      case .addToRemoteFolders:
+        _addToRemoteFolders(context);
       case .delete:
       case .remove:
       case .group:
@@ -234,6 +241,10 @@ abstract class ChipSetActionDelegate<T extends CollectionFilter> with FeedbackMi
   }
 
   void browse(BuildContext context) => context.read<Selection<FilterGridItem<T>>?>()?.browse();
+
+  bool get canAddToRemoteFolders => false;
+
+  String? getActionTextOverride(BuildContext context, ChipSetAction action) => null;
 
   Set<T> getSelectedFilters(BuildContext context) {
     final selection = context.read<Selection<FilterGridItem<T>>>();
@@ -296,6 +307,32 @@ abstract class ChipSetActionDelegate<T extends CollectionFilter> with FeedbackMi
       tileLayout = value.$3!;
       sortReverse = value.$4;
     }
+  }
+
+  bool _areAllRemoteFoldersAdded(Set<T> selectedFilters) {
+    final remoteFilters = selectedFilters.whereType<RemoteAlbumFilter>().toList();
+    if (remoteFilters.isEmpty) return false;
+    final remotePinnedFolders = settings.remotePinnedFolders;
+    return remoteFilters.every((filter) => remotePinnedFolders.any((v) => v.serverId == filter.serverId && v.path == filter.path));
+  }
+
+  void _addToRemoteFolders(BuildContext context) {
+    final remoteFilters = getSelectedFilters(context).whereType<RemoteAlbumFilter>().toList();
+    if (remoteFilters.isEmpty) return;
+
+    final existing = settings.remotePinnedFolders;
+    final next = [...existing];
+    final allAdded = remoteFilters.every((filter) => next.any((v) => v.serverId == filter.serverId && v.path == filter.path));
+    if (allAdded) {
+      next.removeWhere((folder) => remoteFilters.any((filter) => filter.serverId == folder.serverId && filter.path == folder.path));
+    } else {
+      for (final filter in remoteFilters) {
+        if (next.any((v) => v.serverId == filter.serverId && v.path == filter.path)) continue;
+        next.add(RemotePinnedFolder(serverId: filter.serverId, path: filter.path, title: filter.title));
+      }
+    }
+    settings.remotePinnedFolders = next;
+    browse(context);
   }
 
   Future<void> _goToCollection(BuildContext context) async {

@@ -343,7 +343,7 @@ class _FilterNavigationPageState<T extends CollectionFilter, CSAD extends ChipSe
             remoteContextLabel: filter.title,
             remoteContextPath: filter.path,
             sortFactor: settings.albumSortFactor,
-            actionDelegate: AlbumChipSetActionDelegate(gridItems),
+            actionDelegate: AlbumChipSetActionDelegate(gridItems, allowAddToRemoteFolders: true),
             filterSections: {
               const ChipSectionKey(): gridItems,
             },

@@ -24,6 +24,7 @@ enum ChipSetAction {
   lockVault,
   showCountryStates,
   showCollection,
+  addToRemoteFolders,
   // selecting (single filter)
   rename,
   setCover,
@@ -70,5 +71,6 @@ class ChipSetActions {
     null,
     ChipSetAction.configureVault,
     ChipSetAction.lockVault,
+    ChipSetAction.addToRemoteFolders,
   ];
 }

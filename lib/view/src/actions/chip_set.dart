@@ -34,6 +34,7 @@ extension ExtraChipSetActionView on ChipSetAction {
       ChipSetAction.lockVault => l10n.chipActionLock,
       ChipSetAction.showCountryStates => l10n.chipActionShowCountryStates,
       ChipSetAction.showCollection => l10n.chipActionShowCollection,
+      ChipSetAction.addToRemoteFolders => context.locale.startsWith('zh') ? '\u52a0\u5165\u8fdc\u7a0b\u6587\u4ef6\u5939\u9879' : 'Add to remote folders',
       // selecting (single filter)
       ChipSetAction.rename => l10n.chipActionRename,
       ChipSetAction.setCover => l10n.chipActionSetCover,
@@ -72,6 +73,7 @@ extension ExtraChipSetActionView on ChipSetAction {
       ChipSetAction.lockVault => AIcons.vaultLock,
       ChipSetAction.showCountryStates => AIcons.state,
       ChipSetAction.showCollection => AIcons.allCollection,
+      ChipSetAction.addToRemoteFolders => AIcons.storageMain,
       // selecting (single filter)
       ChipSetAction.rename => AIcons.rename,
       ChipSetAction.setCover => AIcons.setCover,
