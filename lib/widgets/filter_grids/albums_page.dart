@@ -59,13 +59,7 @@ class AlbumListPage extends StatelessWidget {
             shouldRebuild: (t1, t2) {
               // `Selector` by default uses `DeepCollectionEquality`, which does not go deep in collections within records
               const eq = DeepCollectionEquality();
-              return !(eq.equals(t1.$1, t2.$1) &&
-                  eq.equals(t1.$2, t2.$2) &&
-                  eq.equals(t1.$3, t2.$3) &&
-                  eq.equals(t1.$4, t2.$4) &&
-                  eq.equals(t1.$5, t2.$5) &&
-                  eq.equals(t1.$6, t2.$6) &&
-                  eq.equals(t1.$7, t2.$7));
+              return !(eq.equals(t1.$1, t2.$1) && eq.equals(t1.$2, t2.$2) && eq.equals(t1.$3, t2.$3) && eq.equals(t1.$4, t2.$4) && eq.equals(t1.$5, t2.$5) && eq.equals(t1.$6, t2.$6) && eq.equals(t1.$7, t2.$7));
             },
             builder: (context, s, child) {
               return ValueListenableBuilder<bool>(
@@ -233,13 +227,14 @@ class AlbumListPage extends StatelessWidget {
         });
 
         sections = {
-          // group ordering
+          // keep remote pinned folders near the top-level shortcuts area:
+          // below pinned, above common albums
+          if (sections.containsKey(remoteKey)) remoteKey: sections[remoteKey]!,
           if (sections.containsKey(groupKey)) groupKey: sections[groupKey]!,
           if (sections.containsKey(specialKey)) specialKey: sections[specialKey]!,
           if (sections.containsKey(appsKey)) appsKey: sections[appsKey]!,
           if (sections.containsKey(vaultKey)) vaultKey: sections[vaultKey]!,
           if (sections.containsKey(dynamicKey)) dynamicKey: sections[dynamicKey]!,
-          if (sections.containsKey(remoteKey)) remoteKey: sections[remoteKey]!,
           if (sections.containsKey(regularKey)) regularKey: sections[regularKey]!,
         };
       case .mimeType:
