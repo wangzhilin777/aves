@@ -151,6 +151,7 @@ class AlbumListPage extends StatelessWidget {
     final albumGroupFilters = groupContent.whereType<AlbumGroupFilter>().whereNot(hidden.contains).toSet();
     final remotePinnedFilters = <RemoteAlbumFilter>{};
     if (groupUri == null) {
+      remotePinnedFilters.addAll(pinned.whereType<RemoteAlbumFilter>());
       for (final pinned in settings.remotePinnedFolders) {
         final server = settings.remoteServers.firstWhereOrNull((v) => v.id == pinned.serverId);
         if (server == null) continue;

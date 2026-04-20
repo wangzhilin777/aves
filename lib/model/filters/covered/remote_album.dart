@@ -11,7 +11,7 @@ class RemoteAlbumFilter extends CollectionFilter with AlbumBaseFilter {
   final String title;
 
   @override
-  List<Object?> get props => [serverId, path, title, reversed];
+  List<Object?> get props => [serverId, path, reversed];
 
   const RemoteAlbumFilter({
     required this.serverId,
