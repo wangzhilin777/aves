@@ -80,7 +80,10 @@ class AlbumListPage extends StatelessWidget {
                             title: context.l10n.albumPageTitle,
                             sortFactor: settings.albumSortFactor,
                             showHeaders: settings.albumSectionFactor != AlbumChipSectionFactor.none,
-                            actionDelegate: AlbumChipSetActionDelegate(gridItems),
+                            actionDelegate: AlbumChipSetActionDelegate(
+                              gridItems,
+                              allowAddToRemoteFolders: gridItems.any((item) => item.filter is RemoteAlbumFilter),
+                            ),
                             filterSections: groupToSections(context, source, gridItems),
                             newFilters: source.getNewAlbumFilters(context),
                             emptyBuilder: () => EmptyContent(

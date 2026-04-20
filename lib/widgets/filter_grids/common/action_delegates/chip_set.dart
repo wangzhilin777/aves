@@ -316,7 +316,7 @@ abstract class ChipSetActionDelegate<T extends CollectionFilter> with FeedbackMi
     return remoteFilters.every((filter) => remotePinnedFolders.any((v) => v.serverId == filter.serverId && v.path == filter.path));
   }
 
-  void _addToRemoteFolders(BuildContext context) {
+  Future<void> _addToRemoteFolders(BuildContext context) async {
     final remoteFilters = getSelectedFilters(context).whereType<RemoteAlbumFilter>().toList();
     if (remoteFilters.isEmpty) return;
 
@@ -324,6 +324,11 @@ abstract class ChipSetActionDelegate<T extends CollectionFilter> with FeedbackMi
     final next = [...existing];
     final allAdded = remoteFilters.every((filter) => next.any((v) => v.serverId == filter.serverId && v.path == filter.path));
     if (allAdded) {
+      for (final filter in remoteFilters) {
+        final server = settings.remoteServers.byId(filter.serverId);
+        if (server == null) continue;
+        await remoteMediaService.clearPinnedFolderCache(server: server, folderPath: filter.path);
+      }
       next.removeWhere((folder) => remoteFilters.any((filter) => filter.serverId == folder.serverId && filter.path == folder.path));
     } else {
       for (final filter in remoteFilters) {

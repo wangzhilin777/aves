@@ -461,7 +461,10 @@ class _AppDrawerState extends State<AppDrawer> with WidgetsBindingObserver, Feed
             source: source,
             title: remoteFilter.title,
             sortFactor: settings.albumSortFactor,
-            actionDelegate: AlbumChipSetActionDelegate(gridItems),
+            actionDelegate: AlbumChipSetActionDelegate(
+              gridItems,
+              allowAddToRemoteFolders: true,
+            ),
             filterSections: {
               const ChipSectionKey(): gridItems,
             },
